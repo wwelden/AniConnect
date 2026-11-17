@@ -234,6 +234,25 @@ describe("tools", () => {
     expect(r.text).toContain("isn't on your list");
   });
 
+  test("remove_from_list asks which part of a split season, then removes the one named (#29)", async () => {
+    fake.seed(PERSONA);
+    let r = await call("remove_from_list", { anime: "spy x family season 1" });
+    expect(r.text).not.toContain("Removed");
+    expect(r.text).toContain("[140960]");
+    expect(r.text).toContain("[142838]");
+    expect(fake.entries.has(140960)).toBe(true);
+    expect(fake.entries.has(142838)).toBe(true);
+
+    r = await call("remove_from_list", { anime: "spy x family season 1 part 2" });
+    expect(r.text).toContain("Removed");
+    expect(fake.entries.has(142838)).toBe(false);
+    expect(fake.entries.has(140960)).toBe(true);
+
+    r = await call("remove_from_list", { anime: 140960 });
+    expect(r.text).toContain("Removed");
+    expect(fake.entries.has(140960)).toBe(false);
+  });
+
   test("unknown media is a readable error", async () => {
     const r = await call("add_to_list", { anime: 999999 });
     expect(r.isError).toBe(true);
