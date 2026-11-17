@@ -3,7 +3,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { AniListClient, type ListStatus, type Media } from "../src/anilist";
 import { createServer } from "../src/server";
-import { airedEpisodes, buildReport, checkTimeZone, formatAirTime, formatReport, nextSeasons } from "../src/whatsnext";
+import { airedEpisodes, buildReport, caughtUpProgress, checkTimeZone, formatAirTime, formatReport, nextSeasons } from "../src/whatsnext";
 import { PERSONA } from "./fixtures/persona";
 import { FakeAniList } from "./support/fake-anilist";
 
@@ -188,5 +188,20 @@ describe("buildReport edge cases", () => {
       relations: { edges: [{ relationType: "SEQUEL", node: { id: 2, type: "ANIME", format: "TV", status: "CANCELLED" } }] },
     } as Media;
     expect(nextSeasons([finished], new Map([[1, "COMPLETED"]]))).toEqual([]);
+  });
+});
+
+describe("caughtUpProgress", () => {
+  const title = { romaji: "Show", english: null, native: null };
+  const schedule = (episode: number, airedAgo: number) => ({ episode, airingAt: NOW / 1000 - airedAgo });
+
+  test("changes nothing when no episode has aired yet", () => {
+    const m = { title, status: "NOT_YET_RELEASED", episodes: 12, nextAiringEpisode: schedule(1, -3600) };
+    expect(() => caughtUpProgress(m, 0, NOW, "ENGLISH")).toThrow("Nothing was changed. Show hasn't aired any episodes yet.");
+  });
+
+  test("never goes past the episode count when the schedule runs ahead of it", () => {
+    const m = { title, status: "RELEASING", episodes: 12, nextAiringEpisode: schedule(14, 3600) };
+    expect(caughtUpProgress(m, 5, NOW, "ENGLISH").episodes).toBe(12);
   });
 });

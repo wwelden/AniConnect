@@ -4,7 +4,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { AniListClient } from "../src/anilist";
 import { createServer } from "../src/server";
 import { PERSONA } from "./fixtures/persona";
-import { FakeAniList } from "./support/fake-anilist";
+import { catalog, FakeAniList } from "./support/fake-anilist";
 
 let fake: FakeAniList;
 let client: Client;
@@ -267,5 +267,66 @@ describe("tools", () => {
     const r = await call("search_anime", { query: "titan" });
     expect(r.isError).toBe(true);
     expect(r.text).toContain("Try again in 30 seconds");
+  });
+});
+
+describe('set_progress "latest" (caught up)', () => {
+  /** The fixture's airing schedule was captured on this day. */
+  const NOW = Date.parse("2026-11-17T12:00:00Z");
+
+  async function connect(list = PERSONA) {
+    fake = new FakeAniList("POINT_10_DECIMAL").seed(list);
+    const server = createServer(new AniListClient("t", fake.fetch), { now: () => NOW });
+    const [a, b] = InMemoryTransport.createLinkedPair();
+    client = new Client({ name: "t", version: "0" });
+    await Promise.all([server.connect(b), client.connect(a)]);
+  }
+
+  test("a finished show completes at its last episode", async () => {
+    await connect();
+    const r = await call("set_progress", { anime: "dandadan", episodes: "latest" });
+    expect(r.isError).toBe(false);
+    expect(r.text).toContain("episode 7 -> 12. Status is now Completed. That's every episode.");
+    expect(fake.entries.get(171018)).toMatchObject({ progress: 12, status: "COMPLETED" });
+  });
+
+  test("an airing show goes to the latest aired episode and keeps watching", async () => {
+    await connect();
+    const r = await call("set_progress", { anime: "one piece", episodes: "latest" });
+    expect(r.isError).toBe(false);
+    expect(r.text).toContain("episode 1100 -> 1180. Latest aired episode: 1180.");
+    expect(fake.entries.get(21)).toMatchObject({ progress: 1180, status: "CURRENT" });
+  });
+
+  test("a paused show still airing moves to watching", async () => {
+    await connect([{ anime: "Kusuriya no Hitorigoto 3rd Season", status: "PAUSED", progress: 5 }]);
+    const r = await call("set_progress", { anime: 195516, episodes: "latest" });
+    expect(r.text).toContain("episode 5 -> 7. Status is now Watching. Latest aired episode: 7 of 12.");
+    expect(fake.entries.get(195516)).toMatchObject({ progress: 7, status: "CURRENT" });
+  });
+
+  test("never lowers progress when AniList's schedule lags", async () => {
+    await connect([{ anime: "Kusuriya no Hitorigoto 3rd Season", status: "CURRENT", progress: 8 }]);
+    const r = await call("set_progress", { anime: 195516, episodes: "latest" });
+    expect(r.text).toContain("episode 8 -> 8. AniList says only 7 episodes have aired, so progress stays at 8.");
+    expect(fake.entries.get(195516)!.progress).toBe(8);
+  });
+
+  test("an airing show with no schedule changes nothing and asks for a number", async () => {
+    await connect();
+    const onePiece = catalog.find((m) => m.id === 21)!;
+    const schedule = onePiece.nextAiringEpisode;
+    onePiece.nextAiringEpisode = null;
+    try {
+      const before = fake.writes.length;
+      const r = await call("set_progress", { anime: "one piece", episodes: "latest" });
+      expect(r.isError).toBe(true);
+      expect(r.text).toContain("Nothing was changed. AniList doesn't say how many episodes of ONE PIECE are out");
+      expect(r.text).toContain("Ask the user which episode they're on");
+      expect(fake.writes.length).toBe(before);
+      expect(fake.entries.get(21)!.progress).toBe(1100);
+    } finally {
+      onePiece.nextAiringEpisode = schedule;
+    }
   });
 });

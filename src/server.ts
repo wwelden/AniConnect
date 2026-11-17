@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { AniListClient, LIST_STATUSES, type ListStatus, type Media } from "./anilist";
+import { AniListClient, LIST_STATUSES, type ListStatus, type Media, type TitleLanguage } from "./anilist";
 import {
   describeEntry,
   displayTitle,
@@ -12,7 +12,7 @@ import {
 } from "./logic";
 import { describeCandidates, memo, resolveAnime, type AnimeSource, type Intent } from "./resolve";
 import { tokenWatch } from "./token";
-import { buildReport, checkTimeZone, formatReport, formatShow, nextSeasons } from "./whatsnext";
+import { buildReport, caughtUpProgress, checkTimeZone, formatReport, formatShow, nextSeasons } from "./whatsnext";
 
 const anime = z
   .union([z.string().min(1), z.number().int().positive()])
@@ -273,15 +273,21 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
     }),
   );
 
-  const applyProgress = async (input: string | number, next: (current: number) => number) => {
+  /** `next` gives the new episode count from the current one, optionally with a note for the result. */
+  const applyProgress = async (
+    input: string | number,
+    next: (current: number, media: Media, language: TitleLanguage) => number | { episodes: number; note: string },
+  ) => {
     const [viewer, { media, note }] = await Promise.all([client.getViewer(), target(client, input, "progress")]);
     const entry = media.mediaListEntry;
     const before = entry?.progress ?? 0;
-    const plan = planProgress(media, entry, next(before));
+    const step = next(before, media, viewer.titleLanguage);
+    const { episodes, note: stepNote } = typeof step === "number" ? { episodes: step, note: "" } : step;
+    const plan = planProgress(media, entry, episodes);
     const saved = await client.saveEntry({ mediaId: media.id, ...plan });
     const statusNote = plan.status ? ` Status is now ${statusLabel(plan.status)}.` : "";
     return text(
-      `${note}${displayTitle(saved.media.title, viewer.titleLanguage)}: episode ${before} -> ${saved.progress}.${statusNote}\n${describeEntry(saved.media, saved, viewer)}`,
+      `${note}${displayTitle(saved.media.title, viewer.titleLanguage)}: episode ${before} -> ${saved.progress}.${statusNote}${stepNote}\n${describeEntry(saved.media, saved, viewer)}`,
     );
   };
 
@@ -305,14 +311,20 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
     {
       title: "Set episode progress",
       description:
-        "Set exactly how many episodes of an anime the user has watched (e.g. 'I'm on episode 7' -> 7). Same completion rules as mark_episodes_watched." + BY_NAME,
+        "Set exactly how many episodes of an anime the user has watched (e.g. 'I'm on episode 7' -> 7), or \"latest\" when they say they're caught up, so you don't need to look up how many have aired. Same completion rules as mark_episodes_watched." + BY_NAME,
       inputSchema: {
         anime,
-        episodes: z.number().int().min(0).describe("Total episodes watched so far"),
+        episodes: z
+          .union([z.number().int().min(0), z.literal("latest")])
+          .describe('Total episodes watched so far, or "latest" for every episode that has aired (the user is caught up)'),
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
-    safe(async ({ anime, episodes }) => applyProgress(anime, () => episodes)),
+    safe(async ({ anime, episodes }) =>
+      applyProgress(anime, (current, media, language) =>
+        episodes === "latest" ? caughtUpProgress(media, current, now(), language) : episodes,
+      ),
+    ),
   );
 
   server.registerTool(

@@ -39,6 +39,7 @@ Status: **Done**, **In progress**, **Planned**, **Later**.
 | R0.9 | Finishing a rewatch increments AniList's rewatch count. | Planned |
 | R0.10 | Set or correct start and finish dates ("I actually finished it last March"). | Planned |
 | R0.11 | Read and write private notes on an entry. | Planned |
+| R0.12 | "I'm caught up" in one call: set progress to the latest aired episode, never lowering it; when AniList has no airing schedule, change nothing and ask for a number. | Done (`set_progress` with `"latest"`) |
 
 ### R1: Name and season resolution
 
