@@ -126,7 +126,7 @@ async function runCase(c: EvalCase): Promise<RunResult> {
       }
     }
     const base = { id: c.id, toolCalls, costUsd, durationMs: Date.now() - started, reply, model, transcript };
-    if (proc.exitCode !== 0 && !reply) {
+    if (proc.exitCode !== 0) {
       return { ...base, passed: false, detail: `claude exited ${proc.exitCode}: ${err.trim().slice(0, 300)}` };
     }
 

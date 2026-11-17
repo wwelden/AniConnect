@@ -4,7 +4,9 @@ export function normalize(text: string): string {
   return text
     .replace(/[×✕]/g, " x ")
     .normalize("NFKD")
-    .replace(/[̀-ͯ]/g, "")
+    // Strip Latin accents, then recompose so Japanese voiced kana (ば, ガ) stay whole.
+    .replace(/[\u0300-\u036f]/g, "")
+    .normalize("NFKC")
     .toLowerCase()
     .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim();

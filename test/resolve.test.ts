@@ -4,6 +4,7 @@
  */
 import { beforeEach, describe, expect, test } from "bun:test";
 import { AniListClient, type Media } from "../src/anilist";
+import { normalize } from "../src/logic";
 import { parseQuery, resolveAnime, type Intent } from "../src/resolve";
 import { clientSource } from "../src/server";
 import { PERSONA } from "./fixtures/persona";
@@ -173,6 +174,29 @@ describe("intent-aware defaults (R1.6, R1.8)", () => {
     ["bocchi the rock", "rate", "Bocchi the Rock!"],
     ["vinland saga", "status", "VINLAND SAGA"],
   ]);
+});
+
+describe("fixes from the PR #1 review", () => {
+  run([
+    // An explicit movie request never falls back to a TV season, and searches past the list.
+    ["jjk movie", "progress", "Jujutsu Kaisen 0"],
+    ["dandadan movie", "rate", "none"],
+    // "II" is not a prefix match for "III".
+    ["Mob Psycho 100 II", "progress", "Mob Psycho 100 II"],
+    ["mob psycho 100 iii", "rate", "Mob Psycho 100 III"],
+    // Naming a season doesn't settle which of two versions is meant.
+    ["hunter x hunter season 1", "add", "ambiguous"],
+    // Arcs that share a season number ("KnY 2") don't shift later seasons.
+    ["demon slayer season 3", "add", "Kimetsu no Yaiba: Katanakaji no Sato-hen"],
+    ["demon slayer season 4", "add", "Kimetsu no Yaiba: Hashira Geiko-hen"],
+    ["demon slayer season 2", "add", "Kimetsu no Yaiba: Mugen Ressha-hen (TV)"],
+  ]);
+
+  test("voiced kana survive normalization", () => {
+    expect(normalize("ガンダム")).toBe("ガンダム");
+    expect(normalize("ぼっち・ざ・ろっく！")).toBe("ぼっち ざ ろっく");
+    expect(normalize("Pokémon")).toBe("pokemon");
+  });
 });
 
 describe("asks instead of guessing (R1.7)", () => {

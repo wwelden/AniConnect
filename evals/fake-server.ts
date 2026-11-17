@@ -19,10 +19,17 @@ const state = await Bun.file(statePath).json();
 const fake = new FakeAniList(state.scoreFormat, state.viewerName);
 fake.importState(state);
 
+// Writes queue behind each other, so parallel tool calls can't leave an older snapshot last.
+let persisting: Promise<unknown> = Promise.resolve();
+
 const fetchAndPersist = async (url: string, init: RequestInit) => {
   const res = await fake.fetch(url, init);
   if (/^\s*mutation/.test(JSON.parse(init.body as string).query)) {
-    await Bun.write(statePath, JSON.stringify({ ...state, ...fake.exportState() }, null, 1));
+    const write = persisting.then(() =>
+      Bun.write(statePath, JSON.stringify({ ...state, ...fake.exportState() }, null, 1)),
+    );
+    persisting = write.catch(() => {});
+    await write;
   }
   return res;
 };

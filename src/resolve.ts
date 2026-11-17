@@ -148,7 +148,11 @@ function levenshtein(a: string, b: string): number {
 
 const LATIN = /^[a-z0-9]+$/;
 
+/** Numbers and Roman numerals: "ii" must not match "iii", "1" must not match "100". */
+const NUMBERISH = /^(\d+|[ivx]+)$/;
+
 function wordHit(word: string, name: string, nameWords: string[]): boolean {
+  if (NUMBERISH.test(word)) return nameWords.some((nw) => nw === word || nw === `${word}st` || nw === `${word}nd` || nw === `${word}rd` || nw === `${word}th`);
   if (nameWords.some((nw) => nw.startsWith(word))) return true;
   // Scripts without spaces (Japanese), or words run together ("spyxfamily", "rezero").
   if (!LATIN.test(word)) return name.includes(word);
@@ -195,7 +199,9 @@ export function titleSeason(m: Media): number | undefined {
       / season (\d{1,2})\b/.exec(` ${name}`) ??
       /\b(\d{1,2})(?:st|nd|rd|th) season\b/.exec(name) ??
       new RegExp(`\\b${ORDINAL_WORD} season\\b`).exec(name) ??
-      / (ii|iii|iv|v|vi)$/.exec(name);
+      / (ii|iii|iv|v|vi)$/.exec(name) ??
+      // Short fan tags in AniList synonyms ("KnY 2", "AoT 4") number seasons named by arc.
+      /^[a-z]{2,8} ([1-9])$/.exec(name);
     if (match) return num(match[1]!);
   }
   return undefined;
@@ -300,10 +306,7 @@ function score(items: Media[], q: ParsedQuery): Scored[] {
 
 /** Drop movies/OVAs/specials unless asked for, or unless they match clearly better than any series. */
 function preferSeries(items: Scored[], hint: SeasonHint): Scored[] {
-  if (hint.movie) {
-    const movies = items.filter((s) => s.media.format === "MOVIE");
-    return movies.length ? movies : items;
-  }
+  if (hint.movie) return items.filter((s) => s.media.format === "MOVIE");
   const bestSeries = Math.max(-1, ...items.filter((s) => isSeries(s.media)).map((s) => s.score));
   if (bestSeries < 0) return items;
   return items.filter((s) => isSeries(s.media) || s.score > bestSeries);
@@ -354,7 +357,8 @@ async function resolveParsed(query: string, q: ParsedQuery, intent: Intent, sour
     pool = score(dedupe([...list, ...results]), q);
   };
 
-  const named = q.hint.season !== undefined || q.hint.part !== undefined || q.hint.latest || q.hint.next;
+  const named =
+    q.hint.season !== undefined || q.hint.part !== undefined || q.hint.latest || q.hint.next || q.hint.movie;
   if (intent === "remove") {
     // Removing only ever targets the list, so AniList-wide results can't change the answer.
   } else if (intent === "add" || named) {
@@ -441,6 +445,25 @@ function hasAired(m: Media): boolean {
   return AIRED.has(m.status ?? "") && Boolean(m.startDate?.year);
 }
 
+/**
+ * The first season to count from, or an ambiguity when equally good first seasons
+ * belong to different shows or versions ("Hunter x Hunter" 1999 / 2011).
+ */
+function pickRoot(pool: Scored[], label: string): { root: Media } | Resolution {
+  const roots = rootsOf(pool);
+  const root = roots[0]?.media;
+  if (!root) return { kind: "none", why: `Couldn't find "${label}" on AniList.` };
+  const rivals = roots.filter((s) => s.score === roots[0]!.score).map((s) => s.media);
+  const versions = roots.filter((s) => isRemake(s.media, root)).map((s) => s.media);
+  if (versions.length) {
+    return { kind: "ambiguous", candidates: [root, ...versions].slice(0, MAX_CANDIDATES), why: `"${label}" has more than one version.` };
+  }
+  if (!sameFranchise(rivals)) {
+    return { kind: "ambiguous", candidates: rivals.slice(0, MAX_CANDIDATES), why: `"${label}" matches more than one show.` };
+  }
+  return { root };
+}
+
 /** First seasons that best match the words, sorted best first. */
 function rootsOf(pool: Scored[]): Scored[] {
   return pool
@@ -453,13 +476,9 @@ function rootsOf(pool: Scored[]): Scored[] {
  * after the furthest the user has started), found by walking the sequel chain from season 1.
  */
 async function resolveRelative(query: string, q: ParsedQuery, pool: Scored[], source: AnimeSource): Promise<Resolution> {
-  const roots = rootsOf(pool);
-  const root = roots[0]?.media;
-  if (!root) return { kind: "none", why: `Couldn't find "${q.exact}" on AniList.` };
-  const rivals = roots.filter((s) => s.score === roots[0]!.score).map((s) => s.media);
-  if (!sameFranchise(rivals) || rivals.some((m) => isRemake(m, root))) {
-    return { kind: "ambiguous", candidates: rivals.slice(0, MAX_CANDIDATES), why: `"${query}" matches more than one show.` };
-  }
+  const picked = pickRoot(pool, query);
+  if (!("root" in picked)) return picked;
+  const { root } = picked;
 
   const chain = (await seasonChain(root, Number.POSITIVE_INFINITY, source)).map((e) => e.media);
 
@@ -542,7 +561,9 @@ async function resolveSeason(
 
   // 2. Otherwise walk the sequel chain from season 1 ("Shingeki no Kyojin: The Final Season" is season 4).
   if (matches.length === 0 || wantSeason === 1) {
-    const root = rootsOf(pool)[0]?.media;
+    const picked = pickRoot(pool, q.exact);
+    if (!("root" in picked) && picked.kind === "ambiguous") return picked;
+    const root = "root" in picked ? picked.root : undefined;
     if (root) {
       const chain = await seasonChain(root, wantSeason, source);
       const fromChain = chain.filter((e) => fits(e.season, e.part));
