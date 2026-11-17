@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { AniListClient } from "../src/anilist";
+import { AniListClient, type ListStatus, type Media } from "../src/anilist";
 import { createServer } from "../src/server";
-import { airedEpisodes, checkTimeZone, formatAirTime } from "../src/whatsnext";
+import { airedEpisodes, buildReport, checkTimeZone, formatAirTime, formatReport, nextSeasons } from "../src/whatsnext";
 import { PERSONA } from "./fixtures/persona";
 import { FakeAniList } from "./support/fake-anilist";
 
@@ -107,12 +107,29 @@ describe("whats_next tool", () => {
     expect(r.text).toContain("Comes next: [200927] Kusuriya no Hitorigoto 3rd Season Part 2 (not out yet, expected 2027)");
   });
 
-  test("a finished show points at its next season", async () => {
+  test("a finished show is described with its next season", async () => {
     const r = await call({ anime: "frieren", timeZone: "UTC" });
-    expect(r.text).toContain("Sousou no Frieren 2nd Season) [182255]");
+    expect(r.text).toContain("(Sousou no Frieren) [154587]");
+    expect(r.text).toContain("You: Completed, watched 28.");
+    expect(r.text).toContain("Comes next: [182255] Frieren: Beyond Journey’s End Season 2 (Sousou no Frieren 2nd Season) (10 episodes, 2026), not on your list.");
+  });
+
+  test("a sequel by ID says which season before it is on the list", async () => {
+    const r = await call({ anime: 182255, timeZone: "UTC" });
     expect(r.text).toContain("Comes after: [154587] Frieren: Beyond Journey’s End (Sousou no Frieren), completed on your list.");
-    expect(r.text).toContain("Aired: 10 of 10 episodes (finished airing).");
     expect(r.text).toContain("Not on your list.");
+  });
+
+  test("a scheduled episode whose time has passed counts as aired and isn't shown as upcoming", async () => {
+    fake.entries.clear();
+    fake.seed([{ anime: "Kusuriya no Hitorigoto 3rd Season", status: "CURRENT", progress: 7 }]);
+    const server = createServer(new AniListClient("t", fake.fetch), { now: () => (EP8_AIRS + 3600) * 1000 });
+    const [a, b] = InMemoryTransport.createLinkedPair();
+    const late = new Client({ name: "t", version: "0" });
+    await Promise.all([server.connect(b), late.connect(a)]);
+    const r = (await late.callTool({ name: "whats_next", arguments: { timeZone: "UTC" } })) as { content: { text: string }[] };
+    expect(r.content[0]!.text).toContain("1 episode to watch (on 7 of 8 aired).");
+    expect(r.content[0]!.text).not.toContain("airs");
   });
 
   test("read-only errors don't claim nothing was changed", async () => {
@@ -131,5 +148,35 @@ describe("whats_next tool", () => {
     await call({ timeZone: "UTC" });
     await call({ anime: "jjk", timeZone: "UTC" });
     expect(fake.writes.length).toBe(0);
+  });
+});
+
+describe("buildReport edge cases", () => {
+  const base = {
+    title: { romaji: "Show", english: null, native: null },
+    synonyms: [],
+    format: "TV",
+    seasonYear: 2026,
+    startDate: { year: 2026, month: 1, day: 1 },
+    averageScore: null,
+    siteUrl: "",
+  };
+  const entry = (status: ListStatus, progress: number) => ({
+    id: 1, status, progress, score: 0, displayScore: 0,
+    startedAt: { year: null, month: null, day: null }, completedAt: { year: null, month: null, day: null },
+  });
+
+  test("a show airing with no announced schedule still appears", () => {
+    const m = { ...base, id: 1, episodes: null, status: "RELEASING", nextAiringEpisode: null, mediaListEntry: entry("CURRENT", 4) } as Media;
+    const text = formatReport(buildReport([m], [], NOW), NOW, "UTC");
+    expect(text).toContain("Show: still airing, no date announced for the next episode.");
+  });
+
+  test("cancelled sequels aren't suggested", () => {
+    const finished = {
+      ...base, id: 1, episodes: 12, status: "FINISHED", nextAiringEpisode: null, mediaListEntry: entry("COMPLETED", 12),
+      relations: { edges: [{ relationType: "SEQUEL", node: { id: 2, type: "ANIME", format: "TV", status: "CANCELLED" } }] },
+    } as Media;
+    expect(nextSeasons([finished], new Map([[1, "COMPLETED"]]))).toEqual([]);
   });
 });

@@ -5,7 +5,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { AniListClient, type Media } from "../src/anilist";
 import { normalize } from "../src/logic";
-import { parseQuery, resolveAnime, type Intent } from "../src/resolve";
+import { parseQuery, resolveAnime, titleSeason, type Intent } from "../src/resolve";
 import { clientSource } from "../src/server";
 import { PERSONA } from "./fixtures/persona";
 import { FakeAniList, findMedia } from "./support/fake-anilist";
@@ -191,6 +191,18 @@ describe("fixes from the PR #1 review", () => {
     ["demon slayer season 4", "add", "Kimetsu no Yaiba: Hashira Geiko-hen"],
     ["demon slayer season 2", "add", "Kimetsu no Yaiba: Mugen Ressha-hen (TV)"],
   ]);
+
+  test("a numbered title isn't read as a season (\"Macross 7\")", () => {
+    const m = { ...findMedia("Dandadan"), title: { romaji: "Macross 7", english: null, native: null }, synonyms: ["Macross Seven"] } as unknown as Media;
+    expect(titleSeason(m)).toBeUndefined();
+    expect(titleSeason({ ...m, synonyms: ["KnY 3"] } as Media)).toBe(3);
+  });
+
+  test("the version on the list settles a numbered-season request", async () => {
+    fake.seed([{ anime: "HUNTER×HUNTER (2011)", status: "CURRENT", progress: 40 }]);
+    const r = await resolve("hunter x hunter season 1", "progress");
+    expect(r.kind === "match" && r.media.id).toBe(11061);
+  });
 
   test("voiced kana survive normalization", () => {
     expect(normalize("ガンダム")).toBe("ガンダム");

@@ -185,7 +185,7 @@ export function matchScore(m: Media, q: ParsedQuery): number {
   return best;
 }
 
-const SERIES_FORMATS = new Set(["TV", "TV_SHORT", "ONA"]);
+export const SERIES_FORMATS = new Set(["TV", "TV_SHORT", "ONA"]);
 const FORMAT_ORDER: Record<string, number> = { TV: 0, ONA: 1, TV_SHORT: 2, MOVIE: 3, OVA: 3, SPECIAL: 3, MUSIC: 4 };
 
 function isSeries(m: Media): boolean {
@@ -199,10 +199,14 @@ export function titleSeason(m: Media): number | undefined {
       / season (\d{1,2})\b/.exec(` ${name}`) ??
       /\b(\d{1,2})(?:st|nd|rd|th) season\b/.exec(name) ??
       new RegExp(`\\b${ORDINAL_WORD} season\\b`).exec(name) ??
-      / (ii|iii|iv|v|vi)$/.exec(name) ??
-      // Short fan tags in AniList synonyms ("KnY 2", "AoT 4") number seasons named by arc.
-      /^[a-z]{2,8} ([1-9])$/.exec(name);
+      / (ii|iii|iv|v|vi)$/.exec(name);
     if (match) return num(match[1]!);
+  }
+  // Short fan tags in AniList synonyms ("KnY 2", "AoT 4") number seasons named by arc.
+  // Synonyms only: real titles like "Macross 7" aren't season numbers.
+  for (const synonym of m.synonyms.map(normalize)) {
+    const tag = /^[a-z]{2,8} ([1-9])$/.exec(synonym);
+    if (tag) return num(tag[1]!);
   }
   return undefined;
 }
@@ -439,7 +443,8 @@ function pick(query: string, intent: Intent, pool: Scored[]): Resolution {
   };
 }
 
-const AIRED = new Set(["RELEASING", "FINISHED", "HIATUS"]);
+/** AniList statuses for something that has started airing. */
+export const AIRED = new Set(["RELEASING", "FINISHED", "HIATUS"]);
 
 function hasAired(m: Media): boolean {
   return AIRED.has(m.status ?? "") && Boolean(m.startDate?.year);
@@ -456,7 +461,11 @@ function pickRoot(pool: Scored[], label: string): { root: Media } | Resolution {
   const rivals = roots.filter((s) => s.score === roots[0]!.score).map((s) => s.media);
   const versions = roots.filter((s) => isRemake(s.media, root)).map((s) => s.media);
   if (versions.length) {
-    return { kind: "ambiguous", candidates: [root, ...versions].slice(0, MAX_CANDIDATES), why: `"${label}" has more than one version.` };
+    const all = [root, ...versions];
+    // If only one version is on the user's list, that's the one they mean.
+    const listed = all.filter((m) => m.mediaListEntry);
+    if (listed.length === 1) return { root: listed[0]! };
+    return { kind: "ambiguous", candidates: all.slice(0, MAX_CANDIDATES), why: `"${label}" has more than one version.` };
   }
   if (!sameFranchise(rivals)) {
     return { kind: "ambiguous", candidates: rivals.slice(0, MAX_CANDIDATES), why: `"${label}" matches more than one show.` };

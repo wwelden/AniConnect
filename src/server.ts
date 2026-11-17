@@ -170,9 +170,10 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       const listStatus = new Map(list.map((m) => [m.id, m.mediaListEntry!.status]));
 
       if (anime !== undefined) {
-        const { media, note } = await target(client, anime, "progress", source, false);
-        const [withRelations] = await client.getMany([media.id]);
-        const show = withRelations ?? media;
+        // "status" ranks everything on the list above the rest of AniList, so a finished
+        // show is described (with its next season) rather than a similarly named one.
+        const { media, note } = await target(client, anime, "status", source, false);
+        const show = media.relations ? media : ((await client.getMany([media.id]))[0] ?? media);
         return text(`${note}${formatShow(show, nextSeasons([show], listStatus), listStatus, at, zone)}`);
       }
 

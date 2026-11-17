@@ -4,9 +4,8 @@
  */
 import type { ListStatus, Media, RelationEdge } from "./anilist";
 import { displayTitle, statusLabel } from "./logic";
+import { AIRED as AIRED_STATUSES, SERIES_FORMATS } from "./resolve";
 
-const SERIES_FORMATS = new Set(["TV", "TV_SHORT", "ONA"]);
-const AIRED_STATUSES = new Set(["RELEASING", "FINISHED", "HIATUS"]);
 const WATCHING = new Set<ListStatus>(["CURRENT", "REPEATING"]);
 
 /** Episodes out so far, or null when AniList doesn't know (airing with no schedule). */
@@ -20,25 +19,44 @@ export function airedEpisodes(m: Pick<Media, "status" | "episodes" | "nextAiring
   return null;
 }
 
-function localDay(ms: number, timeZone: string): string {
-  // en-CA formats as YYYY-MM-DD.
-  return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(ms);
+/** The next episode, if its air time is still ahead (AniList can lag after an episode airs). */
+export function upcoming(m: Pick<Media, "nextAiringEpisode">, now: number): Media["nextAiringEpisode"] {
+  const next = m.nextAiringEpisode;
+  return next && next.airingAt * 1000 > now ? next : null;
 }
 
-/** "Fri, Nov 20, 9:00 AM (in 3 days)". */
-export function formatAirTime(airingAt: number, now: number, timeZone: string): string {
-  const ms = airingAt * 1000;
-  const when = new Intl.DateTimeFormat("en-US", {
+/** Date and time parts in a zone, assembled by hand so the text doesn't depend on the ICU version. */
+function parts(ms: number, timeZone: string) {
+  const fields = new Intl.DateTimeFormat("en-US", {
     timeZone,
     weekday: "short",
+    year: "numeric",
     month: "short",
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
-  }).format(ms);
-  const days = Math.round((Date.parse(localDay(ms, timeZone)) - Date.parse(localDay(now, timeZone))) / 86_400_000);
+    hour12: true,
+  }).formatToParts(ms);
+  const get = (type: Intl.DateTimeFormatPartTypes) => fields.find((f) => f.type === type)?.value ?? "";
+  return {
+    weekday: get("weekday"),
+    month: get("month"),
+    day: Number(get("day")),
+    year: Number(get("year")),
+    time: `${get("hour")}:${get("minute")} ${get("dayPeriod")}`,
+  };
+}
+
+/** "Fri, Nov 20 at 2:00 PM (in 3 days)", in the given time zone. */
+export function formatAirTime(airingAt: number, now: number, timeZone: string): string {
+  const at = parts(airingAt * 1000, timeZone);
+  const today = parts(now, timeZone);
+  // Whole calendar days between the two local dates.
+  const dayNumber = (p: ReturnType<typeof parts>) =>
+    Date.UTC(p.year, ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"].indexOf(p.month), p.day);
+  const days = Math.round((dayNumber(at) - dayNumber(today)) / 86_400_000);
   const relative = days <= 0 ? "today" : days === 1 ? "tomorrow" : `in ${days} days`;
-  return `${when} (${relative})`;
+  return `${at.weekday}, ${at.month} ${at.day} at ${at.time} (${relative})`;
 }
 
 /** Throws a readable error for an unknown IANA time zone. */
@@ -72,6 +90,7 @@ export function nextSeasons(finished: Media[], listStatus: Map<number, ListStatu
       if (edge.relationType !== "SEQUEL" || edge.node.type !== "ANIME" || !SERIES_FORMATS.has(edge.node.format ?? "")) {
         continue;
       }
+      if (edge.node.status === "CANCELLED") continue;
       const status = listStatus.get(edge.node.id);
       if (status && status !== "PLANNING") continue;
       if (!out.has(edge.node.id)) out.set(edge.node.id, { after: m, next: edge.node, planned: status === "PLANNING" });
@@ -88,6 +107,7 @@ interface Behind {
 
 export interface Report {
   newEpisodes: Behind[];
+  /** Watching and caught up on something still airing (with or without a scheduled next episode). */
   waiting: Media[];
   onHold: Behind[];
   nextSeasons: NextSeason[];
@@ -104,7 +124,7 @@ export function buildReport(list: Media[], sequels: NextSeason[], now: number): 
     const behind = aired !== null && aired > entry.progress;
     if (WATCHING.has(entry.status)) {
       if (behind) newEpisodes.push({ media: m, progress: entry.progress, aired: aired! });
-      else if (m.nextAiringEpisode) waiting.push(m);
+      else if (upcoming(m, now) || (m.status !== "FINISHED" && m.status !== "CANCELLED")) waiting.push(m);
     } else if (entry.status === "PAUSED" && behind) {
       onHold.push({ media: m, progress: entry.progress, aired: aired! });
     }
@@ -115,13 +135,14 @@ export function buildReport(list: Media[], sequels: NextSeason[], now: number): 
     a.aired - a.progress - (b.aired - b.progress);
   newEpisodes.sort(byUrgency);
   onHold.sort(byUrgency);
-  waiting.sort((a, b) => a.nextAiringEpisode!.airingAt - b.nextAiringEpisode!.airingAt);
+  const airsAt = (m: Media) => upcoming(m, now)?.airingAt ?? Number.POSITIVE_INFINITY;
+  waiting.sort((a, b) => airsAt(a) - airsAt(b));
   return { newEpisodes, waiting, onHold, nextSeasons: sequels };
 }
 
 function behindLine(b: Behind, now: number, timeZone: string): string {
   const n = b.aired - b.progress;
-  const next = b.media.nextAiringEpisode;
+  const next = upcoming(b.media, now);
   const airing = next ? ` Episode ${next.episode} airs ${formatAirTime(next.airingAt, now, timeZone)}.` : "";
   return `- ${displayTitle(b.media.title)}: ${n} episode${n === 1 ? "" : "s"} to watch (on ${b.progress} of ${b.aired} aired).${airing}`;
 }
@@ -149,10 +170,12 @@ export function formatReport(r: Report, now: number, timeZone: string): string {
     sections.push(
       [
         "Caught up, waiting for new episodes:",
-        ...r.waiting.map(
-          (m) =>
-            `- ${displayTitle(m.title)}: episode ${m.nextAiringEpisode!.episode} airs ${formatAirTime(m.nextAiringEpisode!.airingAt, now, timeZone)}.`,
-        ),
+        ...r.waiting.map((m) => {
+          const next = upcoming(m, now);
+          return next
+            ? `- ${displayTitle(m.title)}: episode ${next.episode} airs ${formatAirTime(next.airingAt, now, timeZone)}.`
+            : `- ${displayTitle(m.title)}: still airing, no date announced for the next episode.`;
+        }),
       ].join("\n"),
     );
   }
@@ -198,9 +221,8 @@ export function formatShow(
   } else {
     lines.push("Not on your list.");
   }
-  if (m.nextAiringEpisode) {
-    lines.push(`Next: episode ${m.nextAiringEpisode.episode} airs ${formatAirTime(m.nextAiringEpisode.airingAt, now, timeZone)}.`);
-  }
+  const next = upcoming(m, now);
+  if (next) lines.push(`Next: episode ${next.episode} airs ${formatAirTime(next.airingAt, now, timeZone)}.`);
   for (const s of sequels) lines.push(`Comes next: ${sequelDetail(s)}`);
   return lines.join("\n");
 }
