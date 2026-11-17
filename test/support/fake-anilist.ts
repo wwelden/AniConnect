@@ -12,6 +12,14 @@ export const catalog: CatalogMedia[] = catalogJson;
 
 const EMPTY_DATE = { year: null, month: null, day: null };
 
+/** AniList fills in relations only two levels deep; deeper `relations` come back empty. */
+const RELATION_LEVELS = 2;
+
+/** How many levels of `relations` a query nests. */
+function relationDepth(query: string): number {
+  return query.match(/\brelations\s*\{/g)?.length ?? 0;
+}
+
 export interface StoredEntry {
   id: number;
   mediaId: number;
@@ -112,7 +120,8 @@ export class FakeAniList {
     };
   }
 
-  private mediaView(id: number, withRelations = false) {
+  /** `depth` levels of relations, the way a query nesting `relations` that many times gets them. */
+  private mediaView(id: number, depth = 0, level = 1): Record<string, unknown> | null {
     const m = catalog.find((c) => c.id === id);
     if (!m) return null;
     const { relations, franchise, popularity, ...rest } = m;
@@ -120,16 +129,22 @@ export class FakeAniList {
     return {
       ...rest,
       mediaListEntry: entry ? this.entryView(entry) : null,
-      ...(withRelations ? { relations: this.relationsView(relations) } : {}),
+      ...(depth > 0 ? { relations: this.relationsView(relations, depth, level) } : {}),
     };
   }
 
-  private relationsView(relations: CatalogMedia["relations"]) {
+  /**
+   * The innermost level has the short node AniConnect selects there; outer levels have
+   * full media (the snapshot can't fill in anime it doesn't hold, so those stay short).
+   */
+  private relationsView(relations: CatalogMedia["relations"], depth: number, level: number) {
+    if (level > RELATION_LEVELS) return { edges: [] };
     return {
       edges: relations.edges.map((e) => ({
         relationType: e.relationType,
         node: (() => {
           const target = catalog.find((c) => c.id === e.node.id);
+          if (depth > 1 && target) return { type: e.node.type, ...this.mediaView(target.id, depth - 1, level + 1) };
           return {
             id: e.node.id,
             type: e.node.type,
@@ -185,10 +200,12 @@ export class FakeAniList {
     }
     if (query.includes("id_in")) {
       const ids: number[] = variables.ids ?? [];
-      return json({ Page: { media: ids.map((id) => this.mediaView(id, true)).filter(Boolean) } });
+      return json({ Page: { media: ids.map((id) => this.mediaView(id, relationDepth(query))).filter(Boolean) } });
     }
     if (query.includes("Page(")) {
-      const media = this.search(variables.search ?? "", variables.perPage ?? 10).map((m) => this.mediaView(m.id));
+      const media = this.search(variables.search ?? "", variables.perPage ?? 10).map((m) =>
+        this.mediaView(m.id, relationDepth(query)),
+      );
       return json({ Page: { media } });
     }
     if (query.includes("Media(id")) {

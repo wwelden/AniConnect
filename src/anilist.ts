@@ -66,7 +66,7 @@ export interface Media {
   /** Present while a show is airing on a known schedule. `airingAt` is in Unix seconds. */
   nextAiringEpisode: { episode: number; airingAt: number } | null;
   mediaListEntry: ListEntry | null;
-  /** Only present when fetched with getMany. */
+  /** Present when fetched with getMany, getRelated or searchAnime. */
   relations?: { edges: RelationEdge[] };
 }
 
@@ -107,6 +107,12 @@ const MEDIA_FIELDS = `
   averageScore
   siteUrl
   nextAiringEpisode { episode airingAt }
+`;
+
+/** What each related anime carries, wherever relations are fetched. */
+const RELATION_EDGE = `
+  relationType
+  node { id type format status episodes title { romaji english native } startDate { year month day } }
 `;
 
 const ENTRY_FIELDS = `
@@ -215,6 +221,7 @@ export class AniListClient {
           media(search: $search, type: ANIME, sort: SEARCH_MATCH) {
             ${MEDIA_FIELDS}
             mediaListEntry { ${ENTRY_FIELDS} }
+            relations { edges { ${RELATION_EDGE} } }
           }
         }
       }`,
@@ -246,10 +253,37 @@ export class AniListClient {
           media(id_in: $ids, type: ANIME) {
             ${MEDIA_FIELDS}
             mediaListEntry { ${ENTRY_FIELDS} }
+            relations { edges { ${RELATION_EDGE} } }
+          }
+        }
+      }`,
+      { ids },
+    );
+    return data.Page.media;
+  }
+
+  /**
+   * Like getMany, but each related anime comes back in full (with the user's list entry)
+   * and with its own relations, so one request covers two steps of a sequel chain.
+   * AniList fills in relations only two levels deep; a third level comes back empty.
+   */
+  async getRelated(ids: number[]): Promise<Media[]> {
+    if (ids.length === 0) return [];
+    const data = await this.request<{ Page: { media: Media[] } }>(
+      `query ($ids: [Int]) {
+        Page(perPage: 50) {
+          media(id_in: $ids, type: ANIME) {
+            ${MEDIA_FIELDS}
+            mediaListEntry { ${ENTRY_FIELDS} }
             relations {
               edges {
                 relationType
-                node { id type format status episodes title { romaji english native } startDate { year month day } }
+                node {
+                  type
+                  ${MEDIA_FIELDS}
+                  mediaListEntry { ${ENTRY_FIELDS} }
+                  relations { edges { ${RELATION_EDGE} } }
+                }
               }
             }
           }

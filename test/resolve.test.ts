@@ -148,6 +148,36 @@ describe("latest and next seasons", () => {
     expect(r.kind === "match" && r.media.id).toBe(9001);
   });
 
+  test("a sequel chain search didn't cover is fetched two seasons per request (R5.2)", async () => {
+    // Search results without relations, so every step of the chain has to be fetched.
+    const base = clientSource(client);
+    const source = {
+      ...base,
+      search: async (q: string) => (await base.search(q)).map(({ relations, ...m }) => m),
+    };
+    const r = await resolveAnime("the new season of my hero academia", "add", source, "ENGLISH");
+    expect(r.kind === "match" && r.media.title.romaji).toBe("Boku no Hero Academia 6");
+    // Six seasons: fetching seasons 1, 3 and 5 brings in 2, 4 and 6 with their relations.
+    const fetches = fake.calls.filter((c) => c.query.includes("id_in"));
+    expect(fetches.map((c) => c.variables.ids)).toEqual([[21459], [100166], [117193]]);
+  });
+
+  test("the fake nests relations like AniList: two levels, then empty", async () => {
+    const [season5] = await client.getRelated([117193]);
+    const sequel = season5!.relations!.edges.find((e) => e.relationType === "SEQUEL")!.node as unknown as Media;
+    expect(sequel.title.romaji).toBe("Boku no Hero Academia 6");
+    expect(sequel.relations!.edges.some((e) => e.relationType === "PREQUEL" && e.node.id === 117193)).toBe(true);
+    const deeper = await fake.fetch("", {
+      body: JSON.stringify({
+        query: "query ($ids: [Int]) { Page { media(id_in: $ids) { relations { edges { node { relations { edges { node { relations { edges { node { id } } } } } } } } } } } }",
+        variables: { ids: [117193] },
+      }),
+    });
+    const body = (await deeper.json()) as any;
+    const level2 = body.data.Page.media[0].relations.edges[0].node.relations.edges[0].node;
+    expect(level2.relations).toEqual({ edges: [] });
+  });
+
   test("removing never searches beyond the list", async () => {
     await resolve("spy x family season 2", "remove");
     expect(fake.calls.some((c) => c.query.includes("search:"))).toBe(false);

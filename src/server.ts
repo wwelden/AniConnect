@@ -63,7 +63,7 @@ export function clientSource(client: AniListClient): AnimeSource {
     listMedia: async () =>
       (await client.getMyList()).map(({ media, ...entry }) => ({ ...media, mediaListEntry: entry })),
     search: (query) => client.searchAnime(query, 15),
-    getMany: (ids) => client.getMany(ids),
+    getRelated: (ids) => client.getRelated(ids),
   };
 }
 
