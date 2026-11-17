@@ -128,8 +128,14 @@ async function target(
   intent: Intent,
   source: AnimeSource = clientSource(client),
   changes = true,
+  /** Tried when `intent` finds nothing, e.g. "remove" (the list alone) then all of AniList. */
+  fallback?: Intent,
 ): Promise<{ media: Media; note: string }> {
   const prefix = changes ? "Nothing was changed. " : "";
+  const resolve = async (query: string, src: AnimeSource, language: TitleLanguage) => {
+    const r = await resolveAnime(query, intent, src, language);
+    return r.kind === "none" && fallback ? resolveAnime(query, fallback, src, language) : r;
+  };
   if (typeof input === "number") return { media: await client.getAnime(input), note: "" };
   const { titleLanguage } = await client.getViewer();
   const digits = /^\d+$/.test(input.trim()) ? input.trim() : undefined;
@@ -144,7 +150,7 @@ async function target(
       listMedia: async () => titled(await source.listMedia()),
       search: async (query) => titled(await source.search(query)),
     };
-    r = await resolveAnime(input, intent, titledSource, titleLanguage);
+    r = await resolve(input, titledSource, titleLanguage);
     if (r.kind === "none") return { media: await client.getAnime(Number(digits)), note: "" };
     if (r.kind === "match") {
       return {
@@ -154,7 +160,7 @@ async function target(
     }
     // Ambiguous: falls through to ask, listing only the titled shows.
   } else {
-    r = await resolveAnime(input, intent, source, titleLanguage);
+    r = await resolve(input, source, titleLanguage);
   }
   if (r.kind === "match") {
     return { media: r.media, note: `Matched "${input}" to ${displayTitle(r.media.title, titleLanguage)}: ${r.why}.\n` };
@@ -415,9 +421,11 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       const zone = checkTimeZone(timeZone ?? userZone(await client.getViewer()));
       const at = now();
       const range = parsePeriod(period ?? (anime === undefined ? "last 7 days" : "all time"), at, zone);
-      // Only shows on the list have history, so resolve against the list alone ("remove" never
-      // searches the rest of AniList): one request (R5.2).
-      const show = anime === undefined ? undefined : await target(client, anime, "remove", undefined, false);
+      // Most history is for shows on the list, so try the list alone first ("remove" never
+      // searches the rest of AniList): one request (R5.2). A show removed from the list still
+      // has history in the feed, so a name the list doesn't have is looked up on AniList.
+      const show =
+        anime === undefined ? undefined : await target(client, anime, "remove", undefined, false, "lookup");
       const { titleLanguage } = await client.getViewer(); // cached: getMyActivity needs it too
       const { activities, hasNextPage } = await client.getMyActivity({
         from: range.start > 0 ? Math.floor(range.start / 1000) : undefined,
@@ -504,12 +512,49 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
     }),
   );
 
-  /** `next` gives the new episode count from the current one, optionally with a note for the result. */
+  // Progress updates read the entry, count from it, and save, so two at once for the same show
+  // would both count from the same episode. They take turns per show (#28), and one that read
+  // the entry before another's save finished reads it again once it has its turn.
+  /** Gives the new episode count from the current one, optionally with a note for the result. */
+  type ProgressStep = (current: number, media: Media, language: TitleLanguage) => number | { episodes: number; note: string };
+  const progressTurns = new Map<number, Promise<unknown>>();
+  let progressSaves = 0;
+  const lastProgressSave = new Map<number, number>();
+
   const applyProgress = async (
     input: string | number,
-    next: (current: number, media: Media, language: TitleLanguage) => number | { episodes: number; note: string },
+    next: ProgressStep,
   ) => {
-    const [viewer, { media, note }] = await Promise.all([client.getViewer(), target(client, input, "progress")]);
+    const readAt = progressSaves;
+    const [viewer, resolved] = await Promise.all([client.getViewer(), target(client, input, "progress")]);
+    const id = resolved.media.id;
+    const turn = (progressTurns.get(id) ?? Promise.resolve())
+      .catch(() => {})
+      .then(async () => {
+        try {
+          return await saveProgress(viewer, resolved, readAt, next);
+        } finally {
+          lastProgressSave.set(id, ++progressSaves);
+        }
+      });
+    progressTurns.set(id, turn);
+    try {
+      return await turn;
+    } finally {
+      if (progressTurns.get(id) === turn) progressTurns.delete(id);
+    }
+  };
+
+  const saveProgress = async (
+    viewer: Viewer,
+    resolved: { media: Media; note: string },
+    readAt: number,
+    next: ProgressStep,
+  ) => {
+    const { note } = resolved;
+    // Another update to this show finished (or failed) after this one read it: read it again.
+    const stale = (lastProgressSave.get(resolved.media.id) ?? 0) > readAt;
+    const media = stale ? await client.getAnime(resolved.media.id) : resolved.media;
     const entry = media.mediaListEntry;
     const before = entry?.progress ?? 0;
     const step = next(before, media, viewer.titleLanguage);

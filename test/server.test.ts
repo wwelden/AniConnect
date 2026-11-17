@@ -234,6 +234,25 @@ describe("tools", () => {
     expect(r.text).toContain("isn't on your list");
   });
 
+  test("remove_from_list asks which part of a split season, then removes the one named (#29)", async () => {
+    fake.seed(PERSONA);
+    let r = await call("remove_from_list", { anime: "spy x family season 1" });
+    expect(r.text).not.toContain("Removed");
+    expect(r.text).toContain("[140960]");
+    expect(r.text).toContain("[142838]");
+    expect(fake.entries.has(140960)).toBe(true);
+    expect(fake.entries.has(142838)).toBe(true);
+
+    r = await call("remove_from_list", { anime: "spy x family season 1 part 2" });
+    expect(r.text).toContain("Removed");
+    expect(fake.entries.has(142838)).toBe(false);
+    expect(fake.entries.has(140960)).toBe(true);
+
+    r = await call("remove_from_list", { anime: 140960 });
+    expect(r.text).toContain("Removed");
+    expect(fake.entries.has(140960)).toBe(false);
+  });
+
   test("unknown media is a readable error", async () => {
     const r = await call("add_to_list", { anime: 999999 });
     expect(r.isError).toBe(true);
@@ -621,6 +640,37 @@ describe("list cache (R5.4)", () => {
     expect(r.text).toContain("episode 4 -> 5");
     expect(r.requests).toEqual(["write"]);
     expect(fake.entries.get(145064)!.progress).toBe(5);
+  });
+
+  test("parallel progress updates to one show count every episode (#28)", async () => {
+    const [a, b] = await Promise.all([
+      run("mark_episodes_watched", { anime: "dandadan" }),
+      run("mark_episodes_watched", { anime: "dandadan" }),
+    ]);
+    expect([a.text, b.text].map((t) => t.match(/episode \d+ -> \d+/)![0]).sort()).toEqual([
+      "episode 7 -> 8",
+      "episode 8 -> 9",
+    ]);
+    expect(fake.entries.get(171018)!.progress).toBe(9);
+    expect(fake.writes.map((w) => w.variables.progress)).toEqual([8, 9]);
+  });
+
+  test("parallel progress updates by name and by ID serialize on the resolved show", async () => {
+    await Promise.all([
+      run("mark_episodes_watched", { anime: "dandadan", count: 2 }),
+      run("mark_episodes_watched", { anime: 171018 }),
+      run("mark_episodes_watched", { anime: "171018" }),
+    ]);
+    expect(fake.entries.get(171018)!.progress).toBe(11);
+  });
+
+  test("parallel progress updates to different shows both land", async () => {
+    await Promise.all([
+      run("mark_episodes_watched", { anime: "dandadan" }),
+      run("mark_episodes_watched", { anime: "jjk" }),
+    ]);
+    expect(fake.entries.get(171018)!.progress).toBe(8);
+    expect(fake.entries.get(145064)!.progress).toBe(4);
   });
 
   test("a status search after a write is served from the patched cache", async () => {

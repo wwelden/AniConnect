@@ -260,3 +260,34 @@ describe("asks instead of guessing (R1.7)", () => {
     ["zzzz not a show", "add", "none"],
   ]);
 });
+
+describe("removing a split season asks which part (#29)", () => {
+  run([
+    // Season 1 has two parts on the list, both completed: naming the season isn't enough.
+    ["spy x family season 1", "remove", "ambiguous"],
+    ["attack on titan season 3", "remove", "ambiguous"],
+    // Naming the part, or a season with one part, settles it.
+    ["spy x family season 1 part 2", "remove", "SPY×FAMILY Part 2"],
+    ["spy x family season 1 part 1", "remove", "SPY×FAMILY"],
+    ["attack on titan season 3 part 2", "remove", "Shingeki no Kyojin Season 3 Part 2"],
+    ["attack on titan season 3 part 1", "remove", "Shingeki no Kyojin Season 3"],
+    ["spy x family season 2", "remove", "SPY×FAMILY Season 2"],
+    // Non-destructive intents keep their first-part defaults.
+    ["spy x family season 1", "add", "SPY×FAMILY"],
+    ["spy x family season 1", "progress", "SPY×FAMILY"],
+    ["attack on titan season 3", "rate", "Shingeki no Kyojin Season 3"],
+  ]);
+
+  test("the ambiguity lists both listed parts", async () => {
+    const r = await resolve("spy x family season 1", "remove");
+    if (r.kind !== "ambiguous") throw new Error(`expected ambiguous, got ${r.kind}: ${r.why}`);
+    expect(r.candidates.map((m) => m.id).sort()).toEqual([140960, 142838]);
+  });
+
+  test("one listed part of a split season is removed without asking", async () => {
+    fake = new FakeAniList().seed([{ anime: "SPY×FAMILY Part 2", status: "COMPLETED" }]);
+    client = new AniListClient("test", fake.fetch);
+    const r = await resolve("spy x family season 1", "remove");
+    expect(r.kind === "match" && r.media.id).toBe(142838);
+  });
+});

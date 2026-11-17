@@ -467,7 +467,9 @@ function pick(query: string, intent: Intent, pool: Scored[]): Resolution {
   // season 1, "watched episode 2 of Frieren" means season 2).
   if ((intent === "add" || status(top.media) === "NONE") && sameFranchise(tied.map((s) => s.media))) {
     const first = tied[0]!.media;
-    const why = intent === "add" ? "it's the first season" : "it's the next season, and not on your list yet";
+    // Only progress-style intents mean "the next one to watch"; adding or looking up means season 1.
+    const why =
+      intent === "add" || intent === "lookup" ? "it's the first season" : "it's the next season, and not on your list yet";
     return { kind: "match", media: first, why };
   }
 
@@ -684,6 +686,23 @@ async function resolveSeason(
   }
   if (matches.length === 1) {
     return { kind: "match", media: matches[0]!.media, why: `it's ${label}, going by ${how}` };
+  }
+
+  // Removing deletes a list entry, so it never guesses between listed parts of one season:
+  // "season 1" doesn't say whether Part 1 or Part 2 should go.
+  if (intent === "remove") {
+    const listed = matches.filter((e) => e.media.mediaListEntry);
+    if (listed.length === 1) {
+      return { kind: "match", media: listed[0]!.media, why: `it's the part of ${label} on your list` };
+    }
+    if (listed.length > 1) {
+      listed.sort((a, b) => a.part - b.part || dateKey(a.media) - dateKey(b.media));
+      return {
+        kind: "ambiguous",
+        candidates: listed.slice(0, MAX_CANDIDATES).map((e) => e.media),
+        why: `S${label.slice(1)} of "${q.exact}" matches ${listed.length} entries on your list.`,
+      };
+    }
   }
 
   // Several parts of the same season: prefer the one the intent points at, else the first part.
