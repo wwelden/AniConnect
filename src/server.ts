@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { AniListClient, LIST_STATUSES, SEASONS, type BrowseFilters, type ListStatus, type Media, type TitleLanguage, type Viewer } from "./anilist";
+import { AniListClient, LIST_STATUSES, SEASONS, type BrowseFilters, type LinkOptions, type ListStatus, type Media, type TitleLanguage, type Viewer } from "./anilist";
 import {
   describeEntry,
   displayTitle,
@@ -76,12 +76,12 @@ function safeFor(client: AniListClient, now: () => number) {
     };
 }
 
-export function clientSource(client: AniListClient): AnimeSource {
+export function clientSource(client: AniListClient, options: LinkOptions = {}): AnimeSource {
   return {
     listMedia: async () =>
       (await client.getMyList()).map(({ media, ...entry }) => ({ ...media, mediaListEntry: entry })),
-    search: (query) => client.searchAnime(query, 15),
-    getRelated: (ids) => client.getRelated(ids),
+    search: (query) => client.searchAnime(query, 15, options),
+    getRelated: (ids) => client.getRelated(ids, options),
   };
 }
 
@@ -284,7 +284,8 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
     safe(async ({ anime, timeZone }) => {
       const zone = checkTimeZone(timeZone ?? userZone(await client.getViewer()));
       const at = now();
-      const source = memo(clientSource(client));
+      // Streaming links are only wanted for one show, so only that path's lookups fetch them.
+      const source = memo(clientSource(client, { links: anime !== undefined }));
       const list = await source.listMedia();
       const { titleLanguage } = await client.getViewer(); // fetched with the list, so no extra request
       const listStatus = new Map(list.map((m) => [m.id, m.mediaListEntry!.status]));
@@ -293,7 +294,10 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
         // "status" ranks everything on the list above the rest of AniList, so a finished
         // show is described (with its next season) rather than a similarly named one.
         const { media, note } = await target(client, anime, "status", source, false);
-        const show = media.relations ? media : ((await client.getMany([media.id]))[0] ?? media);
+        const show =
+          media.relations && media.externalLinks !== undefined
+            ? media
+            : ((await client.getMany([media.id], { links: true }))[0] ?? media);
         const sequels = nextSeasons([show], listStatus, await client.getMany(moviesBesideSeries([show])));
         return text(`${note}${formatShow(show, sequels, listStatus, at, zone, titleLanguage)}`);
       }

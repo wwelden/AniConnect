@@ -3,7 +3,18 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { AniListClient, type ListStatus, type Media } from "../src/anilist";
 import { createServer } from "../src/server";
-import { airedEpisodes, buildReport, caughtUpProgress, checkTimeZone, formatAirTime, formatReport, formatShow, nextSeasons, watchTime } from "../src/whatsnext";
+import {
+  airedEpisodes,
+  buildReport,
+  caughtUpProgress,
+  checkTimeZone,
+  formatAirTime,
+  formatReport,
+  formatShow,
+  nextSeasons,
+  streamingLines,
+  watchTime,
+} from "../src/whatsnext";
 import { PERSONA } from "./fixtures/persona";
 import { FakeAniList } from "./support/fake-anilist";
 
@@ -146,6 +157,36 @@ describe("whats_next tool", () => {
     expect(r.text).toContain("Comes next: [182255] Frieren: Beyond Journey’s End Season 2 (10 episodes, 2026), not on your list.");
   });
 
+  test("where to watch: streaming sites with links, in the same requests", async () => {
+    const show = await call({ anime: "frieren", timeZone: "UTC" });
+    expect(show.text).toContain(
+      "Stream on (availability varies by region):\n- Crunchyroll: https://www.crunchyroll.com/series/GG5H5XQX4/frieren-beyond-journeys-end",
+    );
+    expect(show.text).toContain("- YouTube (Muse Asia): https://www.youtube.com/");
+    // Official site and social links aren't streaming.
+    expect(show.text).not.toContain("frieren-anime.jp");
+    expect(show.text).not.toContain("twitter.com");
+    // Viewer, list, then one fetch for relations and links together: the same as before links.
+    expect(show.requests).toBe(3);
+  });
+
+  test("shows found by search or a season lookup carry their links, without another request", async () => {
+    // Not on the list: found by search. Same 3 requests as before streaming links.
+    const search = await call({ anime: "chainsaw man", timeZone: "UTC" });
+    expect(search.text).toContain("Stream on (availability varies by region):");
+    expect(search.requests).toBe(3);
+    const season = await call({ anime: "the new frieren season", timeZone: "UTC" });
+    expect(season.text).toContain("[182255]");
+    expect(season.text).toContain("Stream on (availability varies by region):");
+    expect(season.requests).toBe(3); // the viewer is cached by now: one fewer than a first call
+  });
+
+  test("the full report doesn't fetch streaming links", async () => {
+    const r = await call({ timeZone: "UTC" });
+    expect(r.text).not.toContain("Stream on");
+    expect(fake.calls.some((c) => c.query.includes("externalLinks"))).toBe(false);
+  });
+
   test("a sequel by ID says which season before it is on the list", async () => {
     const r = await call({ anime: 182255, timeZone: "UTC" });
     expect(r.text).toContain("Comes after: [154587] Frieren: Beyond Journey’s End, completed on your list.");
@@ -268,6 +309,34 @@ describe("whats_next tool", () => {
     await call({ timeZone: "UTC" });
     await call({ anime: "jjk", timeZone: "UTC" });
     expect(fake.writes.length).toBe(0);
+  });
+});
+
+describe("streamingLines", () => {
+  const link = (site: string, url: string | null, type = "STREAMING", extra: Partial<{ notes: string; isDisabled: boolean }> = {}) => ({
+    site, url, type, notes: extra.notes ?? null, isDisabled: extra.isDisabled ?? false,
+  });
+
+  test("nothing when AniList has no streaming links", () => {
+    expect(streamingLines([])).toEqual([]);
+    expect(streamingLines([link("Official Site", "https://a.jp", "INFO"), link("Twitter", "https://x.com/a", "SOCIAL")])).toEqual([]);
+  });
+
+  test("streaming links only, with notes, skipping disabled and repeated links", () => {
+    expect(
+      streamingLines([
+        link("Crunchyroll", "https://cr.com/a"),
+        link("Twitter", "https://x.com/a", "SOCIAL"),
+        link("YouTube", "https://yt.com/en", "STREAMING", { notes: "EN" }),
+        link("Old site", "https://old.com/a", "STREAMING", { isDisabled: true }),
+        link("Crunchyroll", "https://cr.com/a"),
+        link("No URL", null),
+      ]),
+    ).toEqual([
+      "Stream on (availability varies by region):",
+      "- Crunchyroll: https://cr.com/a",
+      "- YouTube (EN): https://yt.com/en",
+    ]);
   });
 });
 
