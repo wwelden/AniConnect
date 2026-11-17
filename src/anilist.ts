@@ -1,3 +1,5 @@
+import { tokenExpiry } from "./token";
+
 export const ANILIST_ENDPOINT = "https://graphql.anilist.co";
 
 export const LIST_STATUSES = [
@@ -119,11 +121,15 @@ const ENTRY_FIELDS = `
 
 export class AniListClient {
   private viewer: Viewer | null = null;
+  /** When the token expires (ms), read from the JWT; null if it can't be decoded. */
+  readonly tokenExpiresAt: number | null;
 
   constructor(
     private readonly token: string,
     private readonly fetchFn: FetchFn = (input, init) => fetch(input, init),
-  ) {}
+  ) {
+    this.tokenExpiresAt = tokenExpiry(token);
+  }
 
   async request<T>(query: string, variables: Record<string, unknown> = {}): Promise<T> {
     let res: Response;

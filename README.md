@@ -38,7 +38,7 @@ You need [Bun](https://bun.sh) and an AniList account.
    https://anilist.co/api/v2/oauth/authorize?client_id=YOUR_CLIENT_ID&response_type=token
    ```
 
-4. Click **Authorize** and copy the token it shows you. It's valid for one year.
+4. Click **Authorize** and copy the token it shows you. It's valid for one year. In the last two weeks, tool results include a one-line reminder with the expiry date; repeat these steps to get a new one.
 
 Treat the token like a password: it can edit your list.
 
