@@ -141,6 +141,8 @@ export class AniListClient {
   readonly tokenExpiresAt: number | null;
   /** The whole list keyed by media ID, shared by calls that start while it loads. */
   private list: { fetchedAt: number; entries: Promise<Map<number, ListItem>> } | null = null;
+  /** Writes in flight; each is flagged if another write overlapped it. */
+  private writes = new Set<{ overlapped: boolean }>();
   /** Clock for the list cache; createServer sets it so tests control expiry. */
   now: () => number = Date.now;
 
@@ -349,17 +351,24 @@ export class AniListClient {
 
   /**
    * Applies one of our own writes to the cached list, after it finishes loading if it is
-   * still in flight. A failed write may or may not have landed, so it drops the cache.
+   * still in flight. A failed write may or may not have landed, and overlapping writes
+   * can answer out of order (an older entry overwriting a newer one), so both drop the cache.
    */
   private async patchList<T>(write: Promise<T>, patch: (entries: Map<number, ListItem>, result: T) => void): Promise<T> {
+    const self = { overlapped: this.writes.size > 0 };
+    for (const other of this.writes) other.overlapped = true;
+    this.writes.add(self);
     let result: T;
     try {
       result = await write;
     } catch (err) {
       this.list = null;
       throw err;
+    } finally {
+      this.writes.delete(self);
     }
-    if (this.list) {
+    if (self.overlapped) this.list = null;
+    else if (this.list) {
       const list = this.list;
       list.entries = list.entries.then((entries) => {
         patch(entries, result);

@@ -428,4 +428,23 @@ describe("list cache (R5.4)", () => {
     const r = await run("search_my_list", { query: "dandadan" });
     expect(r.requests).toEqual(["list"]);
   });
+
+  test("overlapping writes drop the cache instead of patching it out of order", async () => {
+    const client = new AniListClient("t", async (url, init) => {
+      const res = await fake.fetch(url, init);
+      // The first save to land answers last, so its older entry would win a patch.
+      if (JSON.parse(init.body as string).variables.progress === 8) await Bun.sleep(20);
+      return res;
+    });
+    client.now = () => clock;
+    await client.getMyList();
+    await Promise.all([
+      client.saveEntry({ mediaId: 171018, progress: 8 }),
+      Bun.sleep(5).then(() => client.saveEntry({ mediaId: 171018, scoreRaw: 90 })),
+    ]);
+    const before = fake.calls.length;
+    const dandadan = (await client.getMyList()).find((e) => e.media.id === 171018)!;
+    expect(kinds(fake.calls.slice(before))).toEqual(["list"]);
+    expect([dandadan.progress, dandadan.score]).toEqual([8, 9]);
+  });
 });
