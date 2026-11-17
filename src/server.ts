@@ -238,6 +238,15 @@ function continues(media: Media, language: TitleLanguage): string {
   return done?.node.title ? `. Continues ${displayTitle(done.node.title, language)}, which you completed` : "";
 }
 
+/** Longest private note AniConnect writes; AniList's own limit is far higher. */
+const NOTE_LIMIT = 2000;
+
+/** A note for results, on one line and cut short if long. */
+function quoteNote(note: string): string {
+  const line = note.replace(/\s*\n\s*/g, " / ");
+  return `"${line.length > 300 ? `${line.slice(0, 300)}…` : line}"`;
+}
+
 /** One show's change, for the undo journal. */
 function change(media: Pick<Media, "id" | "title">, before: Partial<ListEntry> | null, after: Partial<ListEntry> | null): EntryChange {
   return { mediaId: media.id, title: media.title, before: snapshot(before), after: snapshot(after) };
@@ -353,7 +362,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
     {
       title: "Search my list",
       description:
-        "Answer questions about the user's own AniList anime list as it is now (what they're watching, whether something is on it); for when things happened, use watch_history. Filter by title words and/or list status; leave query empty to list everything in a status.",
+        "Answer questions about the user's own AniList anime list as it is now (what they're watching, whether something is on it, their private notes on a show); for when things happened, use watch_history. Filter by title words and/or list status; leave query empty to list everything in a status.",
       inputSchema: {
         query: z.string().optional().describe("Words that must all appear in the title"),
         status: status.optional(),
@@ -373,7 +382,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       const title = (e: (typeof entries)[number]) => displayTitle(e.media.title, viewer.titleLanguage);
       entries.sort((a, b) => title(a).localeCompare(title(b)));
       const shown = entries.slice(0, limit);
-      const lines = shown.map((e) => describeEntry(e.media, e, viewer));
+      const lines = shown.map((e) => `${describeEntry(e.media, e, viewer)}${e.notes ? `. Note: ${quoteNote(e.notes)}` : ""}`);
       const header = `${entries.length} match${entries.length === 1 ? "" : "es"} on ${viewer.name}'s list${filter ? ` for ${filter}` : ""}${entries.length > limit ? ` (showing ${limit})` : ""}:`;
       return text([header, ...lines].join("\n"));
     }),
@@ -670,6 +679,13 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
     score: z.number().min(0).max(10).optional().describe("Score out of 10; 0 removes the rating"),
     startedAt: date.optional().describe("When the user started watching, if they say (\"I started it last March\")"),
     completedAt: date.optional().describe("When the user finished it, if they say (\"I actually finished it in 2023\")"),
+    notes: z.string().max(NOTE_LIMIT).optional().describe('Replaces the private note on the entry; "" removes it'),
+    addNote: z
+      .string()
+      .min(1)
+      .max(NOTE_LIMIT)
+      .optional()
+      .describe("Added to the end of the private note, on a new line, keeping what's there"),
   });
   type Update = z.infer<typeof updateItem>;
 
@@ -701,7 +717,10 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       );
     }
     const scoreRaw = u.score === undefined ? undefined : toRawScore(u.score);
-    const saved = await client.saveEntry({ mediaId: media.id, ...plan, ...dates, scoreRaw });
+    const oldNote = entry?.notes ?? "";
+    const notes = u.addNote !== undefined ? (oldNote ? `${oldNote}\n${u.addNote}` : u.addNote) : u.notes;
+    if (notes !== undefined && notes.length > NOTE_LIMIT) throw new Error(`The note would be over ${NOTE_LIMIT} characters.`);
+    const saved = await client.saveEntry({ mediaId: media.id, ...plan, ...dates, scoreRaw, notes });
     const format = viewer.scoreFormat;
     const parts = [
       entry?.status !== saved.status &&
@@ -711,6 +730,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
         `score ${formatScore(entry?.displayScore ?? 0, format)} -> ${formatScore(saved.displayScore, format)}`,
       u.startedAt !== undefined && `start date ${showDate(entry?.startedAt)} -> ${showDate(saved.startedAt)}`,
       u.completedAt !== undefined && `finish date ${showDate(entry?.completedAt)} -> ${showDate(saved.completedAt)}`,
+      notes !== undefined && (saved.notes ? `note is now ${quoteNote(saved.notes)}` : oldNote ? "note removed" : "no note"),
     ].filter(Boolean);
     // Dates the user gave are in `parts`; only the ones filled in for them are worth a note.
     const filled = { ...plan, ...(u.startedAt !== undefined && { startedAt: undefined }), ...(u.completedAt !== undefined && { completedAt: undefined }) };
@@ -726,7 +746,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
     {
       title: "Update shows",
       description:
-        "Make several list changes in one call: to several shows (\"watched eps 3-5 of JJK and the Dandadan finale\") or several things about one show (\"finished Frieren, 9/10\"). Also the only way to set or correct start and finish dates (\"I actually finished it last March\"). Each update names a show plus any of status, episodes, watched, score and dates, with the same rules as set_status, set_progress, mark_episodes_watched and rate_anime. Updates that are ambiguous or fail are listed with the reason, and the rest are still saved." +
+        "Make several list changes in one call: to several shows (\"watched eps 3-5 of JJK and the Dandadan finale\") or several things about one show (\"finished Frieren, 9/10\"). Also the only way to set or correct start and finish dates (\"I actually finished it last March\") and to write the user's private notes on a show. Each update names a show plus any of status, episodes, watched, score, dates and notes, with the same rules as set_status, set_progress, mark_episodes_watched and rate_anime. Updates that are ambiguous or fail are listed with the reason, and the rest are still saved." +
         BY_NAME,
       inputSchema: { updates: z.array(updateItem).min(1).max(10).describe("One per show") },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
@@ -743,11 +763,13 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
               throw new Error("Give episodes or watched, not both.");
             }
             const counts = u.episodes !== undefined || u.watched !== undefined;
+            if (u.notes !== undefined && u.addNote !== undefined) throw new Error("Give notes or addNote, not both.");
             const dated = u.startedAt !== undefined || u.completedAt !== undefined;
-            if (!counts && !dated && u.status === undefined && u.score === undefined) {
-              throw new Error("Nothing to change: give status, episodes, watched, score or a date.");
+            const noted = u.notes !== undefined || u.addNote !== undefined;
+            if (!counts && !dated && !noted && u.status === undefined && u.score === undefined) {
+              throw new Error("Nothing to change: give status, episodes, watched, score, a date or a note.");
             }
-            const intent: Intent = counts ? "progress" : u.status || dated ? "status" : "rate";
+            const intent: Intent = counts ? "progress" : u.status || dated || noted ? "status" : "rate";
             const resolved = await target(client, u.anime, intent, source, false);
             return await inTurn(resolved.media.id, readAt, (stale) => saveUpdate(viewer, resolved, stale, u));
           } catch (err) {

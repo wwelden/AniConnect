@@ -80,7 +80,7 @@ describe("update_shows (R2.6)", () => {
     const r = await update({ anime: "dandadan" }, { anime: "jjk", episodes: 4, watched: 1 }, { anime: "dandadan", episodes: 99 });
     expect(r.isError).toBe(true);
     expect(r.text).toBe(
-      'Not changed: "dandadan": Nothing to change: give status, episodes, watched, score or a date.\n' +
+      'Not changed: "dandadan": Nothing to change: give status, episodes, watched, score, a date or a note.\n' +
         'Not changed: "jjk": Give episodes or watched, not both.\n' +
         'Not changed: "dandadan": This show only has 12 episodes (got 99).',
     );
@@ -166,5 +166,52 @@ describe("start and finish dates (R0.10)", () => {
     await update({ anime: "frieren", completedAt: "2025" });
     await call("undo");
     expect(fake.entries.get(FRIEREN)!.completedAt).toEqual({ year: 2024, month: 3, day: 22 });
+  });
+});
+
+describe("private notes (R0.11)", () => {
+  test("writes a note, adds a line to it, and removes it", async () => {
+    let r = await update({ anime: "dandadan", notes: "watch the dub" });
+    expect(r.text).toContain('DAN DA DAN: note is now "watch the dub".');
+    r = await update({ anime: "dandadan", addNote: "ep 7 was great" });
+    expect(r.text).toContain('note is now "watch the dub / ep 7 was great"');
+    expect(fake.entries.get(DANDADAN)!.notes).toBe("watch the dub\nep 7 was great");
+    r = await update({ anime: "dandadan", notes: "" });
+    expect(r.text).toContain("DAN DA DAN: note removed.");
+    expect(fake.entries.get(DANDADAN)!.notes).toBe("");
+  });
+
+  test("adding to an empty note doesn't start with a blank line", async () => {
+    await update({ anime: "dandadan", addNote: "first" });
+    expect(fake.entries.get(DANDADAN)!.notes).toBe("first");
+  });
+
+  test("a note comes with other changes in the same write", async () => {
+    const before = fake.writes.length;
+    await update({ anime: "dandadan", watched: 1, addNote: "the cursed tape arc starts" });
+    expect(fake.writes.length - before).toBe(1);
+    expect(fake.entries.get(DANDADAN)).toMatchObject({ progress: 8, notes: "the cursed tape arc starts" });
+  });
+
+  test("notes and addNote together are refused", async () => {
+    const r = await update({ anime: "dandadan", notes: "a", addNote: "b" });
+    expect(r.isError).toBe(true);
+    expect(r.text).toContain("Give notes or addNote, not both.");
+  });
+
+  test("search_my_list shows notes, on one line", async () => {
+    fake.entries.get(DANDADAN)!.notes = "watch the dub\nwith Sam";
+    const r = await call("search_my_list", { query: "dandadan" });
+    expect(r.text).toContain('[171018] DAN DA DAN (TV, 2024): Watching, 7/12 episodes, unrated. Note: "watch the dub / with Sam"');
+  });
+
+  test("other tools leave notes alone, and undo restores them", async () => {
+    fake.entries.get(DANDADAN)!.notes = "keep me";
+    await call("mark_episodes_watched", { anime: "dandadan" });
+    await call("set_status", { anime: "dandadan", status: "PAUSED" });
+    expect(fake.entries.get(DANDADAN)!.notes).toBe("keep me");
+    await update({ anime: "dandadan", notes: "replaced" });
+    await call("undo");
+    expect(fake.entries.get(DANDADAN)!.notes).toBe("keep me");
   });
 });

@@ -35,7 +35,8 @@ export function diff(before: StoredEntry[], after: StoredEntry[]) {
       x.progress !== y.progress ||
       x.scoreRaw !== y.scoreRaw ||
       shownDate(x.startedAt) !== shownDate(y.startedAt) ||
-      shownDate(x.completedAt) !== shownDate(y.completedAt)
+      shownDate(x.completedAt) !== shownDate(y.completedAt) ||
+      (x.notes || "") !== (y.notes || "")
     ) {
       changed.set(id, { before: x, after: y });
     }
@@ -60,6 +61,9 @@ function checkChange(want: Change, got: { before?: StoredEntry; after?: StoredEn
       return `${title} ${field} ${shownDate(got.after[field]) || "none"}, wanted ${want_}`;
     }
   }
+  const note = got.after.notes ?? "";
+  const missing = (want.noteHas ?? []).filter((w) => !note.toLowerCase().includes(w.toLowerCase()));
+  if (missing.length) return `${title} note "${note}" lacks ${missing.join(", ")}`;
   return null;
 }
 

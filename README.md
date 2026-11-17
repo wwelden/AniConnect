@@ -11,14 +11,14 @@ Every tool that changes your list takes the show the way you'd say it: "jjk", "t
 | Tool | What it does |
 |---|---|
 | `search_anime` | Search all of AniList by title, or browse it by season, year, genre, format and airing status ("what's airing this season?", "best-rated romance from 2023"), sorted by popularity, score or newest. Shows IDs, whether each show is already on your list, and which ones continue a show you've completed. |
-| `search_my_list` | Search your own list by title words and/or status (watching, planning, completed, ...). |
+| `search_my_list` | Search your own list by title words and/or status (watching, planning, completed, ...), with your private notes on each show. |
 | `watch_history` | What you watched and when, from your AniList activity feed: "what did I watch this week?", "what did I finish in March?", "when did I finish Frieren?". Times are in your time zone. |
 | `add_to_list` | Add a show, as "plan to watch" unless you pick another status. Never overwrites an existing entry. |
 | `set_status` | Move a show to watching, completed, paused, dropped, planning, or rewatching. |
 | `rate_anime` | Rate a show out of 10 (decimals OK, 0 clears). AniList shows it in your own scoring format (stars, /100, ...). |
 | `mark_episodes_watched` | Count up from where you are ("I watched the next two episodes"). |
 | `set_progress` | Set an exact episode count ("I'm on episode 7"), or catch up to the latest aired episode ("I'm caught up on Dandadan"). |
-| `update_shows` | Several changes in one call: several shows ("watched eps 3–5 of JJK and the Dandadan finale") or several things about one ("finished Frieren, 9/10"). Each update can set the status, episodes, episodes watched since last time, score, and start and finish dates ("I actually finished it last March"). Shows it can't resolve are listed with the reason, and the rest are saved. |
+| `update_shows` | Several changes in one call: several shows ("watched eps 3–5 of JJK and the Dandadan finale") or several things about one ("finished Frieren, 9/10"). Each update can set the status, episodes, episodes watched since last time, score, start and finish dates ("I actually finished it last March"), and your private notes on a show (replaced, or added to). Shows it can't resolve are listed with the reason, and the rest are saved. |
 | `remove_from_list` | Delete a show from your list. |
 | `undo` | Take back the last change, or the last few, exactly: a removed show comes back with its progress, score, dates and notes, and a show just added is removed again. |
 | `whats_next` | What to watch next: aired episodes you haven't seen and how long they take, when the next ones air, shows on hold with episodes left, and the next season or sequel movie of shows you've finished. Or ask about one show ("when's the next Apothecary Diaries episode?", "where can I watch Frieren?"), which also lists where it streams. |

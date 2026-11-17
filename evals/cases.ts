@@ -19,6 +19,8 @@ export interface Change {
   /** As formatDate prints it: "2025-03-14", "2025-03" or "2025". */
   startedAt?: string;
   completedAt?: string;
+  /** Words the entry's private note must contain, ignoring case. */
+  noteHas?: string[];
 }
 
 export type Outcome =
@@ -131,6 +133,10 @@ export const CASES: EvalCase[] = [
     expect: { changes: [{ anime: "Sousou no Frieren", completedAt: "2025-03" }] } },
   { id: "dates-started-day", prompt: "I started Dandadan on October 4th 2024, put that on my list", idealCalls: 1,
     expect: { changes: [{ anime: "Dandadan", startedAt: "2024-10-04" }] } },
+
+  // Private notes (R0.11).
+  { id: "notes-add", prompt: "make a note on dandadan that I want to rewatch it with the dub", idealCalls: 1,
+    expect: { changes: [{ anime: "Dandadan", noteHas: ["dub"] }] } },
 
   // Removing.
   { id: "remove", prompt: "remove haikyuu from my list", idealCalls: 1,

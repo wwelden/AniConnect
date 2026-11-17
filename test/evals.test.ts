@@ -30,6 +30,7 @@ function applyChanges(changes: Change[]) {
       ...(c.score !== undefined && { scoreRaw: Math.round(c.score * 10) }),
       ...(c.startedAt !== undefined && { startedAt: date(c.startedAt) }),
       ...(c.completedAt !== undefined && { completedAt: date(c.completedAt) }),
+      ...(c.noteHas && { notes: c.noteHas.join(" ") }),
     });
   }
   return diff(before, fake.exportState().entries);
