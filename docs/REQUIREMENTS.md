@@ -40,6 +40,7 @@ Status: **Done**, **In progress**, **Planned**, **Later**.
 | R0.10 | Set or correct start and finish dates ("I actually finished it last March"). | Planned |
 | R0.11 | Read and write private notes on an entry. | Planned |
 | R0.12 | "I'm caught up" in one call: set progress to the latest aired episode, never lowering it; when AniList has no airing schedule, change nothing and ask for a number. | Done (`set_progress` with `"latest"`) |
+| R0.13 | Browse AniList by season, year, genre, format and airing status, sorted by popularity, score or start date, in the same tool as title search (the title becomes optional). A season needs a year, and the result names the season used. Results flag shows that continue one the user completed, at no extra request. Browsing only: no recommendations. | Done (`search_anime`; 2 requests per call) |
 
 ### R1: Name and season resolution
 

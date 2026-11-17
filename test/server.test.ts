@@ -484,3 +484,93 @@ describe("list cache (R5.4)", () => {
     expect(dandadan.progress).toBe(9);
   });
 });
+
+describe("search_anime filters", () => {
+  const lines = (text: string) => text.split("\n").slice(1);
+
+  test("a plain title search keeps its old shape and sorts by best match", async () => {
+    const r = await call("search_anime", { query: "frieren" });
+    expect(r.text).not.toContain("first:");
+    expect(r.text).not.toContain("AniList score");
+    expect(fake.calls.at(-1)!.variables).toMatchObject({ search: "frieren", sort: ["SEARCH_MATCH"], perPage: 5 });
+  });
+
+  test("browses a season and says which season it used", async () => {
+    const r = await call("search_anime", { season: "FALL", year: 2026 });
+    expect(r.isError).toBe(false);
+    expect(r.text.split("\n")[0]).toBe("Fall 2026, most popular first:");
+    expect(r.text).toContain("The Apothecary Diaries Season 3");
+    expect(r.text).not.toContain("Frieren");
+    expect(lines(r.text).every((l) => l.includes(", 2026)"))).toBe(true);
+  });
+
+  test("filters by genre and year, best rated first", async () => {
+    const r = await call("search_anime", { genres: ["Romance"], year: 2025, sort: "score" });
+    expect(r.text.split("\n")[0]).toBe("2025, Romance, highest rated first:");
+    const rows = lines(r.text);
+    expect(rows[0]).toContain("Chainsaw Man – The Movie: Reze Arc");
+    expect(rows[0]).toContain("AniList score 90%");
+    const scores = rows.map((l) => Number(/AniList score (\d+)%/.exec(l)![1]));
+    expect(scores).toEqual([...scores].sort((a, b) => b - a));
+    expect(r.text).toContain("DAN DA DAN Season 2");
+    // Romance from other years, and 2025 shows without romance, stay out.
+    expect(r.text).not.toContain("First Kiss");
+    expect(r.text).not.toContain("SPY×FAMILY");
+  });
+
+  test("several genres must all match, like AniList's genre_in", async () => {
+    const r = await call("search_anime", { genres: ["Romance", "Horror"], limit: 25 });
+    expect(r.text.split("\n")[0]).toBe("Romance and Horror, most popular first:");
+    expect(r.text).toContain("Reze Arc");
+    // Dandadan is romance without horror.
+    expect(r.text).not.toContain("DAN DA DAN");
+  });
+
+  test("filters by format and airing status", async () => {
+    const r = await call("search_anime", { formats: ["MOVIE"], airingStatus: "NOT_YET_RELEASED", limit: 25 });
+    expect(r.text.split("\n")[0]).toBe("MOVIE, not yet aired, most popular first:");
+    const rows = lines(r.text);
+    expect(rows.length).toBeGreaterThan(2);
+    expect(rows.every((l) => l.includes("(MOVIE"))).toBe(true);
+    expect(r.text).not.toContain("Reze Arc");
+  });
+
+  test("flags results that continue a completed show, in two AniList requests", async () => {
+    fake.seed(PERSONA);
+    const before = fake.calls.length;
+    const r = await call("search_anime", { season: "WINTER", year: 2026 });
+    expect(fake.calls.length - before).toBe(2);
+    const frieren = lines(r.text).find((l) => l.includes("Frieren: Beyond Journey’s End Season 2"))!;
+    expect(frieren).toContain("Continues Frieren: Beyond Journey’s End, which you completed");
+    // The prequel (JJK season 2) is still being watched, so this one isn't flagged.
+    const jjk = lines(r.text).find((l) => l.includes("The Culling Game Part 1"))!;
+    expect(jjk).not.toContain("Continues");
+  });
+
+  test("counts a prequel being rewatched as completed", async () => {
+    fake.seed([{ anime: "Sousou no Frieren", status: "REPEATING" }]);
+    const r = await call("search_anime", { query: "frieren 2nd season", limit: 1 });
+    expect(r.text).toContain("Continues Frieren: Beyond Journey’s End, which you completed");
+  });
+
+  test("doesn't flag a continuation the user is already watching", async () => {
+    fake.seed(PERSONA);
+    const r = await call("search_anime", { query: "apothecary diaries season 3" });
+    expect(r.text).toContain("Watching");
+    expect(r.text).not.toContain("Continues");
+  });
+
+  test("asks for the year instead of guessing the season", async () => {
+    const before = fake.calls.length;
+    const r = await call("search_anime", { season: "WINTER" });
+    expect(r.isError).toBe(true);
+    expect(r.text).toContain("Pass `year` with `season`");
+    expect(fake.calls.length).toBe(before);
+  });
+
+  test("needs a title or a filter", async () => {
+    const r = await call("search_anime", {});
+    expect(r.isError).toBe(true);
+    expect(r.text).toContain("at least one filter");
+  });
+});

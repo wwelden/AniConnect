@@ -118,6 +118,12 @@ export const CASES: EvalCase[] = [
   { id: "read-planned", prompt: "Is the second season of Spy x Family on my list?",
     expect: { readOnly: true, mentions: ["plan"] } },
 
+  // Browsing AniList with filters (R0.13).
+  { id: "browse-season", prompt: "What anime is airing this season?", idealCalls: 1,
+    expect: { readOnly: true, tools: ["search_anime"], mentions: ["Apothecary Diaries"] } },
+  { id: "browse-genre", prompt: "What's the best-rated romance anime from 2025?", idealCalls: 1,
+    expect: { readOnly: true, tools: ["search_anime"], mentions: ["Chainsaw Man"] } },
+
   // What to watch next (R4).
   { id: "next-free-time", prompt: "I've got a free evening, what should I watch?", idealCalls: 1,
     expect: { readOnly: true, tools: ["whats_next"] } },

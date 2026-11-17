@@ -10,7 +10,7 @@ Every tool that changes your list takes the show the way you'd say it: "jjk", "t
 
 | Tool | What it does |
 |---|---|
-| `search_anime` | Search all of AniList by title. Shows IDs and whether each show is already on your list. |
+| `search_anime` | Search all of AniList by title, or browse it by season, year, genre, format and airing status ("what's airing this season?", "best-rated romance from 2023"), sorted by popularity, score or newest. Shows IDs, whether each show is already on your list, and which ones continue a show you've completed. |
 | `search_my_list` | Search your own list by title words and/or status (watching, planning, completed, ...). |
 | `add_to_list` | Add a show, as "plan to watch" unless you pick another status. Never overwrites an existing entry. |
 | `set_status` | Move a show to watching, completed, paused, dropped, planning, or rewatching. |

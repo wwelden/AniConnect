@@ -77,12 +77,28 @@ export interface RelationEdge {
   node: {
     id: number;
     type: string;
+    /** Only present when fetched with browseAnime. */
+    mediaListEntry?: { status: ListStatus } | null;
     format: string | null;
     status?: string | null;
     episodes?: number | null;
     title?: MediaTitle;
     startDate?: FuzzyDate | null;
   };
+}
+
+export const SEASONS = ["WINTER", "SPRING", "SUMMER", "FALL"] as const;
+export type Season = (typeof SEASONS)[number];
+
+/** Filters for browsing AniList. Every field is optional except the sort. */
+export interface BrowseFilters {
+  search?: string;
+  season?: Season;
+  seasonYear?: number;
+  genres?: string[];
+  formats?: string[];
+  status?: string;
+  sort: "SEARCH_MATCH" | "POPULARITY_DESC" | "SCORE_DESC" | "START_DATE_DESC";
 }
 
 export interface Viewer {
@@ -245,6 +261,37 @@ export class AniListClient {
         }
       }`,
       { search, perPage },
+    );
+    return data.Page.media;
+  }
+
+  /**
+   * Searches and filters AniList in one request. Each result carries its prequels and the
+   * user's status on them, so "continues a show you completed" costs no extra request.
+   */
+  async browseAnime(filters: BrowseFilters, perPage: number): Promise<Media[]> {
+    const data = await this.request<{ Page: { media: Media[] } }>(
+      `query (
+        $search: String, $season: MediaSeason, $seasonYear: Int, $genres: [String],
+        $formats: [MediaFormat], $status: MediaStatus, $sort: [MediaSort], $perPage: Int
+      ) {
+        Page(perPage: $perPage) {
+          media(
+            search: $search, type: ANIME, season: $season, seasonYear: $seasonYear,
+            genre_in: $genres, format_in: $formats, status: $status, sort: $sort
+          ) {
+            ${MEDIA_FIELDS}
+            mediaListEntry { ${ENTRY_FIELDS} }
+            relations {
+              edges {
+                relationType
+                node { id type format title { romaji english native } mediaListEntry { status } }
+              }
+            }
+          }
+        }
+      }`,
+      { ...filters, sort: [filters.sort], perPage },
     );
     return data.Page.media;
   }

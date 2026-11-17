@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { AniListClient, LIST_STATUSES, type ListStatus, type Media, type TitleLanguage } from "./anilist";
+import { AniListClient, LIST_STATUSES, SEASONS, type BrowseFilters, type ListStatus, type Media, type TitleLanguage } from "./anilist";
 import {
   describeEntry,
   displayTitle,
@@ -92,6 +92,43 @@ async function target(
   throw new Error(`${prefix}${r.why} Pass just the show's name, or try search_anime with a different spelling.`);
 }
 
+/** AniList's genres (GenreCollection), less the adult-only one. */
+const GENRES = [
+  "Action", "Adventure", "Comedy", "Drama", "Ecchi", "Fantasy", "Horror", "Mahou Shoujo", "Mecha", "Music",
+  "Mystery", "Psychological", "Romance", "Sci-Fi", "Slice of Life", "Sports", "Supernatural", "Thriller",
+] as const;
+const FORMATS = ["TV", "TV_SHORT", "MOVIE", "SPECIAL", "OVA", "ONA", "MUSIC"] as const;
+const AIRING_STATUSES = ["RELEASING", "NOT_YET_RELEASED", "FINISHED", "HIATUS", "CANCELLED"] as const;
+const AIRING_LABEL: Record<(typeof AIRING_STATUSES)[number], string> = {
+  RELEASING: "airing now",
+  NOT_YET_RELEASED: "not yet aired",
+  FINISHED: "finished airing",
+  HIATUS: "on hiatus",
+  CANCELLED: "cancelled",
+};
+const SORTS: Record<"relevance" | "popularity" | "score" | "newest", { sort: BrowseFilters["sort"]; label: string }> = {
+  relevance: { sort: "SEARCH_MATCH", label: "best match first" },
+  popularity: { sort: "POPULARITY_DESC", label: "most popular first" },
+  score: { sort: "SCORE_DESC", label: "highest rated first" },
+  newest: { sort: "START_DATE_DESC", label: "newest first" },
+};
+
+function capitalize(word: string): string {
+  return word.charAt(0) + word.slice(1).toLowerCase();
+}
+
+/** Notes when a search result is the next part of a show the user has completed. */
+function continues(media: Media, language: TitleLanguage): string {
+  if (media.mediaListEntry && media.mediaListEntry.status !== "PLANNING") return "";
+  const done = media.relations?.edges.find(
+    (e) =>
+      e.relationType === "PREQUEL" &&
+      e.node.type === "ANIME" &&
+      (e.node.mediaListEntry?.status === "COMPLETED" || e.node.mediaListEntry?.status === "REPEATING"),
+  );
+  return done?.node.title ? `. Continues ${displayTitle(done.node.title, language)}, which you completed` : "";
+}
+
 function dateNum(d: { year: number | null; month: number | null; day: number | null } | null | undefined): number {
   return d?.year ? d.year * 10000 + (d.month ?? 0) * 100 + (d.day ?? 0) : 0;
 }
@@ -115,20 +152,63 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
     {
       title: "Search AniList",
       description:
-        "Search all of AniList for anime by title, for when the user wants to find or compare shows. Returns IDs, and whether each show is already on the user's list. Tools that change the list take names directly and don't need this first.",
+        "Search all of AniList for anime by title, or browse it by season, year, genre, format and airing status (\"what's airing this season?\", \"best-rated romance from 2023\"). For a title lookup pass just `query`. Returns IDs, whether each show is already on the user's list, and which results continue a show the user completed. Tools that change the list take names directly and don't need this first.",
       inputSchema: {
-        query: z.string().min(1).describe("Title to search for, in English, romaji or Japanese"),
-        limit: z.number().int().min(1).max(25).default(5),
+        query: z.string().min(1).optional().describe("Title to search for, in English, romaji or Japanese"),
+        season: z
+          .enum(SEASONS)
+          .optional()
+          .describe(
+            "Anime season; needs `year`. WINTER is January-March, SPRING April-June, SUMMER July-September, FALL October-December, so in November \"this winter\" is WINTER of next year.",
+          ),
+        year: z.number().int().min(1940).max(2100).optional().describe("Year the show aired (with `season`, the season's year)"),
+        genres: z.array(z.enum(GENRES)).min(1).optional().describe("Shows with all of these genres"),
+        formats: z.array(z.enum(FORMATS)).min(1).optional().describe("Shows in any of these formats"),
+        airingStatus: z
+          .enum(AIRING_STATUSES)
+          .optional()
+          .describe("RELEASING = airing now, NOT_YET_RELEASED = announced, FINISHED, HIATUS, CANCELLED"),
+        sort: z
+          .enum(["popularity", "score", "newest"])
+          .optional()
+          .describe(
+            "Order of results. newest = latest start date, announced shows included. Default: best title match with `query`, else popularity",
+          ),
+        limit: z.number().int().min(1).max(25).optional().describe("Default 5 for a title search, 10 when browsing"),
       },
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
-    safe(async ({ query, limit }) => {
+    safe(async ({ query, season, year, genres, formats, airingStatus, sort, limit }) => {
+      const browsing = Boolean(season || year || genres || formats || airingStatus || sort);
+      if (!query && !browsing) throw new Error("Pass a title in `query`, or at least one filter.");
+      // "This season" depends on today's date, which only the assistant knows: never guess the year.
+      if (season && !year) throw new Error(`Pass \`year\` with \`season\` (${season} of which year?).`);
+      const order = sort ? SORTS[sort] : query ? SORTS.relevance : SORTS.popularity;
+      const filter = [
+        query && `"${query}"`,
+        season ? `${capitalize(season)} ${year}` : year && String(year),
+        genres?.join(" and "),
+        formats?.join(" or "),
+        airingStatus && AIRING_LABEL[airingStatus],
+      ]
+        .filter(Boolean)
+        .join(", ");
+
       const [viewer, results] = await Promise.all([
         client.getViewer(),
-        client.searchAnime(query, limit),
+        client.browseAnime(
+          { search: query, season, seasonYear: year, genres, formats, status: airingStatus, sort: order.sort },
+          limit ?? (browsing ? 10 : 5),
+        ),
       ]);
-      if (results.length === 0) return text(`No anime found for "${query}".`);
-      return text(results.map((m) => describeEntry(m, m.mediaListEntry, viewer)).join("\n"));
+      if (results.length === 0) return text(`No anime found for ${filter}.`);
+      const lines = results.map((m) => {
+        const line = describeEntry(m, m.mediaListEntry, viewer);
+        const score = browsing && m.averageScore ? `, AniList score ${m.averageScore}%` : "";
+        return `${line}${score}${continues(m, viewer.titleLanguage)}`;
+      });
+      // Title searches keep their old, header-less shape; browsing says what was searched.
+      return text((browsing ? [`${filter}, ${order.label}:`, ...lines] : lines).join("\n"));
     }),
   );
 

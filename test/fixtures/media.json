@@ -18,6 +18,14 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Comedy",
+   "Drama",
+   "Fantasy",
+   "Supernatural"
+  ],
   "seasonYear": 2002,
   "startDate": {
    "year": 2002,
@@ -143,6 +151,13 @@
   "format": "TV",
   "status": "RELEASING",
   "season": "FALL",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Comedy",
+   "Drama",
+   "Fantasy"
+  ],
   "seasonYear": 1999,
   "startDate": {
    "year": 1999,
@@ -642,6 +657,12 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Drama",
+   "Fantasy"
+  ],
   "seasonYear": 2003,
   "startDate": {
    "year": 2003,
@@ -718,6 +739,11 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Fantasy"
+  ],
   "seasonYear": 1999,
   "startDate": {
    "year": 1999,
@@ -778,6 +804,11 @@
   "format": "OVA",
   "status": "FINISHED",
   "season": "WINTER",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Fantasy"
+  ],
   "seasonYear": 2002,
   "startDate": {
    "year": 2002,
@@ -839,6 +870,11 @@
   "format": "OVA",
   "status": "FINISHED",
   "season": "WINTER",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Fantasy"
+  ],
   "seasonYear": 2003,
   "startDate": {
    "year": 2003,
@@ -901,6 +937,11 @@
   "format": "OVA",
   "status": "FINISHED",
   "season": "SPRING",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Fantasy"
+  ],
   "seasonYear": 2004,
   "startDate": {
    "year": 2004,
@@ -958,6 +999,11 @@
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "SUMMER",
+  "genres": [
+   "Action",
+   "Drama",
+   "Fantasy"
+  ],
   "seasonYear": 2005,
   "startDate": {
    "year": 2005,
@@ -1006,6 +1052,13 @@
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "SUMMER",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Comedy",
+   "Drama",
+   "Supernatural"
+  ],
   "seasonYear": 2004,
   "startDate": {
    "year": 2004,
@@ -1060,6 +1113,11 @@
   "format": "OVA",
   "status": "FINISHED",
   "season": "SUMMER",
+  "genres": [
+   "Adventure",
+   "Comedy",
+   "Fantasy"
+  ],
   "seasonYear": 1998,
   "startDate": {
    "year": 1998,
@@ -1115,6 +1173,11 @@
   "format": "SPECIAL",
   "status": "FINISHED",
   "season": "WINTER",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Comedy"
+  ],
   "seasonYear": 2003,
   "startDate": {
    "year": 2003,
@@ -1162,6 +1225,10 @@
   "format": "SPECIAL",
   "status": "FINISHED",
   "season": "SPRING",
+  "genres": [
+   "Adventure",
+   "Comedy"
+  ],
   "seasonYear": 2003,
   "startDate": {
    "year": 2003,
@@ -1203,6 +1270,10 @@
   "format": "OVA",
   "status": "FINISHED",
   "season": "SPRING",
+  "genres": [
+   "Comedy",
+   "Fantasy"
+  ],
   "seasonYear": 2006,
   "startDate": {
    "year": 2006,
@@ -1254,6 +1325,14 @@
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "SUMMER",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Comedy",
+   "Drama",
+   "Fantasy",
+   "Supernatural"
+  ],
   "seasonYear": 2005,
   "startDate": {
    "year": 2005,
@@ -1300,6 +1379,10 @@
   "format": "OVA",
   "status": "FINISHED",
   "season": "WINTER",
+  "genres": [
+   "Adventure",
+   "Comedy"
+  ],
   "seasonYear": 2006,
   "startDate": {
    "year": 2005,
@@ -1342,6 +1425,11 @@
   "format": "SPECIAL",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Adventure",
+   "Comedy",
+   "Fantasy"
+  ],
   "seasonYear": 2000,
   "startDate": {
    "year": 2000,
@@ -1382,6 +1470,11 @@
   "format": "SPECIAL",
   "status": "FINISHED",
   "season": "SPRING",
+  "genres": [
+   "Adventure",
+   "Comedy",
+   "Fantasy"
+  ],
   "seasonYear": 2003,
   "startDate": {
    "year": 2003,
@@ -1427,6 +1520,12 @@
   "format": "SPECIAL",
   "status": "FINISHED",
   "season": "WINTER",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Comedy",
+   "Fantasy"
+  ],
   "seasonYear": 2003,
   "startDate": {
    "year": 2003,
@@ -1471,6 +1570,14 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "WINTER",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Comedy",
+   "Drama",
+   "Fantasy",
+   "Supernatural"
+  ],
   "seasonYear": 2007,
   "startDate": {
    "year": 2007,
@@ -1649,6 +1756,11 @@
   "format": "SPECIAL",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Adventure",
+   "Comedy",
+   "Fantasy"
+  ],
   "seasonYear": 2005,
   "startDate": {
    "year": 2005,
@@ -1691,6 +1803,10 @@
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "SUMMER",
+  "genres": [
+   "Action",
+   "Adventure"
+  ],
   "seasonYear": 2006,
   "startDate": {
    "year": 2006,
@@ -1737,6 +1853,11 @@
   "format": "SPECIAL",
   "status": "FINISHED",
   "season": "SUMMER",
+  "genres": [
+   "Action",
+   "Comedy",
+   "Fantasy"
+  ],
   "seasonYear": 2004,
   "startDate": {
    "year": 2004,
@@ -1775,6 +1896,11 @@
   "format": "SPECIAL",
   "status": "FINISHED",
   "season": "SPRING",
+  "genres": [
+   "Comedy",
+   "Fantasy",
+   "Sports"
+  ],
   "seasonYear": 2002,
   "startDate": {
    "year": 2002,
@@ -1824,6 +1950,12 @@
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "SUMMER",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Comedy",
+   "Fantasy"
+  ],
   "seasonYear": 2007,
   "startDate": {
    "year": 2007,
@@ -1869,6 +2001,11 @@
   "format": "SPECIAL",
   "status": "FINISHED",
   "season": "SPRING",
+  "genres": [
+   "Comedy",
+   "Fantasy",
+   "Sports"
+  ],
   "seasonYear": 2004,
   "startDate": {
    "year": 2004,
@@ -1911,6 +2048,10 @@
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "SUMMER",
+  "genres": [
+   "Action",
+   "Supernatural"
+  ],
   "seasonYear": 2008,
   "startDate": {
    "year": 2008,
@@ -1959,6 +2100,14 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "SUMMER",
+  "genres": [
+   "Comedy",
+   "Drama",
+   "Mystery",
+   "Psychological",
+   "Romance",
+   "Supernatural"
+  ],
   "seasonYear": 2009,
   "startDate": {
    "year": 2009,
@@ -2056,6 +2205,12 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "SPRING",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Drama",
+   "Fantasy"
+  ],
   "seasonYear": 2009,
   "startDate": {
    "year": 2009,
@@ -2135,6 +2290,10 @@
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "SUMMER",
+  "genres": [
+   "Action",
+   "Comedy"
+  ],
   "seasonYear": 2009,
   "startDate": {
    "year": 2009,
@@ -2183,6 +2342,11 @@
   "format": "OVA",
   "status": "FINISHED",
   "season": "SUMMER",
+  "genres": [
+   "Adventure",
+   "Drama",
+   "Fantasy"
+  ],
   "seasonYear": 2009,
   "startDate": {
    "year": 2009,
@@ -2228,6 +2392,11 @@
   "format": "SPECIAL",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Comedy"
+  ],
   "seasonYear": 2009,
   "startDate": {
    "year": 2009,
@@ -2271,6 +2440,13 @@
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "SUMMER",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Comedy",
+   "Drama",
+   "Fantasy"
+  ],
   "seasonYear": 2011,
   "startDate": {
    "year": 2011,
@@ -2326,6 +2502,12 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "SPRING",
+  "genres": [
+   "Drama",
+   "Psychological",
+   "Sci-Fi",
+   "Thriller"
+  ],
   "seasonYear": 2011,
   "startDate": {
    "year": 2011,
@@ -2441,6 +2623,14 @@
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "WINTER",
+  "genres": [
+   "Action",
+   "Drama",
+   "Ecchi",
+   "Mystery",
+   "Psychological",
+   "Supernatural"
+  ],
   "seasonYear": 2016,
   "startDate": {
    "year": 2016,
@@ -2495,6 +2685,10 @@
   "format": "OVA",
   "status": "FINISHED",
   "season": null,
+  "genres": [
+   "Action",
+   "Adventure"
+  ],
   "seasonYear": null,
   "startDate": {
    "year": 1998,
@@ -2543,6 +2737,10 @@
   "format": "SPECIAL",
   "status": "FINISHED",
   "season": "SUMMER",
+  "genres": [
+   "Action",
+   "Comedy"
+  ],
   "seasonYear": 2010,
   "startDate": {
    "year": 2010,
@@ -2590,6 +2788,11 @@
   "format": "OVA",
   "status": "FINISHED",
   "season": "WINTER",
+  "genres": [
+   "Comedy",
+   "Romance",
+   "Sci-Fi"
+  ],
   "seasonYear": 2012,
   "startDate": {
    "year": 2012,
@@ -2648,6 +2851,11 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Fantasy"
+  ],
   "seasonYear": 2011,
   "startDate": {
    "year": 2011,
@@ -2740,6 +2948,12 @@
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "SPRING",
+  "genres": [
+   "Drama",
+   "Romance",
+   "Sci-Fi",
+   "Thriller"
+  ],
   "seasonYear": 2013,
   "startDate": {
    "year": 2013,
@@ -2794,6 +3008,14 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "WINTER",
+  "genres": [
+   "Comedy",
+   "Drama",
+   "Ecchi",
+   "Mystery",
+   "Psychological",
+   "Supernatural"
+  ],
   "seasonYear": 2012,
   "startDate": {
    "year": 2012,
@@ -2865,6 +3087,11 @@
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Comedy"
+  ],
   "seasonYear": 2011,
   "startDate": {
    "year": 2011,
@@ -2906,6 +3133,11 @@
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "WINTER",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Fantasy"
+  ],
   "seasonYear": 2013,
   "startDate": {
    "year": 2013,
@@ -2956,6 +3188,13 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Drama",
+   "Mystery",
+   "Psychological",
+   "Romance",
+   "Supernatural"
+  ],
   "seasonYear": 2012,
   "startDate": {
    "year": 2012,
@@ -3006,6 +3245,12 @@
   "format": "SPECIAL",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Comedy",
+   "Fantasy"
+  ],
   "seasonYear": 2012,
   "startDate": {
    "year": 2012,
@@ -3053,6 +3298,12 @@
   "format": "SPECIAL",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Comedy",
+   "Fantasy"
+  ],
   "seasonYear": 2012,
   "startDate": {
    "year": 2012,
@@ -3112,6 +3363,12 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "SPRING",
+  "genres": [
+   "Action",
+   "Drama",
+   "Fantasy",
+   "Mystery"
+  ],
   "seasonYear": 2013,
   "startDate": {
    "year": 2013,
@@ -3224,6 +3481,14 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "SUMMER",
+  "genres": [
+   "Comedy",
+   "Drama",
+   "Mystery",
+   "Psychological",
+   "Romance",
+   "Supernatural"
+  ],
   "seasonYear": 2013,
   "startDate": {
    "year": 2013,
@@ -3321,6 +3586,12 @@
   "format": "OVA",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Action",
+   "Drama",
+   "Fantasy",
+   "Mystery"
+  ],
   "seasonYear": 2013,
   "startDate": {
    "year": 2013,
@@ -3368,6 +3639,11 @@
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Fantasy"
+  ],
   "seasonYear": 2013,
   "startDate": {
    "year": 2013,
@@ -3417,6 +3693,11 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "SPRING",
+  "genres": [
+   "Comedy",
+   "Drama",
+   "Sports"
+  ],
   "seasonYear": 2014,
   "startDate": {
    "year": 2014,
@@ -3498,6 +3779,11 @@
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Action",
+   "Drama",
+   "Fantasy"
+  ],
   "seasonYear": 2014,
   "startDate": {
    "year": 2014,
@@ -3550,6 +3836,11 @@
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "SPRING",
+  "genres": [
+   "Action",
+   "Drama",
+   "Fantasy"
+  ],
   "seasonYear": 2015,
   "startDate": {
    "year": 2015,
@@ -3620,6 +3911,11 @@
   "format": "OVA",
   "status": "FINISHED",
   "season": "WINTER",
+  "genres": [
+   "Action",
+   "Drama",
+   "Fantasy"
+  ],
   "seasonYear": 2015,
   "startDate": {
    "year": 2014,
@@ -3665,6 +3961,11 @@
   "format": "SPECIAL",
   "status": "FINISHED",
   "season": "SUMMER",
+  "genres": [
+   "Action",
+   "Comedy",
+   "Fantasy"
+  ],
   "seasonYear": 2014,
   "startDate": {
    "year": 2014,
@@ -3707,6 +4008,11 @@
   "format": "OVA",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Comedy",
+   "Drama",
+   "Sports"
+  ],
   "seasonYear": 2014,
   "startDate": {
    "year": 2014,
@@ -3745,6 +4051,10 @@
   "format": "ONA",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Comedy",
+   "Sci-Fi"
+  ],
   "seasonYear": 2014,
   "startDate": {
    "year": 2014,
@@ -3790,6 +4100,12 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Comedy",
+   "Ecchi",
+   "Mystery",
+   "Supernatural"
+  ],
   "seasonYear": 2014,
   "startDate": {
    "year": 2014,
@@ -3863,6 +4179,12 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "SPRING",
+  "genres": [
+   "Action",
+   "Drama",
+   "Fantasy",
+   "Mystery"
+  ],
   "seasonYear": 2017,
   "startDate": {
    "year": 2017,
@@ -3936,6 +4258,11 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Comedy",
+   "Drama",
+   "Sports"
+  ],
   "seasonYear": 2015,
   "startDate": {
    "year": 2015,
@@ -4010,6 +4337,12 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "SPRING",
+  "genres": [
+   "Drama",
+   "Psychological",
+   "Sci-Fi",
+   "Thriller"
+  ],
   "seasonYear": 2018,
   "startDate": {
    "year": 2018,
@@ -4069,6 +4402,12 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Drama",
+   "Mystery",
+   "Psychological",
+   "Supernatural"
+  ],
   "seasonYear": 2015,
   "startDate": {
    "year": 2015,
@@ -4123,6 +4462,11 @@
   "format": "SPECIAL",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Comedy",
+   "Drama",
+   "Sports"
+  ],
   "seasonYear": 2015,
   "startDate": {
    "year": 2015,
@@ -4168,6 +4512,15 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "SPRING",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Drama",
+   "Fantasy",
+   "Psychological",
+   "Romance",
+   "Thriller"
+  ],
   "seasonYear": 2016,
   "startDate": {
    "year": 2016,
@@ -4290,6 +4643,14 @@
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "SUMMER",
+  "genres": [
+   "Action",
+   "Drama",
+   "Ecchi",
+   "Mystery",
+   "Psychological",
+   "Supernatural"
+  ],
   "seasonYear": 2016,
   "startDate": {
    "year": 2016,
@@ -4349,6 +4710,14 @@
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "WINTER",
+  "genres": [
+   "Action",
+   "Drama",
+   "Ecchi",
+   "Mystery",
+   "Psychological",
+   "Supernatural"
+  ],
   "seasonYear": 2017,
   "startDate": {
    "year": 2017,
@@ -4420,6 +4789,11 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "SPRING",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Comedy"
+  ],
   "seasonYear": 2016,
   "startDate": {
    "year": 2016,
@@ -4479,6 +4853,13 @@
   "format": "SPECIAL",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Comedy",
+   "Drama",
+   "Fantasy"
+  ],
   "seasonYear": 2015,
   "startDate": {
    "year": 2015,
@@ -4519,6 +4900,14 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "SUMMER",
+  "genres": [
+   "Action",
+   "Comedy",
+   "Drama",
+   "Psychological",
+   "Slice of Life",
+   "Supernatural"
+  ],
   "seasonYear": 2016,
   "startDate": {
    "year": 2016,
@@ -4585,6 +4974,11 @@
   "format": "ONA",
   "status": "FINISHED",
   "season": "WINTER",
+  "genres": [
+   "Comedy",
+   "Mystery",
+   "Supernatural"
+  ],
   "seasonYear": 2016,
   "startDate": {
    "year": 2016,
@@ -4651,6 +5045,12 @@
   "format": "OVA",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Drama",
+   "Psychological",
+   "Sci-Fi",
+   "Thriller"
+  ],
   "seasonYear": 2015,
   "startDate": {
    "year": 2015,
@@ -4705,6 +5105,11 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Comedy",
+   "Drama",
+   "Sports"
+  ],
   "seasonYear": 2016,
   "startDate": {
    "year": 2016,
@@ -4772,6 +5177,13 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "SUMMER",
+  "genres": [
+   "Comedy",
+   "Mystery",
+   "Psychological",
+   "Romance",
+   "Supernatural"
+  ],
   "seasonYear": 2017,
   "startDate": {
    "year": 2017,
@@ -4822,6 +5234,13 @@
   "format": "SPECIAL",
   "status": "FINISHED",
   "season": "SUMMER",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Comedy",
+   "Drama",
+   "Fantasy"
+  ],
   "seasonYear": 2016,
   "startDate": {
    "year": 2016,
@@ -4882,6 +5301,11 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "SPRING",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Comedy"
+  ],
   "seasonYear": 2017,
   "startDate": {
    "year": 2017,
@@ -4943,6 +5367,12 @@
   "format": "OVA",
   "status": "FINISHED",
   "season": "SPRING",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Comedy",
+   "Supernatural"
+  ],
   "seasonYear": 2017,
   "startDate": {
    "year": 2017,
@@ -4989,6 +5419,12 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "SUMMER",
+  "genres": [
+   "Action",
+   "Drama",
+   "Fantasy",
+   "Mystery"
+  ],
   "seasonYear": 2018,
   "startDate": {
    "year": 2018,
@@ -5075,6 +5511,12 @@
   "format": "OVA",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Action",
+   "Drama",
+   "Fantasy",
+   "Mystery"
+  ],
   "seasonYear": 2017,
   "startDate": {
    "year": 2017,
@@ -5142,6 +5584,12 @@
   "format": "OVA",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Comedy",
+   "Drama",
+   "Fantasy",
+   "Psychological"
+  ],
   "seasonYear": 2018,
   "startDate": {
    "year": 2018,
@@ -5193,6 +5641,12 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "SPRING",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Comedy",
+   "Drama"
+  ],
   "seasonYear": 2018,
   "startDate": {
    "year": 2018,
@@ -5254,6 +5708,12 @@
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "WINTER",
+  "genres": [
+   "Action",
+   "Drama",
+   "Fantasy",
+   "Mystery"
+  ],
   "seasonYear": 2018,
   "startDate": {
    "year": 2018,
@@ -5308,6 +5768,12 @@
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "SUMMER",
+  "genres": [
+   "Action",
+   "Comedy",
+   "Drama",
+   "Sci-Fi"
+  ],
   "seasonYear": 2018,
   "startDate": {
    "year": 2018,
@@ -5367,6 +5833,11 @@
   "format": "OVA",
   "status": "FINISHED",
   "season": "WINTER",
+  "genres": [
+   "Drama",
+   "Mystery",
+   "Supernatural"
+  ],
   "seasonYear": 2019,
   "startDate": {
    "year": 2019,
@@ -5437,6 +5908,12 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Comedy",
+   "Fantasy"
+  ],
   "seasonYear": 2018,
   "startDate": {
    "year": 2018,
@@ -5540,6 +6017,14 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "WINTER",
+  "genres": [
+   "Action",
+   "Comedy",
+   "Drama",
+   "Psychological",
+   "Slice of Life",
+   "Supernatural"
+  ],
   "seasonYear": 2019,
   "startDate": {
    "year": 2019,
@@ -5602,6 +6087,11 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "SUMMER",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Drama"
+  ],
   "seasonYear": 2019,
   "startDate": {
    "year": 2019,
@@ -5665,6 +6155,12 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "WINTER",
+  "genres": [
+   "Comedy",
+   "Psychological",
+   "Romance",
+   "Slice of Life"
+  ],
   "seasonYear": 2019,
   "startDate": {
    "year": 2019,
@@ -5733,6 +6229,13 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "SPRING",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Drama",
+   "Fantasy",
+   "Supernatural"
+  ],
   "seasonYear": 2019,
   "startDate": {
    "year": 2019,
@@ -5804,6 +6307,9 @@
   "format": "SPECIAL",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Comedy"
+  ],
   "seasonYear": 2016,
   "startDate": {
    "year": 2016,
@@ -5843,6 +6349,10 @@
   "format": "OVA",
   "status": "FINISHED",
   "season": "WINTER",
+  "genres": [
+   "Comedy",
+   "Sci-Fi"
+  ],
   "seasonYear": 2019,
   "startDate": {
    "year": 2018,
@@ -5894,6 +6404,13 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Comedy",
+   "Drama",
+   "Sci-Fi"
+  ],
   "seasonYear": 2019,
   "startDate": {
    "year": 2019,
@@ -5960,6 +6477,11 @@
   "format": "OVA",
   "status": "FINISHED",
   "season": null,
+  "genres": [
+   "Comedy",
+   "Drama",
+   "Psychological"
+  ],
   "seasonYear": null,
   "startDate": {
    "year": 2016,
@@ -6007,6 +6529,12 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "SPRING",
+  "genres": [
+   "Action",
+   "Drama",
+   "Fantasy",
+   "Mystery"
+  ],
   "seasonYear": 2019,
   "startDate": {
    "year": 2019,
@@ -6073,6 +6601,10 @@
   "format": "OVA",
   "status": "FINISHED",
   "season": "WINTER",
+  "genres": [
+   "Action",
+   "Drama"
+  ],
   "seasonYear": 2019,
   "startDate": {
    "year": 2019,
@@ -6123,6 +6655,13 @@
   "format": "OVA",
   "status": "FINISHED",
   "season": "SUMMER",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Comedy",
+   "Ecchi",
+   "Fantasy"
+  ],
   "seasonYear": 2019,
   "startDate": {
    "year": 2019,
@@ -6171,6 +6710,11 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "WINTER",
+  "genres": [
+   "Comedy",
+   "Drama",
+   "Sports"
+  ],
   "seasonYear": 2020,
   "startDate": {
    "year": 2020,
@@ -6226,6 +6770,12 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "WINTER",
+  "genres": [
+   "Adventure",
+   "Drama",
+   "Ecchi",
+   "Fantasy"
+  ],
   "seasonYear": 2021,
   "startDate": {
    "year": 2021,
@@ -6284,6 +6834,12 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "WINTER",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Comedy",
+   "Fantasy"
+  ],
   "seasonYear": 2021,
   "startDate": {
    "year": 2021,
@@ -6346,6 +6902,10 @@
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Action",
+   "Sci-Fi"
+  ],
   "seasonYear": 2019,
   "startDate": {
    "year": 2019,
@@ -6417,6 +6977,14 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "SUMMER",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Drama",
+   "Fantasy",
+   "Psychological",
+   "Thriller"
+  ],
   "seasonYear": 2020,
   "startDate": {
    "year": 2020,
@@ -6483,6 +7051,11 @@
   "format": "OVA",
   "status": "FINISHED",
   "season": "SUMMER",
+  "genres": [
+   "Action",
+   "Comedy",
+   "Supernatural"
+  ],
   "seasonYear": 2019,
   "startDate": {
    "year": 2019,
@@ -6536,6 +7109,12 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "WINTER",
+  "genres": [
+   "Action",
+   "Drama",
+   "Fantasy",
+   "Mystery"
+  ],
   "seasonYear": 2021,
   "startDate": {
    "year": 2020,
@@ -6599,6 +7178,11 @@
   "format": "OVA",
   "status": "FINISHED",
   "season": "WINTER",
+  "genres": [
+   "Comedy",
+   "Drama",
+   "Sports"
+  ],
   "seasonYear": 2020,
   "startDate": {
    "year": 2020,
@@ -6662,6 +7246,14 @@
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Drama",
+   "Fantasy",
+   "Mystery",
+   "Supernatural"
+  ],
   "seasonYear": 2020,
   "startDate": {
    "year": 2020,
@@ -6728,6 +7320,12 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "SPRING",
+  "genres": [
+   "Comedy",
+   "Psychological",
+   "Romance",
+   "Slice of Life"
+  ],
   "seasonYear": 2020,
   "startDate": {
    "year": 2020,
@@ -6795,6 +7393,11 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Action",
+   "Drama",
+   "Supernatural"
+  ],
   "seasonYear": 2020,
   "startDate": {
    "year": 2020,
@@ -6856,6 +7459,11 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Comedy",
+   "Drama",
+   "Sports"
+  ],
   "seasonYear": 2020,
   "startDate": {
    "year": 2020,
@@ -6913,6 +7521,12 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "SUMMER",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Comedy",
+   "Fantasy"
+  ],
   "seasonYear": 2021,
   "startDate": {
    "year": 2021,
@@ -6992,6 +7606,12 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "SPRING",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Comedy",
+   "Sci-Fi"
+  ],
   "seasonYear": 2021,
   "startDate": {
    "year": 2021,
@@ -7070,6 +7690,15 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "WINTER",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Drama",
+   "Fantasy",
+   "Psychological",
+   "Romance",
+   "Thriller"
+  ],
   "seasonYear": 2021,
   "startDate": {
    "year": 2021,
@@ -7134,6 +7763,11 @@
   "format": "ONA",
   "status": "FINISHED",
   "season": "SUMMER",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Comedy"
+  ],
   "seasonYear": 2020,
   "startDate": {
    "year": 2020,
@@ -7181,6 +7815,12 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "SPRING",
+  "genres": [
+   "Comedy",
+   "Psychological",
+   "Romance",
+   "Slice of Life"
+  ],
   "seasonYear": 2022,
   "startDate": {
    "year": 2022,
@@ -7241,6 +7881,12 @@
   "format": "OVA",
   "status": "FINISHED",
   "season": "SPRING",
+  "genres": [
+   "Comedy",
+   "Ecchi",
+   "Romance",
+   "Slice of Life"
+  ],
   "seasonYear": 2021,
   "startDate": {
    "year": 2021,
@@ -7296,6 +7942,11 @@
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "SUMMER",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Sci-Fi"
+  ],
   "seasonYear": 2021,
   "startDate": {
    "year": 2021,
@@ -7357,6 +8008,9 @@
   "format": "SPECIAL",
   "status": "FINISHED",
   "season": "SUMMER",
+  "genres": [
+   "Comedy"
+  ],
   "seasonYear": 2020,
   "startDate": {
    "year": 2020,
@@ -7400,6 +8054,12 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Action",
+   "Drama",
+   "Horror",
+   "Supernatural"
+  ],
   "seasonYear": 2022,
   "startDate": {
    "year": 2022,
@@ -7488,6 +8148,12 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Adventure",
+   "Drama",
+   "Ecchi",
+   "Fantasy"
+  ],
   "seasonYear": 2021,
   "startDate": {
    "year": 2021,
@@ -7561,6 +8227,14 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Drama",
+   "Fantasy",
+   "Mystery",
+   "Supernatural"
+  ],
   "seasonYear": 2021,
   "startDate": {
    "year": 2021,
@@ -7626,6 +8300,11 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Comedy",
+   "Music",
+   "Slice of Life"
+  ],
   "seasonYear": 2022,
   "startDate": {
    "year": 2022,
@@ -7699,6 +8378,12 @@
   "format": "OVA",
   "status": "FINISHED",
   "season": "SPRING",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Comedy",
+   "Supernatural"
+  ],
   "seasonYear": 2017,
   "startDate": {
    "year": 2017,
@@ -7742,6 +8427,10 @@
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Action",
+   "Supernatural"
+  ],
   "seasonYear": 2021,
   "startDate": {
    "year": 2021,
@@ -7797,6 +8486,13 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "WINTER",
+  "genres": [
+   "Action",
+   "Drama",
+   "Fantasy",
+   "Mystery",
+   "Psychological"
+  ],
   "seasonYear": 2022,
   "startDate": {
    "year": 2022,
@@ -7849,6 +8545,11 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "WINTER",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Drama"
+  ],
   "seasonYear": 2023,
   "startDate": {
    "year": 2023,
@@ -7914,6 +8615,10 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Action",
+   "Adventure"
+  ],
   "seasonYear": 2022,
   "startDate": {
    "year": 2022,
@@ -7982,6 +8687,14 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Action",
+   "Comedy",
+   "Drama",
+   "Psychological",
+   "Slice of Life",
+   "Supernatural"
+  ],
   "seasonYear": 2022,
   "startDate": {
    "year": 2022,
@@ -8039,6 +8752,12 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "SPRING",
+  "genres": [
+   "Action",
+   "Comedy",
+   "Slice of Life",
+   "Supernatural"
+  ],
   "seasonYear": 2022,
   "startDate": {
    "year": 2022,
@@ -8087,6 +8806,11 @@
   "format": "SPECIAL",
   "status": "FINISHED",
   "season": "WINTER",
+  "genres": [
+   "Adventure",
+   "Drama",
+   "Fantasy"
+  ],
   "seasonYear": 2022,
   "startDate": {
    "year": 2022,
@@ -8144,6 +8868,12 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "WINTER",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Fantasy",
+   "Supernatural"
+  ],
   "seasonYear": 2022,
   "startDate": {
    "year": 2021,
@@ -8206,6 +8936,12 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Action",
+   "Comedy",
+   "Slice of Life",
+   "Supernatural"
+  ],
   "seasonYear": 2022,
   "startDate": {
    "year": 2022,
@@ -8259,6 +8995,11 @@
   "format": "SPECIAL",
   "status": "FINISHED",
   "season": null,
+  "genres": [
+   "Mystery",
+   "Romance",
+   "Supernatural"
+  ],
   "seasonYear": null,
   "startDate": {
    "year": 2022,
@@ -8312,6 +9053,11 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "SUMMER",
+  "genres": [
+   "Action",
+   "Drama",
+   "Supernatural"
+  ],
   "seasonYear": 2023,
   "startDate": {
    "year": 2023,
@@ -8382,6 +9128,13 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "SPRING",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Drama",
+   "Fantasy",
+   "Supernatural"
+  ],
   "seasonYear": 2023,
   "startDate": {
    "year": 2023,
@@ -8438,6 +9191,12 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "SUMMER",
+  "genres": [
+   "Adventure",
+   "Drama",
+   "Ecchi",
+   "Fantasy"
+  ],
   "seasonYear": 2023,
   "startDate": {
    "year": 2023,
@@ -8506,6 +9265,10 @@
   "format": "ONA",
   "status": "FINISHED",
   "season": "WINTER",
+  "genres": [
+   "Comedy",
+   "Fantasy"
+  ],
   "seasonYear": 2022,
   "startDate": {
    "year": 2022,
@@ -8553,6 +9316,13 @@
   "format": "SPECIAL",
   "status": "FINISHED",
   "season": "WINTER",
+  "genres": [
+   "Action",
+   "Drama",
+   "Fantasy",
+   "Mystery",
+   "Psychological"
+  ],
   "seasonYear": 2023,
   "startDate": {
    "year": 2023,
@@ -8616,6 +9386,12 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "SPRING",
+  "genres": [
+   "Drama",
+   "Mystery",
+   "Psychological",
+   "Supernatural"
+  ],
   "seasonYear": 2023,
   "startDate": {
    "year": 2023,
@@ -8677,6 +9453,12 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "SPRING",
+  "genres": [
+   "Comedy",
+   "Psychological",
+   "Romance",
+   "Slice of Life"
+  ],
   "seasonYear": 2023,
   "startDate": {
    "year": 2023,
@@ -8734,6 +9516,11 @@
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "WINTER",
+  "genres": [
+   "Comedy",
+   "Drama",
+   "Sports"
+  ],
   "seasonYear": 2024,
   "startDate": {
    "year": 2024,
@@ -8807,6 +9594,11 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Adventure",
+   "Drama",
+   "Fantasy"
+  ],
   "seasonYear": 2023,
   "startDate": {
    "year": 2023,
@@ -8883,6 +9675,12 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "SPRING",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Comedy",
+   "Fantasy"
+  ],
   "seasonYear": 2024,
   "startDate": {
    "year": 2024,
@@ -8953,6 +9751,12 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Action",
+   "Comedy",
+   "Slice of Life",
+   "Supernatural"
+  ],
   "seasonYear": 2023,
   "startDate": {
    "year": 2023,
@@ -9014,6 +9818,13 @@
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Comedy",
+   "Slice of Life",
+   "Supernatural"
+  ],
   "seasonYear": 2023,
   "startDate": {
    "year": 2023,
@@ -9073,6 +9884,10 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Drama",
+   "Mystery"
+  ],
   "seasonYear": 2023,
   "startDate": {
    "year": 2023,
@@ -9141,6 +9956,12 @@
   "format": "OVA",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Comedy",
+   "Fantasy"
+  ],
   "seasonYear": 2023,
   "startDate": {
    "year": 2023,
@@ -9187,6 +10008,11 @@
   "format": "ONA",
   "status": "FINISHED",
   "season": "WINTER",
+  "genres": [
+   "Action",
+   "Drama",
+   "Psychological"
+  ],
   "seasonYear": 2023,
   "startDate": {
    "year": 2023,
@@ -9230,6 +10056,13 @@
   "format": "SPECIAL",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Action",
+   "Drama",
+   "Fantasy",
+   "Psychological",
+   "Romance"
+  ],
   "seasonYear": 2023,
   "startDate": {
    "year": 2023,
@@ -9275,6 +10108,15 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Drama",
+   "Fantasy",
+   "Psychological",
+   "Romance",
+   "Thriller"
+  ],
   "seasonYear": 2024,
   "startDate": {
    "year": 2024,
@@ -9342,6 +10184,9 @@
   "format": "ONA",
   "status": "FINISHED",
   "season": "SPRING",
+  "genres": [
+   "Drama"
+  ],
   "seasonYear": 2023,
   "startDate": {
    "year": 2023,
@@ -9383,6 +10228,11 @@
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "SPRING",
+  "genres": [
+   "Comedy",
+   "Music",
+   "Slice of Life"
+  ],
   "seasonYear": 2024,
   "startDate": {
    "year": 2024,
@@ -9440,6 +10290,10 @@
   "format": "ONA",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Comedy",
+   "Romance"
+  ],
   "seasonYear": 2021,
   "startDate": {
    "year": 2021,
@@ -9488,6 +10342,13 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "SPRING",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Drama",
+   "Fantasy",
+   "Supernatural"
+  ],
   "seasonYear": 2024,
   "startDate": {
    "year": 2024,
@@ -9542,6 +10403,12 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "SUMMER",
+  "genres": [
+   "Drama",
+   "Mystery",
+   "Psychological",
+   "Supernatural"
+  ],
   "seasonYear": 2024,
   "startDate": {
    "year": 2024,
@@ -9599,6 +10466,12 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "SPRING",
+  "genres": [
+   "Adventure",
+   "Drama",
+   "Ecchi",
+   "Fantasy"
+  ],
   "seasonYear": 2024,
   "startDate": {
    "year": 2024,
@@ -9663,6 +10536,10 @@
   "format": "ONA",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Comedy",
+   "Fantasy"
+  ],
   "seasonYear": 2023,
   "startDate": {
    "year": 2023,
@@ -9710,6 +10587,9 @@
   "format": "ONA",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Comedy"
+  ],
   "seasonYear": 2023,
   "startDate": {
    "year": 2023,
@@ -9758,6 +10638,14 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Action",
+   "Comedy",
+   "Drama",
+   "Romance",
+   "Sci-Fi",
+   "Supernatural"
+  ],
   "seasonYear": 2024,
   "startDate": {
    "year": 2024,
@@ -9813,6 +10701,11 @@
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "SUMMER",
+  "genres": [
+   "Comedy",
+   "Music",
+   "Slice of Life"
+  ],
   "seasonYear": 2024,
   "startDate": {
    "year": 2024,
@@ -9878,6 +10771,13 @@
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "SUMMER",
+  "genres": [
+   "Action",
+   "Drama",
+   "Horror",
+   "Romance",
+   "Supernatural"
+  ],
   "seasonYear": 2025,
   "startDate": {
    "year": 2025,
@@ -9940,6 +10840,11 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "WINTER",
+  "genres": [
+   "Action",
+   "Drama",
+   "Supernatural"
+  ],
   "seasonYear": 2026,
   "startDate": {
    "year": 2026,
@@ -10000,6 +10905,11 @@
   "format": "MOVIE",
   "status": "NOT_YET_RELEASED",
   "season": null,
+  "genres": [
+   "Comedy",
+   "Drama",
+   "Sports"
+  ],
   "seasonYear": null,
   "startDate": {
    "year": 2027,
@@ -10057,6 +10967,10 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "WINTER",
+  "genres": [
+   "Drama",
+   "Mystery"
+  ],
   "seasonYear": 2025,
   "startDate": {
    "year": 2025,
@@ -10127,6 +11041,12 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Action",
+   "Comedy",
+   "Slice of Life",
+   "Supernatural"
+  ],
   "seasonYear": 2025,
   "startDate": {
    "year": 2025,
@@ -10181,6 +11101,13 @@
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "SUMMER",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Drama",
+   "Fantasy",
+   "Supernatural"
+  ],
   "seasonYear": 2025,
   "startDate": {
    "year": 2025,
@@ -10235,6 +11162,12 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "SUMMER",
+  "genres": [
+   "Adventure",
+   "Drama",
+   "Ecchi",
+   "Fantasy"
+  ],
   "seasonYear": 2026,
   "startDate": {
    "year": 2026,
@@ -10299,6 +11232,12 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "SPRING",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Comedy",
+   "Fantasy"
+  ],
   "seasonYear": 2026,
   "startDate": {
    "year": 2026,
@@ -10361,6 +11300,12 @@
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "WINTER",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Comedy",
+   "Fantasy"
+  ],
   "seasonYear": 2026,
   "startDate": {
    "year": 2026,
@@ -10421,6 +11366,11 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "WINTER",
+  "genres": [
+   "Adventure",
+   "Drama",
+   "Fantasy"
+  ],
   "seasonYear": 2026,
   "startDate": {
    "year": 2026,
@@ -10481,6 +11431,12 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "WINTER",
+  "genres": [
+   "Drama",
+   "Mystery",
+   "Psychological",
+   "Supernatural"
+  ],
   "seasonYear": 2026,
   "startDate": {
    "year": 2026,
@@ -10540,6 +11496,14 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "SUMMER",
+  "genres": [
+   "Action",
+   "Comedy",
+   "Drama",
+   "Romance",
+   "Sci-Fi",
+   "Supernatural"
+  ],
   "seasonYear": 2025,
   "startDate": {
    "year": 2025,
@@ -10594,6 +11558,9 @@
   "format": "ONA",
   "status": "FINISHED",
   "season": "WINTER",
+  "genres": [
+   "Comedy"
+  ],
   "seasonYear": 2025,
   "startDate": {
    "year": 2025,
@@ -10653,6 +11620,11 @@
   "format": "TV",
   "status": "NOT_YET_RELEASED",
   "season": null,
+  "genres": [
+   "Comedy",
+   "Music",
+   "Slice of Life"
+  ],
   "seasonYear": null,
   "startDate": {
    "year": null,
@@ -10705,6 +11677,11 @@
   "format": "SPECIAL",
   "status": "NOT_YET_RELEASED",
   "season": null,
+  "genres": [
+   "Comedy",
+   "Drama",
+   "Sports"
+  ],
   "seasonYear": null,
   "startDate": {
    "year": 2027,
@@ -10751,6 +11728,15 @@
   "format": "TV",
   "status": "FINISHED",
   "season": "SPRING",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Drama",
+   "Fantasy",
+   "Psychological",
+   "Romance",
+   "Thriller"
+  ],
   "seasonYear": 2026,
   "startDate": {
    "year": 2026,
@@ -10814,6 +11800,10 @@
   "format": "ONA",
   "status": "FINISHED",
   "season": "SPRING",
+  "genres": [
+   "Comedy",
+   "Fantasy"
+  ],
   "seasonYear": 2025,
   "startDate": {
    "year": 2025,
@@ -10867,6 +11857,11 @@
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "SPRING",
+  "genres": [
+   "Action",
+   "Drama",
+   "Supernatural"
+  ],
   "seasonYear": 2025,
   "startDate": {
    "year": 2025,
@@ -10926,6 +11921,12 @@
   "format": "SPECIAL",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Comedy",
+   "Psychological",
+   "Romance",
+   "Slice of Life"
+  ],
   "seasonYear": 2025,
   "startDate": {
    "year": 2025,
@@ -10976,6 +11977,12 @@
   "format": "MOVIE",
   "status": "NOT_YET_RELEASED",
   "season": null,
+  "genres": [
+   "Action",
+   "Adventure",
+   "Drama",
+   "Supernatural"
+  ],
   "seasonYear": null,
   "startDate": {
    "year": null,
@@ -11026,6 +12033,12 @@
   "format": "MOVIE",
   "status": "NOT_YET_RELEASED",
   "season": null,
+  "genres": [
+   "Action",
+   "Adventure",
+   "Drama",
+   "Supernatural"
+  ],
   "seasonYear": null,
   "startDate": {
    "year": null,
@@ -11069,6 +12082,10 @@
   "format": "TV",
   "status": "RELEASING",
   "season": "FALL",
+  "genres": [
+   "Drama",
+   "Mystery"
+  ],
   "seasonYear": 2026,
   "startDate": {
    "year": 2026,
@@ -11157,6 +12174,10 @@
   "format": "ONA",
   "status": "FINISHED",
   "season": "SUMMER",
+  "genres": [
+   "Comedy",
+   "Slice of Life"
+  ],
   "seasonYear": 2025,
   "startDate": {
    "year": 2025,
@@ -11202,6 +12223,14 @@
   "format": "TV",
   "status": "NOT_YET_RELEASED",
   "season": null,
+  "genres": [
+   "Action",
+   "Comedy",
+   "Drama",
+   "Fantasy",
+   "Sci-Fi",
+   "Supernatural"
+  ],
   "seasonYear": null,
   "startDate": {
    "year": 2027,
@@ -11248,6 +12277,10 @@
   "format": "TV",
   "status": "NOT_YET_RELEASED",
   "season": "SPRING",
+  "genres": [
+   "Drama",
+   "Mystery"
+  ],
   "seasonYear": 2027,
   "startDate": {
    "year": 2027,
@@ -11293,6 +12326,10 @@
   "format": "MOVIE",
   "status": "NOT_YET_RELEASED",
   "season": "FALL",
+  "genres": [
+   "Drama",
+   "Mystery"
+  ],
   "seasonYear": 2026,
   "startDate": {
    "year": 2026,
@@ -11335,6 +12372,11 @@
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "FALL",
+  "genres": [
+   "Action",
+   "Drama",
+   "Supernatural"
+  ],
   "seasonYear": 2025,
   "startDate": {
    "year": 2025,
@@ -11395,6 +12437,12 @@
   "format": null,
   "status": "NOT_YET_RELEASED",
   "season": null,
+  "genres": [
+   "Action",
+   "Drama",
+   "Horror",
+   "Supernatural"
+  ],
   "seasonYear": null,
   "startDate": {
    "year": null,
@@ -11440,6 +12488,12 @@
   "format": "MOVIE",
   "status": "NOT_YET_RELEASED",
   "season": null,
+  "genres": [
+   "Comedy",
+   "Psychological",
+   "Romance",
+   "Slice of Life"
+  ],
   "seasonYear": null,
   "startDate": {
    "year": null,
@@ -11487,6 +12541,10 @@
   "format": "ONA",
   "status": "FINISHED",
   "season": "WINTER",
+  "genres": [
+   "Comedy",
+   "Fantasy"
+  ],
   "seasonYear": 2026,
   "startDate": {
    "year": 2026,
@@ -11534,6 +12592,12 @@
   "format": "TV",
   "status": "NOT_YET_RELEASED",
   "season": null,
+  "genres": [
+   "Drama",
+   "Mystery",
+   "Psychological",
+   "Supernatural"
+  ],
   "seasonYear": null,
   "startDate": {
    "year": null,
@@ -11581,6 +12645,11 @@
   "format": null,
   "status": "NOT_YET_RELEASED",
   "season": null,
+  "genres": [
+   "Action",
+   "Drama",
+   "Supernatural"
+  ],
   "seasonYear": null,
   "startDate": {
    "year": null,
@@ -11628,6 +12697,11 @@
   "format": "TV",
   "status": "NOT_YET_RELEASED",
   "season": "FALL",
+  "genres": [
+   "Adventure",
+   "Drama",
+   "Fantasy"
+  ],
   "seasonYear": 2027,
   "startDate": {
    "year": 2027,
@@ -11671,6 +12745,11 @@
   "format": "SPECIAL",
   "status": "FINISHED",
   "season": "SUMMER",
+  "genres": [
+   "Comedy",
+   "Slice of Life",
+   "Supernatural"
+  ],
   "seasonYear": 2026,
   "startDate": {
    "year": 2026,
@@ -11716,6 +12795,12 @@
   "format": "TV",
   "status": "NOT_YET_RELEASED",
   "season": "SUMMER",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Comedy",
+   "Fantasy"
+  ],
   "seasonYear": 2027,
   "startDate": {
    "year": 2027,
@@ -11761,6 +12846,12 @@
   "format": "TV",
   "status": "NOT_YET_RELEASED",
   "season": null,
+  "genres": [
+   "Adventure",
+   "Drama",
+   "Ecchi",
+   "Fantasy"
+  ],
   "seasonYear": null,
   "startDate": {
    "year": 2027,
@@ -11809,6 +12900,9 @@
   "format": "ONA",
   "status": "RELEASING",
   "season": "FALL",
+  "genres": [
+   "Comedy"
+  ],
   "seasonYear": 2026,
   "startDate": {
    "year": 2026,
@@ -11858,6 +12952,10 @@
   "format": "MOVIE",
   "status": "NOT_YET_RELEASED",
   "season": null,
+  "genres": [
+   "Music",
+   "Slice of Life"
+  ],
   "seasonYear": null,
   "startDate": {
    "year": 2027,
@@ -11911,6 +13009,12 @@
   "format": "TV",
   "status": "NOT_YET_RELEASED",
   "season": null,
+  "genres": [
+   "Action",
+   "Comedy",
+   "Slice of Life",
+   "Supernatural"
+  ],
   "seasonYear": null,
   "startDate": {
    "year": 2027,
@@ -11956,6 +13060,15 @@
   "format": "TV",
   "status": "NOT_YET_RELEASED",
   "season": null,
+  "genres": [
+   "Action",
+   "Adventure",
+   "Drama",
+   "Fantasy",
+   "Psychological",
+   "Romance",
+   "Thriller"
+  ],
   "seasonYear": null,
   "startDate": {
    "year": null,

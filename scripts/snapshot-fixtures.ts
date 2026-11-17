@@ -48,6 +48,7 @@ const FIELDS = `
   format
   status
   season
+  genres
   seasonYear
   startDate { year month day }
   averageScore

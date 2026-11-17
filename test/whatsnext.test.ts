@@ -243,7 +243,7 @@ describe("whats_next tool", () => {
     expect(r.text).toContain("Bocchi the Rock! 2nd Season");
   });
 
-  test("a movie already started isn't next; a planned one says so", async () => {
+  test("a planned movie says it's on the plan-to-watch list", async () => {
     fake.entries.clear();
     fake.seed([
       { anime: "Chainsaw Man", status: "COMPLETED" },
@@ -252,6 +252,10 @@ describe("whats_next tool", () => {
     expect((await call({ anime: "chainsaw man", timeZone: "UTC" })).text).toContain(
       "(movie, 2025), on your plan-to-watch list.",
     );
+  });
+
+  // A separate test, so the list isn't served from the cache filled by the call above.
+  test("a movie already started isn't next", async () => {
     fake.entries.clear();
     fake.seed([
       { anime: "Chainsaw Man", status: "COMPLETED" },
