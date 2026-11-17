@@ -65,6 +65,24 @@ function displayScore(raw: number, format: ScoreFormat): number {
   }
 }
 
+interface SearchVariables {
+  season?: string;
+  seasonYear?: number;
+  genres?: string[];
+  formats?: string[];
+  status?: string;
+  sort?: string[];
+}
+
+/** Descending sort keys for the AniList sorts we use. SEARCH_MATCH is imitated by popularity. */
+const SORT_KEYS: Record<string, (m: CatalogMedia) => number> = {
+  SEARCH_MATCH: (m) => m.popularity ?? 0,
+  POPULARITY_DESC: (m) => m.popularity ?? 0,
+  SCORE_DESC: (m) => m.averageScore ?? 0,
+  START_DATE_DESC: (m) =>
+    m.startDate?.year ? m.startDate.year * 10000 + (m.startDate.month ?? 0) * 100 + (m.startDate.day ?? 0) : Infinity,
+};
+
 export class FakeAniList {
   entries = new Map<number, StoredEntry>();
   nextEntryId = 1000;
@@ -153,15 +171,21 @@ export class FakeAniList {
             episodes: target?.episodes ?? null,
             title: target?.title ?? { romaji: null, english: null, native: null },
             startDate: target?.startDate ?? null,
+            mediaListEntry: this.entries.has(e.node.id) ? { status: this.entries.get(e.node.id)!.status } : null,
           };
         })(),
       })),
     };
   }
 
-  /** Rough imitation of AniList search: every word somewhere in a title, most popular first. */
-  search(text: string, perPage: number) {
+  /**
+   * Rough imitation of AniList search and filters: every word somewhere in a title, then
+   * season, year, genres (any of), formats (any of) and airing status.
+   */
+  search(text: string, perPage: number, filters: SearchVariables = {}) {
     const words = normalize(text).split(" ").filter(Boolean);
+    const sortKey = SORT_KEYS[filters.sort?.[0] ?? "SEARCH_MATCH"];
+    if (!sortKey) throw new Error(`FakeAniList: unsupported sort ${filters.sort}`);
     return catalog
       .filter((m) => {
         const hay = [m.title.romaji, m.title.english, m.title.native, ...m.synonyms]
@@ -170,7 +194,15 @@ export class FakeAniList {
           .join(" | ");
         return words.every((w) => hay.includes(w));
       })
-      .sort((a, b) => (b.popularity ?? 0) - (a.popularity ?? 0))
+      .filter(
+        (m) =>
+          (filters.season == null || m.season === filters.season) &&
+          (filters.seasonYear == null || m.seasonYear === filters.seasonYear) &&
+          (filters.genres == null || m.genres.some((g) => filters.genres!.includes(g))) &&
+          (filters.formats == null || (m.format !== null && filters.formats.includes(m.format))) &&
+          (filters.status == null || m.status === filters.status),
+      )
+      .sort((a, b) => sortKey(b) - sortKey(a))
       .slice(0, perPage);
   }
 
@@ -203,7 +235,7 @@ export class FakeAniList {
       return json({ Page: { media: ids.map((id) => this.mediaView(id, relationDepth(query))).filter(Boolean) } });
     }
     if (query.includes("Page(")) {
-      const media = this.search(variables.search ?? "", variables.perPage ?? 10).map((m) =>
+      const media = this.search(variables.search ?? "", variables.perPage ?? 10, variables).map((m) =>
         this.mediaView(m.id, relationDepth(query)),
       );
       return json({ Page: { media } });
