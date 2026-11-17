@@ -52,12 +52,17 @@ describe("whats_next tool", () => {
   let fake: FakeAniList;
   let client: Client;
 
-  beforeEach(async () => {
-    fake = new FakeAniList().seed(PERSONA);
+  /** A new server, so it reads the fake's list fresh rather than from the list cache. */
+  async function connect() {
     const server = createServer(new AniListClient("t", fake.fetch), { now: () => NOW });
     const [a, b] = InMemoryTransport.createLinkedPair();
     client = new Client({ name: "t", version: "0" });
     await Promise.all([server.connect(b), client.connect(a)]);
+  }
+
+  beforeEach(async () => {
+    fake = new FakeAniList().seed(PERSONA);
+    await connect();
   });
 
   async function call(args: Record<string, unknown>) {
@@ -225,6 +230,7 @@ describe("whats_next tool", () => {
       { anime: "Chainsaw Man", status: "COMPLETED" },
       { anime: "Chainsaw Man: Reze-hen", status: "CURRENT" },
     ]);
+    await connect();
     expect((await call({ anime: "chainsaw man", timeZone: "UTC" })).text).not.toContain("Comes next");
   });
 
