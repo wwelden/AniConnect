@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { AniListClient, LIST_TTL_MS } from "../src/anilist";
-import { createServer } from "../src/server";
+import { createServer, INSTRUCTIONS, WRITE_TOOLS } from "../src/server";
 import { PERSONA } from "./fixtures/persona";
 import { catalog, FakeAniList } from "./support/fake-anilist";
 
@@ -103,6 +103,19 @@ describe("tools", () => {
       "set_status",
       "whats_next",
     ]);
+  });
+
+  test("says the shared guidance once, in the server instructions", async () => {
+    const { tools } = await client.listTools();
+    expect(client.getInstructions()).toBe(INSTRUCTIONS);
+    const writers = tools.filter((t) => t.annotations?.readOnlyHint === false).map((t) => t.name);
+    expect([...WRITE_TOOLS].sort() as string[]).toEqual(writers.sort());
+    for (const name of WRITE_TOOLS) expect(INSTRUCTIONS).toContain(name);
+    // Each write tool keeps a short hint of its own, for clients that don't show instructions.
+    for (const t of tools) {
+      expect(t.description).not.toContain("picks the right entry");
+      if (writers.includes(t.name)) expect(t.description).toContain("don't search first");
+    }
   });
 
   test("sends the token as a bearer header", async () => {
