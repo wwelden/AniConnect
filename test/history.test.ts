@@ -175,6 +175,34 @@ describe("watch_history tool", () => {
     expect(r.text).not.toContain("ONE PIECE");
   });
 
+  test("a show no longer on the list is found on AniList by name", async () => {
+    // Removed from the list after finishing it: the feed still has the history.
+    fake = new FakeAniList().seedActivity([
+      { anime: "Sousou no Frieren", status: "completed", at: "2026-10-05T20:00:00Z" },
+    ]);
+    fake.clock = () => clock;
+    const server = createServer(new AniListClient("t", fake.fetch), { now: () => clock });
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    client = new Client({ name: "test", version: "0" });
+    await Promise.all([server.connect(st), client.connect(ct)]);
+
+    const byId = await call("watch_history", { anime: 154587, timeZone: "UTC" });
+    const byName = await call("watch_history", { anime: "frieren", timeZone: "UTC" });
+    expect(byName.isError).toBe(false);
+    expect(byName.text).toMatch(/^Matched "frieren" to Frieren[^\n]*: it's the first season\.\n/);
+    expect(byName.text).toContain(byId.text);
+    expect(byName.text).toMatch(/Mon, Oct 5\n- 8:00 PM Frieren[^\n]*: completed/);
+    // Read-only: nothing was saved.
+    expect(fake.calls.some((c) => c.query.includes("mutation"))).toBe(false);
+  });
+
+  test("a name that matches several shows off the list still asks which one", async () => {
+    const r = await call("watch_history", { anime: "hunter x hunter", timeZone: "UTC" });
+    expect(r.isError).toBe(true);
+    expect(r.text).toContain("Ask the user which one they mean");
+    expect(r.text).not.toContain("Nothing was changed");
+  });
+
   test("a named season is found on the list without searching AniList", async () => {
     const r = await call("watch_history", { anime: "jjk season 2", timeZone: "UTC" });
     expect(r.text).toMatch(/JUJUTSU KAISEN Season 2[^\n]*: watched episode 3/);

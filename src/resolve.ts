@@ -467,7 +467,9 @@ function pick(query: string, intent: Intent, pool: Scored[]): Resolution {
   // season 1, "watched episode 2 of Frieren" means season 2).
   if ((intent === "add" || status(top.media) === "NONE") && sameFranchise(tied.map((s) => s.media))) {
     const first = tied[0]!.media;
-    const why = intent === "add" ? "it's the first season" : "it's the next season, and not on your list yet";
+    // Only progress-style intents mean "the next one to watch"; adding or looking up means season 1.
+    const why =
+      intent === "add" || intent === "lookup" ? "it's the first season" : "it's the next season, and not on your list yet";
     return { kind: "match", media: first, why };
   }
 
