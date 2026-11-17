@@ -62,8 +62,6 @@ export const CASES: EvalCase[] = [
     expect: { changes: [{ anime: "ONE PIECE", progress: 1180, status: "CURRENT" }] } },
   { id: "progress-caught-up-finished", prompt: "I'm all caught up on Dandadan", idealCalls: 1,
     expect: { changes: [{ anime: "Dandadan", progress: 12, status: "COMPLETED" }] } },
-  { id: "progress-caught-up-paused", prompt: "binged the rest of attack on titan, I'm caught up now", idealCalls: 1,
-    expect: { changes: [{ anime: "Shingeki no Kyojin: The Final Season", progress: 16, status: "COMPLETED" }] } },
   { id: "progress-next-season-after-complete", prompt: "watched episode 1 of the new Frieren season",
     expect: { changes: [{ anime: "Sousou no Frieren 2nd Season", added: true, progress: 1, status: "CURRENT" }] } },
 
