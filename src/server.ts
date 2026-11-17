@@ -107,6 +107,7 @@ const SEQUEL_CHECK_LIMIT = 50;
 export function createServer(client: AniListClient, options: ServerOptions = {}): McpServer {
   const now = options.now ?? Date.now;
   const safe = safeFor(client, now);
+  client.now = now;
   const server = new McpServer({ name: "aniconnect", version: "0.3.0" });
 
   server.registerTool(

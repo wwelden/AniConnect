@@ -93,6 +93,16 @@ export interface Viewer {
 
 export class AniListError extends Error {}
 
+export type ListItem = ListEntry & { media: Media };
+
+/**
+ * How long the user's list is reused before it is fetched again (requirement R5.4).
+ * Our own writes patch it, so this only bounds how long changes made elsewhere
+ * (anilist.co, a scrobbler) take to show up, and how stale the progress a write
+ * counts up from can be.
+ */
+export const LIST_TTL_MS = 60_000;
+
 type FetchFn = (input: string, init: RequestInit) => Promise<Response>;
 
 const MEDIA_FIELDS = `
@@ -129,6 +139,10 @@ export class AniListClient {
   private viewer: Viewer | null = null;
   /** When the token expires (ms), read from the JWT; null if it can't be decoded. */
   readonly tokenExpiresAt: number | null;
+  /** The whole list keyed by media ID, shared by calls that start while it loads. */
+  private list: { fetchedAt: number; entries: Promise<Map<number, ListItem>> } | null = null;
+  /** Clock for the list cache; createServer sets it so tests control expiry. */
+  now: () => number = Date.now;
 
   constructor(
     private readonly token: string,
@@ -294,13 +308,27 @@ export class AniListClient {
     return data.Page.media;
   }
 
-  async getMyList(status?: ListStatus): Promise<(ListEntry & { media: Media })[]> {
+  /** The user's list, from a cache that lives for LIST_TTL_MS and is patched by our own writes. */
+  async getMyList(status?: ListStatus): Promise<ListItem[]> {
+    let list = this.list;
+    if (!list || this.now() - list.fetchedAt >= LIST_TTL_MS) {
+      const fresh = { fetchedAt: this.now(), entries: this.fetchMyList() };
+      this.list = list = fresh;
+      fresh.entries.catch(() => {
+        if (this.list === fresh) this.list = null;
+      });
+    }
+    const entries = [...(await list.entries).values()];
+    return status ? entries.filter((e) => e.status === status) : entries;
+  }
+
+  private async fetchMyList(): Promise<Map<number, ListItem>> {
     const viewer = await this.getViewer();
     const data = await this.request<{
-      MediaListCollection: { lists: { entries: (ListEntry & { media: Media })[] }[] };
+      MediaListCollection: { lists: { entries: ListItem[] }[] };
     }>(
-      `query ($userId: Int, $status: MediaListStatus) {
-        MediaListCollection(userId: $userId, type: ANIME, status: $status) {
+      `query ($userId: Int) {
+        MediaListCollection(userId: $userId, type: ANIME) {
           lists {
             entries {
               ${ENTRY_FIELDS}
@@ -309,19 +337,39 @@ export class AniListClient {
           }
         }
       }`,
-      { userId: viewer.id, status },
+      { userId: viewer.id },
     );
     // An entry can appear in more than one list (e.g. a status list and a custom list).
-    const seen = new Set<number>();
-    const entries: (ListEntry & { media: Media })[] = [];
+    const entries = new Map<number, ListItem>();
     for (const list of data.MediaListCollection.lists) {
-      for (const entry of list.entries) {
-        if (seen.has(entry.id)) continue;
-        seen.add(entry.id);
-        entries.push(entry);
-      }
+      for (const entry of list.entries) entries.set(entry.media.id, entry);
     }
     return entries;
+  }
+
+  /**
+   * Applies one of our own writes to the cached list, after it finishes loading if it is
+   * still in flight. A failed write may or may not have landed, so it drops the cache.
+   */
+  private async patchList<T>(write: Promise<T>, patch: (entries: Map<number, ListItem>, result: T) => void): Promise<T> {
+    let result: T;
+    try {
+      result = await write;
+    } catch (err) {
+      this.list = null;
+      throw err;
+    }
+    if (this.list) {
+      const list = this.list;
+      list.entries = list.entries.then((entries) => {
+        patch(entries, result);
+        return entries;
+      });
+      list.entries.catch(() => {
+        if (this.list === list) this.list = null;
+      });
+    }
+    return result;
   }
 
   async saveEntry(input: {
@@ -331,8 +379,8 @@ export class AniListClient {
     scoreRaw?: number;
     startedAt?: FuzzyDate;
     completedAt?: FuzzyDate;
-  }): Promise<ListEntry & { media: Media }> {
-    const data = await this.request<{ SaveMediaListEntry: ListEntry & { media: Media } }>(
+  }): Promise<ListItem> {
+    const save = this.request<{ SaveMediaListEntry: ListItem }>(
       `mutation (
         $mediaId: Int, $status: MediaListStatus, $progress: Int, $scoreRaw: Int,
         $startedAt: FuzzyDateInput, $completedAt: FuzzyDateInput
@@ -346,15 +394,18 @@ export class AniListClient {
         }
       }`,
       input,
-    );
-    return data.SaveMediaListEntry;
+    ).then((data) => data.SaveMediaListEntry);
+    return this.patchList(save, (entries, saved) => entries.set(saved.media.id, saved));
   }
 
   async deleteEntry(entryId: number): Promise<boolean> {
-    const data = await this.request<{ DeleteMediaListEntry: { deleted: boolean } }>(
+    const remove = this.request<{ DeleteMediaListEntry: { deleted: boolean } }>(
       `mutation ($id: Int) { DeleteMediaListEntry(id: $id) { deleted } }`,
       { id: entryId },
-    );
-    return data.DeleteMediaListEntry.deleted;
+    ).then((data) => data.DeleteMediaListEntry.deleted);
+    return this.patchList(remove, (entries, deleted) => {
+      if (!deleted) return;
+      for (const [mediaId, entry] of entries) if (entry.id === entryId) entries.delete(mediaId);
+    });
   }
 }
