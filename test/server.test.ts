@@ -429,22 +429,44 @@ describe("list cache (R5.4)", () => {
     expect(r.requests).toEqual(["list"]);
   });
 
-  test("overlapping writes drop the cache instead of patching it out of order", async () => {
+  /** A client whose save with `progress: 8` answers only once `release` is called. */
+  function heldClient() {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
     const client = new AniListClient("t", async (url, init) => {
       const res = await fake.fetch(url, init);
-      // The first save to land answers last, so its older entry would win a patch.
-      if (JSON.parse(init.body as string).variables.progress === 8) await Bun.sleep(20);
+      if (JSON.parse(init.body as string).variables.progress === 8) await gate;
       return res;
     });
     client.now = () => clock;
+    return { client, release };
+  }
+
+  test("overlapping writes to one show drop the cache instead of patching it out of order", async () => {
+    const { client, release } = heldClient();
     await client.getMyList();
-    await Promise.all([
-      client.saveEntry({ mediaId: 171018, progress: 8 }),
-      Bun.sleep(5).then(() => client.saveEntry({ mediaId: 171018, scoreRaw: 90 })),
-    ]);
+    // The first save lands first but answers last, so its older entry would win a patch.
+    const first = client.saveEntry({ mediaId: 171018, progress: 8 });
+    await client.saveEntry({ mediaId: 171018, scoreRaw: 90 });
+    release();
+    await first;
     const before = fake.calls.length;
     const dandadan = (await client.getMyList()).find((e) => e.media.id === 171018)!;
     expect(kinds(fake.calls.slice(before))).toEqual(["list"]);
     expect([dandadan.progress, dandadan.score]).toEqual([8, 9]);
+  });
+
+  test("overlapping writes to different shows still patch the cache", async () => {
+    const { client, release } = heldClient();
+    await client.getMyList();
+    const first = client.saveEntry({ mediaId: 171018, progress: 8 });
+    await client.saveEntry({ mediaId: 21, scoreRaw: 90 });
+    release();
+    await first;
+    const before = fake.calls.length;
+    const list = await client.getMyList();
+    expect(kinds(fake.calls.slice(before))).toEqual([]);
+    expect(list.find((e) => e.media.id === 171018)!.progress).toBe(8);
+    expect(list.find((e) => e.media.id === 21)!.score).toBe(9);
   });
 });

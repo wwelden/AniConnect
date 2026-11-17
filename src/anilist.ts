@@ -141,8 +141,8 @@ export class AniListClient {
   readonly tokenExpiresAt: number | null;
   /** The whole list keyed by media ID, shared by calls that start while it loads. */
   private list: { fetchedAt: number; entries: Promise<Map<number, ListItem>> } | null = null;
-  /** Writes in flight; each is flagged if another write overlapped it. */
-  private writes = new Set<{ overlapped: boolean }>();
+  /** Writes in flight, by media ID (null: any); each is flagged if another write to it overlapped. */
+  private writes = new Set<{ mediaId: number | null; overlapped: boolean }>();
   /** Clock for the list cache; createServer sets it so tests control expiry. */
   now: () => number = Date.now;
 
@@ -351,12 +351,21 @@ export class AniListClient {
 
   /**
    * Applies one of our own writes to the cached list, after it finishes loading if it is
-   * still in flight. A failed write may or may not have landed, and overlapping writes
-   * can answer out of order (an older entry overwriting a newer one), so both drop the cache.
+   * still in flight. A failed write may or may not have landed, and overlapping writes to
+   * the same show can answer out of order (an older entry overwriting a newer one), so both
+   * drop the cache.
    */
-  private async patchList<T>(write: Promise<T>, patch: (entries: Map<number, ListItem>, result: T) => void): Promise<T> {
-    const self = { overlapped: this.writes.size > 0 };
-    for (const other of this.writes) other.overlapped = true;
+  private async patchList<T>(
+    mediaId: number | null,
+    write: Promise<T>,
+    patch: (entries: Map<number, ListItem>, result: T) => void,
+  ): Promise<T> {
+    const self = { mediaId, overlapped: false };
+    for (const other of this.writes) {
+      if (other.mediaId === null || mediaId === null || other.mediaId === mediaId) {
+        other.overlapped = self.overlapped = true;
+      }
+    }
     this.writes.add(self);
     let result: T;
     try {
@@ -404,7 +413,7 @@ export class AniListClient {
       }`,
       input,
     ).then((data) => data.SaveMediaListEntry);
-    return this.patchList(save, (entries, saved) => entries.set(saved.media.id, saved));
+    return this.patchList(input.mediaId, save, (entries, saved) => entries.set(saved.media.id, saved));
   }
 
   async deleteEntry(entryId: number): Promise<boolean> {
@@ -412,7 +421,7 @@ export class AniListClient {
       `mutation ($id: Int) { DeleteMediaListEntry(id: $id) { deleted } }`,
       { id: entryId },
     ).then((data) => data.DeleteMediaListEntry.deleted);
-    return this.patchList(remove, (entries, deleted) => {
+    return this.patchList(null, remove, (entries, deleted) => {
       if (!deleted) return;
       for (const [mediaId, entry] of entries) if (entry.id === entryId) entries.delete(mediaId);
     });
