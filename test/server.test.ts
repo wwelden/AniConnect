@@ -230,6 +230,16 @@ describe("tools", () => {
     expect(fake.entries.get(104578)!.scoreRaw).toBe(90);
   });
 
+  test("the newest of six seasons takes the list, one search and the write (R5.2)", async () => {
+    fake.seed(PERSONA);
+    const r = await call("add_to_list", { anime: "the new season of my hero academia" });
+    expect(r.text).toContain("[139630] My Hero Academia Season 6");
+    expect(fake.entries.get(139630)!.status).toBe("PLANNING");
+    // The viewer lookup happens once per session, so it isn't counted.
+    const requests = fake.calls.filter((c) => !c.query.includes("Viewer"));
+    expect(requests.map((c) => (c.query.includes("mutation") ? "write" : c.query.includes("search:") ? "search" : c.query.includes("MediaListCollection") ? "list" : "other"))).toEqual(["list", "search", "write"]);
+  });
+
   test("ambiguous names change nothing and list the candidates", async () => {
     fake.seed(PERSONA);
     const before = fake.writes.length;

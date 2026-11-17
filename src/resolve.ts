@@ -12,10 +12,13 @@ export type Intent = "progress" | "status" | "rate" | "add" | "remove" | "lookup
 export interface AnimeSource {
   /** Everything on the user's list, with `mediaListEntry` set. */
   listMedia(): Promise<Media[]>;
-  /** AniList-wide title search; results carry the user's `mediaListEntry` when present. */
+  /** AniList-wide title search; results carry `relations` and the user's `mediaListEntry` when present. */
   search(query: string): Promise<Media[]>;
-  /** Fetch anime by ID with `relations`. */
-  getMany(ids: number[]): Promise<Media[]>;
+  /**
+   * Fetch anime by ID with `relations`, where each related anime is a full `Media`
+   * (with `mediaListEntry`) carrying its own `relations`: two steps of a sequel chain.
+   */
+  getRelated(ids: number[]): Promise<Media[]>;
 }
 
 export type Resolution =
@@ -328,7 +331,7 @@ export function memo(source: AnimeSource): AnimeSource {
       if (!searches.has(query)) searches.set(query, source.search(query));
       return searches.get(query)!;
     },
-    getMany: (ids) => source.getMany(ids),
+    getRelated: (ids) => source.getRelated(ids),
   };
 }
 
@@ -365,12 +368,15 @@ async function resolveParsed(
 
   const list = await source.listMedia();
   let pool = score(list, q);
+  // Everything fetched so far, unscored: sequels with unrelated titles still help walk a chain.
+  let fetched = list;
   let searched = false;
   const searchAll = async () => {
     if (searched) return;
     searched = true;
     const results = await source.search(q.words.join(" "));
-    pool = score(dedupe([...list, ...results]), q);
+    fetched = [...list, ...results];
+    pool = score(dedupe(fetched), q);
   };
 
   const named =
@@ -394,9 +400,9 @@ async function resolveParsed(
     return { kind: "none", why: `Couldn't find "${query}" ${where}.` };
   }
 
-  if (q.hint.latest || q.hint.next) return resolveRelative(query, q, pool, source, language);
+  if (q.hint.latest || q.hint.next) return resolveRelative(query, q, pool, source, fetched, language);
   if (q.hint.season !== undefined || q.hint.part !== undefined) {
-    return resolveSeason(q, intent, pool, source);
+    return resolveSeason(q, intent, pool, source, fetched);
   }
   return pick(query, intent, pool);
 }
@@ -501,13 +507,14 @@ async function resolveRelative(
   q: ParsedQuery,
   pool: Scored[],
   source: AnimeSource,
+  fetched: Media[],
   language: TitleLanguage,
 ): Promise<Resolution> {
   const picked = pickRoot(pool, query);
   if (!("root" in picked)) return picked;
   const { root } = picked;
 
-  const chain = (await seasonChain(root, Number.POSITIVE_INFINITY, source)).map((e) => e.media);
+  const chain = (await seasonChain(root, Number.POSITIVE_INFINITY, source, fetched)).map((e) => e.media);
 
   if (q.hint.latest) {
     const aired = chain.filter(hasAired).filter((m) => q.hint.part === undefined || (titlePart(m) ?? 1) === q.hint.part);
@@ -536,9 +543,36 @@ interface SeasonEntry {
   part: number;
 }
 
-async function seasonChain(root: Media, upTo: number, source: AnimeSource): Promise<SeasonEntry[]> {
+/**
+ * Seasons in sequel order from `root`, stopping after the first one past season `upTo`.
+ * Walks what this call already fetched (`fetched`: the list and search results, which carry
+ * relations) and fetches only the anime it lacks, two sequel steps per request.
+ */
+async function seasonChain(root: Media, upTo: number, source: AnimeSource, fetched: Media[]): Promise<SeasonEntry[]> {
+  const known = new Map<number, Media>();
+  const learn = (m: Media) => {
+    const had = known.get(m.id);
+    // Keep the copy that has relations, and the list entry from whichever copy has one.
+    if (had?.relations && !m.relations) return;
+    known.set(m.id, { ...m, mediaListEntry: m.mediaListEntry ?? had?.mediaListEntry ?? null });
+  };
+  fetched.forEach(learn);
+  learn(root);
+  /** The anime with its relations, fetching it (and its related anime, in full) if needed. */
+  const full = async (id: number): Promise<Media | undefined> => {
+    if (known.get(id)?.relations) return known.get(id);
+    for (const m of await source.getRelated([id])) {
+      learn(m);
+      for (const edge of m.relations?.edges ?? []) {
+        const node = edge.node as RelationEdge["node"] & Partial<Media>;
+        if (node.type === "ANIME" && node.relations) learn(node as Media);
+      }
+    }
+    return known.get(id)?.relations ? known.get(id) : undefined;
+  };
+
   const chain: SeasonEntry[] = [];
-  let current: Media | undefined = root;
+  let current: Media | undefined = known.get(root.id);
   let season = titleSeason(root) ?? 1;
   let part = titlePart(root) ?? 1;
   const seen = new Set<number>();
@@ -546,13 +580,12 @@ async function seasonChain(root: Media, upTo: number, source: AnimeSource): Prom
     seen.add(current.id);
     chain.push({ media: current, season, part });
     if (season > upTo) break;
-    const withRelations: Media | undefined = current.relations ? current : (await source.getMany([current.id]))[0];
-    const edges: RelationEdge[] = withRelations?.relations?.edges ?? [];
+    const edges: RelationEdge[] = (await full(current.id))?.relations?.edges ?? [];
     const sequel = edges.find(
       (e) => e.relationType === "SEQUEL" && e.node.type === "ANIME" && SERIES_FORMATS.has(e.node.format ?? ""),
     );
     if (!sequel) break;
-    current = (await source.getMany([sequel.node.id]))[0];
+    current = known.get(sequel.node.id) ?? (await full(sequel.node.id));
     if (!current) break;
     const ts = titleSeason(current);
     const tp = titlePart(current);
@@ -574,6 +607,7 @@ async function resolveSeason(
   intent: Intent,
   pool: Scored[],
   source: AnimeSource,
+  fetched: Media[],
 ): Promise<Resolution> {
   const wantSeason = q.hint.season ?? 1;
   const fits = (season: number, part: number) =>
@@ -592,7 +626,7 @@ async function resolveSeason(
     if (!("root" in picked) && picked.kind === "ambiguous") return picked;
     const root = "root" in picked ? picked.root : undefined;
     if (root) {
-      const chain = await seasonChain(root, wantSeason, source);
+      const chain = await seasonChain(root, wantSeason, source, fetched);
       const fromChain = chain.filter((e) => fits(e.season, e.part));
       if (fromChain.length) {
         matches = fromChain;

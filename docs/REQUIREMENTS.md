@@ -90,7 +90,7 @@ Every tool that targets a show accepts a title (or an ID) and picks the right An
 | ID | Requirement | Status |
 |---|---|---|
 | R5.1 | Handle AniList's rate limit (about 90 requests/minute) by reporting the wait, never retry-looping. | Done |
-| R5.2 | Stay within a few AniList requests per tool call. | Done (2–3 typical; season lookups walk sequels, about 1 per season) |
+| R5.2 | Stay within a few AniList requests per tool call. | Done (2–4 typical. Season lookups walk the sequel chain through the search results, which carry relations, and fetch any seasons search missed two per request: "the new season of my hero academia" takes list, search and write, down from 9) |
 | R5.3 | Work with large lists (1,000+ entries). | Planned |
 | R5.4 | Cache the user's list briefly and refresh it after writes, to cut AniList requests (needed once hosted, where the rate limit is shared per IP). | Planned |
 | R5.5 | Warn before the AniList token expires: read the expiry from the token (a JWT) with no request, add a one-line warning with the date and renewal steps to tool results in the last 14 days (on the first call of each server process, then at most once a day), and once expired fail without calling AniList. Tokens that can't be decoded behave as before. | Done |
