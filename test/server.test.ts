@@ -115,6 +115,7 @@ describe("tools", () => {
       "set_progress",
       "set_status",
       "undo",
+      "update_shows",
       "watch_history",
       "whats_next",
     ]);

@@ -161,6 +161,38 @@ export function planStatus(
   return plan;
 }
 
+const NO_DATE: FuzzyDate = { year: null, month: null, day: null };
+
+/**
+ * Several changes to one entry in one save (R2.6): the episode count first, with the usual
+ * status and date rules, then a status from the request on top of it, as if the two had been
+ * saved one after the other. An episode count given explicitly wins over the one a status
+ * implies (all episodes for Completed, 0 for a rewatch).
+ */
+export function planUpdate(
+  media: Pick<Media, "episodes">,
+  entry: PriorEntry | null,
+  change: { progress?: number; status?: ListStatus },
+  today: FuzzyDate = todayFuzzy(),
+): EntryPlan {
+  let plan: EntryPlan = change.progress !== undefined ? planProgress(media, entry, change.progress, today) : {};
+  if (change.status) {
+    const status = plan.status ?? entry?.status;
+    const afterProgress: PriorEntry | null = status
+      ? {
+          status,
+          startedAt: plan.startedAt ?? entry?.startedAt ?? NO_DATE,
+          completedAt: plan.completedAt ?? entry?.completedAt ?? NO_DATE,
+          progress: plan.progress ?? entry?.progress,
+          repeat: plan.repeat ?? entry?.repeat,
+        }
+      : null;
+    plan = { ...plan, ...planStatus(media, afterProgress, change.status, today) };
+    if (change.progress !== undefined) plan.progress = change.progress;
+  }
+  return plan;
+}
+
 export function formatDate(d: FuzzyDate): string {
   const pad = (n: number | null) => String(n ?? 0).padStart(2, "0");
   return d.month ? `${d.year}-${pad(d.month)}${d.day ? `-${pad(d.day)}` : ""}` : String(d.year);

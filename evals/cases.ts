@@ -88,7 +88,7 @@ export const CASES: EvalCase[] = [
     expect: { changes: [{ anime: "Sousou no Frieren", score: 9 }] } },
 
   // Adding.
-  { id: "add-plan", prompt: "add re:zero to my plan to watch", idealCalls: 1,
+  { id: "add-plan", prompt: "add re:zero to my plan to watch",
     expect: { changes: [{ anime: "Re:Zero kara Hajimeru Isekai Seikatsu", added: true, status: "PLANNING" }] } },
   { id: "add-season", prompt: "Can you add Frieren season 2 to my list?", idealCalls: 1,
     expect: { changes: [{ anime: "Sousou no Frieren 2nd Season", added: true, status: "PLANNING" }] } },
@@ -106,6 +106,21 @@ export const CASES: EvalCase[] = [
     expect: { changes: [
       { anime: "Kimetsu no Yaiba", added: true, status: "PLANNING" },
       { anime: "Mushoku Tensei: Isekai Ittara Honki Dasu", added: true, status: "PLANNING" },
+    ] } },
+
+  // Several changes in one request (R2.6): one update_shows call.
+  { id: "batch-two-shows", prompt: "watched episodes 4 and 5 of jjk, and I finished dandadan", idealCalls: 1,
+    expect: { changes: [
+      { anime: "Jujutsu Kaisen 2nd Season", progress: 5 },
+      { anime: "Dandadan", status: "COMPLETED", progress: 12 },
+    ] } },
+  { id: "batch-finish-and-rate", prompt: "Just finished Oshi no Ko season 2, it was a solid 8", idealCalls: 1,
+    expect: { changes: [{ anime: "[Oshi no Ko] 2nd Season", status: "COMPLETED", progress: 13, score: 8 }] } },
+  { id: "batch-three", prompt: "I'm caught up on one piece, watched 2 more eps of kaguya, and I'm putting dandadan on hold", idealCalls: 1,
+    expect: { changes: [
+      { anime: "ONE PIECE", progress: 1180 },
+      { anime: "Kaguya-sama wa Kokurasetai: Ultra Romantic", progress: 4 },
+      { anime: "Dandadan", status: "PAUSED" },
     ] } },
 
   // Removing.

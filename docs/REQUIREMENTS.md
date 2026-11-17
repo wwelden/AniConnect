@@ -68,7 +68,7 @@ Every tool that targets a show accepts a title (or an ID) and picks the right An
 | R2.3 | Results are short, readable text that states exactly what changed (before → after). | Done |
 | R2.4 | Errors say what went wrong and what to do next (expired token, rate limit, unknown show). | Done |
 | R2.5 | Destructive tools are annotated as such and ask the assistant to confirm first. | Done |
-| R2.6 | Log several shows in one request with one tool call ("watched eps 3–5 of JJK and the Dandadan finale"), resolving each title. | Planned |
+| R2.6 | Log several shows in one request with one tool call ("watched eps 3–5 of JJK and the Dandadan finale"), resolving each title. Also several changes to one show ("finished it, 9/10") in one write. A show that is ambiguous or fails is reported with the reason, and the others are still saved; one undo takes back the whole call. | Done (`update_shows`: up to 10 updates; for shows on the list, the list plus one write per show. Sonnet 5.5, 2026-11-17: 3/3 batch eval cases correct in one call. Adding several shows stays with `add_to_list`, which never overwrites an existing entry) |
 | R2.7 | Where the client supports MCP elicitation, ask the user directly to pick between ambiguous candidates and to confirm deletions; otherwise fall back to R1.7. | Planned |
 | R2.8 | Return structured results alongside the text, so clients can render lists and entries. | Planned |
 | R2.9 | Print one title per show, in the title language the user picked on AniList (English, romaji or native), falling back to another when a show has none in that language. Lists of ambiguous candidates (R1.7) add a second name, since the user may know the show by either. Names in any language still match (R1.1). | Done |

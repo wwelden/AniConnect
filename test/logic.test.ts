@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { bothTitles, describePlanDates, displayTitle, formatScore, matchesTitle, planProgress, planStatus, toRawScore } from "../src/logic";
+import { bothTitles, describePlanDates, displayTitle, formatScore, matchesTitle, planProgress, planStatus, planUpdate, toRawScore } from "../src/logic";
 
 const today = { year: 2026, month: 11, day: 16 };
 const unset = { year: null, month: null, day: null };
@@ -226,5 +226,47 @@ describe("scores", () => {
     expect(formatScore(85, "POINT_100")).toBe("85/100");
     expect(formatScore(4, "POINT_5")).toBe("4 stars (of 5)");
     expect(formatScore(0, "POINT_10")).toBe("unrated");
+  });
+});
+
+describe("planUpdate (R2.6)", () => {
+  const show = { episodes: 12 };
+  const planned = { status: "PLANNING" as const, progress: 0, startedAt: unset, completedAt: unset };
+
+  test("episodes then a status, as if saved one after the other", () => {
+    expect(planUpdate(show, planned, { progress: 3, status: "PAUSED" }, today)).toEqual({
+      progress: 3,
+      status: "PAUSED",
+      startedAt: today,
+    });
+  });
+
+  test("a status alone plans like set_status", () => {
+    expect(planUpdate(show, planned, { status: "COMPLETED" }, today)).toEqual(planStatus(show, planned, "COMPLETED", today));
+  });
+
+  test("episodes alone plan like set_progress", () => {
+    expect(planUpdate(show, planned, { progress: 12 }, today)).toEqual(planProgress(show, planned, 12, today));
+  });
+
+  test("an explicit episode count wins over the one a status implies", () => {
+    const done = { status: "COMPLETED" as const, progress: 12, startedAt: earlier, completedAt: earlier };
+    expect(planUpdate(show, done, { progress: 3, status: "REPEATING" }, today)).toEqual({
+      progress: 3,
+      status: "REPEATING",
+    });
+  });
+
+  test("a new show watched and finished in one go gets both dates", () => {
+    expect(planUpdate(show, null, { progress: 12, status: "COMPLETED" }, today)).toEqual({
+      progress: 12,
+      status: "COMPLETED",
+      startedAt: today,
+      completedAt: today,
+    });
+  });
+
+  test("nothing to plan when only a score changes", () => {
+    expect(planUpdate(show, planned, {}, today)).toEqual({});
   });
 });

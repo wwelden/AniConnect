@@ -21,6 +21,7 @@ import {
   matchesTitle,
   planProgress,
   planStatus,
+  planUpdate,
   statusLabel,
   todayFuzzy,
   toRawScore,
@@ -68,6 +69,7 @@ export const WRITE_TOOLS = [
   "mark_episodes_watched",
   "set_progress",
   "remove_from_list",
+  "update_shows",
 ] as const;
 
 /**
@@ -77,6 +79,8 @@ export const WRITE_TOOLS = [
 export const INSTRUCTIONS = `AniConnect manages the user's AniList anime list.
 
 The tools that change the list (${WRITE_TOOLS.join(", ")}) take the show as the user named it ("jjk", "spy x family season 2") and pick the right entry and season from the user's list themselves, so don't search first. If a name is ambiguous, nothing changes and the candidates come back: ask the user which one they mean, then call again with its ID.
+
+For several shows in one request, or several changes to one show ("finished Frieren, 9/10"), make one update_shows call instead of one call per change.
 
 To take back a change (the user says "undo that" or that you got it wrong), call undo rather than writing the old values back: it restores the entry exactly, dates and all.`;
 
@@ -537,49 +541,59 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
   );
 
   // Progress updates read the entry, count from it, and save, so two at once for the same show
-  // would both count from the same episode. They take turns per show (#28), and one that read
-  // the entry before another's save finished reads it again once it has its turn.
-  /** Gives the new episode count from the current one, optionally with a note for the result. */
-  type ProgressStep = (current: number, media: Media, language: TitleLanguage) => number | { episodes: number; note: string };
-  const progressTurns = new Map<number, Promise<unknown>>();
-  let progressSaves = 0;
-  const lastProgressSave = new Map<number, number>();
+  // would both count from the same episode. Writes that count from the entry take turns per
+  // show (#28), and one that read the entry before another's save finished reads it again
+  // once it has its turn.
+  const turns = new Map<number, Promise<unknown>>();
+  let saves = 0;
+  const lastSave = new Map<number, number>();
 
-  const applyProgress = async (
-    tool: string,
-    input: string | number,
-    next: ProgressStep,
-  ) => {
-    const readAt = progressSaves;
-    const [viewer, resolved] = await Promise.all([client.getViewer(), target(client, input, "progress")]);
-    const id = resolved.media.id;
-    const turn = (progressTurns.get(id) ?? Promise.resolve())
+  /** Runs `fn` on its show's turn; `stale` says another write to the show finished after `readAt`. */
+  const inTurn = async <T>(id: number, readAt: number, fn: (stale: boolean) => Promise<T>): Promise<T> => {
+    const turn = (turns.get(id) ?? Promise.resolve())
       .catch(() => {})
       .then(async () => {
         try {
-          return await saveProgress(tool, viewer, resolved, readAt, next);
+          return await fn((lastSave.get(id) ?? 0) > readAt);
         } finally {
-          lastProgressSave.set(id, ++progressSaves);
+          lastSave.set(id, ++saves);
         }
       });
-    progressTurns.set(id, turn);
+    turns.set(id, turn);
     try {
       return await turn;
     } finally {
-      if (progressTurns.get(id) === turn) progressTurns.delete(id);
+      if (turns.get(id) === turn) turns.delete(id);
     }
+  };
+
+  /** Gives the new episode count from the current one, optionally with a note for the result. */
+  type ProgressStep = (current: number, media: Media, language: TitleLanguage) => number | { episodes: number; note: string };
+
+  const applyProgress = async (tool: string, input: string | number, next: ProgressStep) => {
+    const readAt = saves;
+    const [viewer, resolved] = await Promise.all([client.getViewer(), target(client, input, "progress")]);
+    return inTurn(resolved.media.id, readAt, (stale) => saveProgress(tool, viewer, resolved, stale, next));
+  };
+
+  /** Says when progress runs past what has aired. Saved anyway: AniList's schedule can lag, and some people watch early releases. */
+  const airedNote = (media: Media, progress: number) => {
+    // A show that hasn't premiered has aired nothing, even before AniList lists a schedule.
+    const aired = airedEpisodes(media, now()) ?? (media.status === "NOT_YET_RELEASED" ? 0 : null);
+    if (aired == null || progress <= aired) return "";
+    return aired === 0
+      ? " Note: AniList says it hasn't started airing yet."
+      : ` Note: AniList says only ${aired} episode${aired === 1 ? " has" : "s have"} aired so far.`;
   };
 
   const saveProgress = async (
     tool: string,
     viewer: Viewer,
     resolved: { media: Media; note: string },
-    readAt: number,
+    stale: boolean,
     next: ProgressStep,
   ) => {
     const { note } = resolved;
-    // Another update to this show finished (or failed) after this one read it: read it again.
-    const stale = (lastProgressSave.get(resolved.media.id) ?? 0) > readAt;
     const media = stale ? await client.getAnime(resolved.media.id) : resolved.media;
     const entry = media.mediaListEntry;
     const before = entry?.progress ?? 0;
@@ -590,17 +604,8 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
     journal.record(tool, [change(media, entry, saved)]);
     const was = entry ? ` (was ${statusLabel(entry.status)})` : "";
     const statusNote = plan.status ? ` Status is now ${statusLabel(plan.status)}${was}.` : "";
-    // Saved anyway: AniList's schedule can lag, and some people watch early releases.
-    // A show that hasn't premiered has aired nothing, even before AniList lists a schedule.
-    const aired = airedEpisodes(media, now()) ?? (media.status === "NOT_YET_RELEASED" ? 0 : null);
-    const airedNote =
-      aired == null || saved.progress <= aired
-        ? ""
-        : aired === 0
-          ? " Note: AniList says it hasn't started airing yet."
-          : ` Note: AniList says only ${aired} episode${aired === 1 ? " has" : "s have"} aired so far.`;
     return text(
-      `${note}${displayTitle(saved.media.title, viewer.titleLanguage)}: episode ${before} -> ${saved.progress}.${statusNote}${stepNote}${describePlanDates(plan)}${airedNote}\n${describeEntry(saved.media, saved, viewer)}`,
+      `${note}${displayTitle(saved.media.title, viewer.titleLanguage)}: episode ${before} -> ${saved.progress}.${statusNote}${stepNote}${describePlanDates(plan)}${airedNote(media, saved.progress)}\n${describeEntry(saved.media, saved, viewer)}`,
     );
   };
 
@@ -638,6 +643,94 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
         episodes === "latest" ? caughtUpProgress(media, current, now(), language) : episodes,
       ),
     ),
+  );
+
+  const updateItem = z.object({
+    anime,
+    status: status.optional(),
+    episodes: z
+      .union([z.number().int().min(0), z.literal("latest")])
+      .optional()
+      .describe('Total episodes watched so far ("on episode 7" -> 7), or "latest" when the user is caught up'),
+    watched: z
+      .number()
+      .int()
+      .min(1)
+      .optional()
+      .describe('Episodes watched since the last update, counted up from current progress ("two more" -> 2)'),
+    score: z.number().min(0).max(10).optional().describe("Score out of 10; 0 removes the rating"),
+  });
+  type Update = z.infer<typeof updateItem>;
+
+  /** One update_shows item, on its show's turn: a line for the result and the change for undo. */
+  const saveUpdate = async (viewer: Viewer, resolved: { media: Media; note: string }, stale: boolean, u: Update) => {
+    const media = stale ? await client.getAnime(resolved.media.id) : resolved.media;
+    const entry = media.mediaListEntry;
+    const current = entry?.progress ?? 0;
+    let progress: number | undefined;
+    let stepNote = "";
+    if (u.watched !== undefined) progress = current + u.watched;
+    else if (u.episodes === "latest") {
+      ({ episodes: progress, note: stepNote } = caughtUpProgress(media, current, now(), viewer.titleLanguage));
+    } else progress = u.episodes;
+    const plan = planUpdate(media, entry, { progress, status: u.status }, today(viewer));
+    const scoreRaw = u.score === undefined ? undefined : toRawScore(u.score);
+    const saved = await client.saveEntry({ mediaId: media.id, ...plan, scoreRaw });
+    const format = viewer.scoreFormat;
+    const parts = [
+      entry?.status !== saved.status &&
+        `${entry ? statusLabel(entry.status) : "not on list"} -> ${statusLabel(saved.status)}`,
+      (progress !== undefined || current !== saved.progress) && `episode ${current} -> ${saved.progress}`,
+      u.score !== undefined &&
+        `score ${formatScore(entry?.displayScore ?? 0, format)} -> ${formatScore(saved.displayScore, format)}`,
+    ].filter(Boolean);
+    const title = displayTitle(saved.media.title, viewer.titleLanguage);
+    return {
+      line: `${resolved.note}${title}: ${parts.join(", ") || "no change"}.${stepNote}${describePlanDates(plan)}${airedNote(media, saved.progress)}\n${describeEntry(saved.media, saved, viewer)}`,
+      change: change(media, entry, saved),
+    };
+  };
+
+  server.registerTool(
+    "update_shows",
+    {
+      title: "Update several shows",
+      description:
+        "Make several list changes in one call: to several shows (\"watched eps 3-5 of JJK and the Dandadan finale\") or several things about one show (\"finished Frieren, 9/10\"). Each update names a show plus any of status, episodes, watched and score, with the same rules as set_status, set_progress, mark_episodes_watched and rate_anime. Updates that are ambiguous or fail are listed with the reason, and the rest are still saved." +
+        BY_NAME,
+      inputSchema: { updates: z.array(updateItem).min(1).max(10).describe("One per show") },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    },
+    safe(async ({ updates }) => {
+      const readAt = saves;
+      const viewer = await client.getViewer();
+      const source = memo(clientSource(client));
+      const results = await Promise.all(
+        updates.map(async (u): Promise<{ line: string; change?: EntryChange }> => {
+          const label = typeof u.anime === "number" ? `ID ${u.anime}` : `"${u.anime}"`;
+          try {
+            if (u.episodes !== undefined && u.watched !== undefined) {
+              throw new Error("Give episodes or watched, not both.");
+            }
+            const counts = u.episodes !== undefined || u.watched !== undefined;
+            if (!counts && u.status === undefined && u.score === undefined) {
+              throw new Error("Nothing to change: give status, episodes, watched or score.");
+            }
+            const intent: Intent = counts ? "progress" : u.status ? "status" : "rate";
+            const resolved = await target(client, u.anime, intent, source, false);
+            return await inTurn(resolved.media.id, readAt, (stale) => saveUpdate(viewer, resolved, stale, u));
+          } catch (err) {
+            return { line: `Not changed: ${label}: ${(err as Error).message.replace(/^Nothing was changed\. /, "")}` };
+          }
+        }),
+      );
+      const changes = results.flatMap((r) => (r.change ? [r.change] : []));
+      journal.record("update_shows", changes);
+      const body = results.map((r) => r.line).join("\n");
+      if (changes.length === 0) return { ...text(body), isError: true };
+      const failed = results.length - changes.length;
+      return text(failed ? `Saved ${changes.length} of ${results.length} updates.\n${body}` : body);
+    }),
   );
 
   server.registerTool(
