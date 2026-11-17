@@ -256,6 +256,8 @@ export class AniListClient {
   now: () => number = Date.now;
   /** How long one request may take; tests shorten it. */
   requestTimeoutMs = REQUEST_TIMEOUT_MS;
+  /** How to get a new token: set by the hosted server, which signs users in itself (R7.2). */
+  renew: string | null = null;
 
   constructor(
     private readonly token: string,
@@ -323,7 +325,7 @@ export class AniListClient {
         .join("; ");
       if (res.status === 401 || /invalid token/i.test(messages)) {
         throw new AniListError(
-          `AniList rejected the token (${messages}). Check ANILIST_TOKEN; tokens expire after a year.`,
+          `AniList rejected the token (${messages}). ${this.renew ?? "Check ANILIST_TOKEN; tokens expire after a year."}`,
         );
       }
       throw new AniListError(`AniList error: ${messages}`, body.errors[0]!.status ?? res.status);

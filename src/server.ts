@@ -106,7 +106,7 @@ function text(body: string): ToolResult {
  * one-line warning when it expires soon.
  */
 function safeFor(client: AniListClient, now: () => number) {
-  const watch = tokenWatch(client.tokenExpiresAt);
+  const watch = tokenWatch(client.tokenExpiresAt, client.renew ?? undefined);
   return <A>(fn: (args: A) => Promise<ToolResult>) =>
     async (args: A): Promise<ToolResult> => {
       const token = watch(now());
@@ -307,6 +307,8 @@ function dateNum(d: { year: number | null; month: number | null; day: number | n
 export interface ServerOptions {
   /** Current time in ms; injectable so tests and evals get stable air times. */
   now?: () => number;
+  /** Undo history to share between servers for the same user (the hosted server's sessions). */
+  journal?: Journal;
 }
 
 /** The user's zone from their AniList settings, else the server's (right when it runs on the user's machine). */
@@ -331,7 +333,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
   const today = (viewer: Viewer) => todayFuzzy(new Date(now()), viewer.timeZone ?? undefined);
   const server = new McpServer({ name: "aniconnect", version: pkg.version }, { instructions: INSTRUCTIONS });
   /** What this server changed, so it can be undone (R3.1). */
-  const journal = new Journal();
+  const journal = options.journal ?? new Journal();
 
   /** Whether the client can show the user a form (MCP elicitation, R2.7). */
   const canAsk = () => {

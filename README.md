@@ -77,6 +77,32 @@ claude mcp add aniconnect -s user -e ANILIST_TOKEN=your-token -- bun /absolute/p
 
 Then try: *"Add Frieren to my plan-to-watch list"*, *"What am I currently watching?"*, *"I just watched episode 5 of Dandadan"*, *"Rate Attack on Titan a 9"*.
 
+## Hosting
+
+AniConnect can also run as a remote server that people add by URL, signing in with their AniList account instead of pasting a token. This is the setup for claude.ai (on the web and on mobile) and for any client that supports remote MCP servers with OAuth.
+
+1. On [anilist.co/settings/developer](https://anilist.co/settings/developer), create a client whose **Redirect URL** is `https://your-host/oauth/callback`. Note its ID and secret.
+2. Run the server where it can be reached over https:
+
+   ```sh
+   PUBLIC_URL=https://your-host \
+   ANILIST_CLIENT_ID=12345 \
+   ANILIST_CLIENT_SECRET=... \
+   AUTH_SECRET="$(openssl rand -base64 32)" \
+   bun run serve          # listens on $PORT, default 3000
+   ```
+
+3. In claude.ai, open Settings, Connectors, **Add custom connector**, and enter `https://your-host/mcp`. Claude sends you to AniList to approve, and the tools work from then on. Claude Code: `claude mcp add --transport http aniconnect https://your-host/mcp`, then `/mcp` to sign in.
+
+| Setting | What it is |
+|---|---|
+| `PUBLIC_URL` | The https address the server is reached at (http only for localhost). |
+| `ANILIST_CLIENT_ID`, `ANILIST_CLIENT_SECRET` | The AniList client from step 1. |
+| `AUTH_SECRET` | 32 or more random characters. AniConnect keeps no database: it seals sign-ins with this. Changing it signs everyone out. |
+| `PORT` | Port to listen on (default 3000). |
+
+A sign-in lasts as long as the AniList token behind it, a year; then the client asks the user to sign in again. Undo works across a user's conversations until they've been idle for an hour. AniList's limit of 30 requests a minute applies per server IP, so it is shared by everyone using one server.
+
 ## Notes
 
 - Undo covers changes AniConnect made since it started (the last 50), not ones made on anilist.co. A show changed elsewhere after AniConnect changed it is left alone. AniList's activity feed keeps its posts about an undone change.

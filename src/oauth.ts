@@ -1,0 +1,493 @@
+/**
+ * "Sign in with AniList" for the hosted server (requirement R7.2).
+ *
+ * MCP clients (claude.ai, Claude Code, ...) speak OAuth 2.1 to AniConnect: they discover it from
+ * the metadata documents, register themselves (RFC 7591), and sign the user in with PKCE.
+ * AniConnect sends the user on to AniList's own sign-in page, swaps AniList's code for the
+ * user's AniList token, and hands the client an access token of its own that wraps it.
+ *
+ * Nothing is stored. Client registrations, sign-ins in progress, codes and access tokens are
+ * sealed with AES-GCM under AUTH_SECRET, each kind under its own label so one can't be passed
+ * off as another. A restart or a second instance signs nobody out. The one piece of memory is
+ * the set of codes already used, so a code works once per instance.
+ */
+import { tokenExpiry } from "./token";
+
+export const ANILIST_AUTHORIZE = "https://anilist.co/api/v2/oauth/authorize";
+export const ANILIST_TOKEN = "https://anilist.co/api/v2/oauth/token";
+
+/** How long the user has to finish signing in on AniList. */
+const PENDING_MS = 10 * 60_000;
+/** How long the client has to swap our code for a token. */
+const CODE_MS = 5 * 60_000;
+/** AniList's tokens last a year; used when one doesn't say when it expires. */
+const YEAR_MS = 365 * 24 * 60 * 60_000;
+
+export interface OAuthConfig {
+  /** Where the server is reached, e.g. https://aniconnect.example.com. Only the origin is used. */
+  publicUrl: string;
+  /** The AniList API client (anilist.co/settings/developer) whose redirect URL is `<publicUrl>/oauth/callback`. */
+  anilistClientId: string;
+  anilistClientSecret: string;
+  /** Seals everything the server hands out. Changing it signs everyone out. */
+  authSecret: string;
+}
+
+type FetchFn = (input: string, init: RequestInit) => Promise<Response>;
+
+const enc = new TextEncoder();
+const dec = new TextDecoder();
+
+function b64url(bytes: Uint8Array | ArrayBuffer): string {
+  return Buffer.from(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)).toString("base64url");
+}
+
+async function sha256(text: string): Promise<string> {
+  return b64url(await crypto.subtle.digest("SHA-256", enc.encode(text)));
+}
+
+/** Seals small JSON values so only this server can read them; `kind` keeps the kinds apart. */
+export class Sealer {
+  private constructor(private readonly key: CryptoKey) {}
+
+  static async create(secret: string): Promise<Sealer> {
+    const raw = await crypto.subtle.digest("SHA-256", enc.encode(`aniconnect:${secret}`));
+    return new Sealer(await crypto.subtle.importKey("raw", raw, "AES-GCM", false, ["encrypt", "decrypt"]));
+  }
+
+  async seal(kind: string, data: object): Promise<string> {
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const body = await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv, additionalData: enc.encode(kind) },
+      this.key,
+      enc.encode(JSON.stringify(data)),
+    );
+    const out = new Uint8Array(iv.length + body.byteLength);
+    out.set(iv);
+    out.set(new Uint8Array(body), iv.length);
+    return b64url(out);
+  }
+
+  /** The sealed value, or null if it isn't one of ours, is another kind, or has expired (`exp`, ms). */
+  async open<T extends object>(kind: string, sealed: string | null | undefined, now: number): Promise<T | null> {
+    if (!sealed || sealed.length > 8192) return null;
+    try {
+      const bytes = Buffer.from(sealed, "base64url");
+      if (bytes.length < 29) return null;
+      const plain = await crypto.subtle.decrypt(
+        { name: "AES-GCM", iv: bytes.subarray(0, 12), additionalData: enc.encode(kind) },
+        this.key,
+        bytes.subarray(12),
+      );
+      const data = JSON.parse(dec.decode(plain)) as T & { exp?: unknown };
+      if (typeof data.exp === "number" && data.exp <= now) return null;
+      return data;
+    } catch {
+      return null;
+    }
+  }
+}
+
+/** A registered client, as sealed into its client_id. */
+interface ClientInfo {
+  /** Redirect URIs. */
+  r: string[];
+  /** Token endpoint auth method: "none" for public clients, else it was given a secret. */
+  m: string;
+  /** Name, shown nowhere yet but kept for the registration response. */
+  n?: string;
+}
+
+/** A sign-in in progress, sealed into the `state` sent to AniList. */
+interface Pending {
+  /** Hash of the client_id. */
+  c: string;
+  /** The client's redirect URI. */
+  r: string;
+  /** The client's own state, if it sent one. */
+  s?: string;
+  /** PKCE code challenge (S256). */
+  cc: string;
+  exp: number;
+}
+
+/** Our authorization code. */
+interface Code extends Pending {
+  /** The user's AniList token. */
+  t: string;
+  /** When the AniList token expires (ms). */
+  te: number;
+  /** Unique, so the code works once. */
+  j: string;
+}
+
+/** Our access token: the user's AniList token, for this server only. */
+interface Access {
+  t: string;
+  exp: number;
+}
+
+/** OAuth errors, sent as JSON (token, register) or as a redirect back to the client (authorize). */
+class OAuthError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+    readonly status = 400,
+  ) {
+    super(message);
+  }
+}
+
+function json(body: unknown, status = 200, headers: Record<string, string> = {}): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json", "Cache-Control": "no-store", ...headers },
+  });
+}
+
+function errorJson(err: OAuthError): Response {
+  return json(
+    { error: err.code, error_description: err.message },
+    err.status,
+    err.status === 401 ? { "WWW-Authenticate": 'Basic realm="aniconnect"' } : {},
+  );
+}
+
+/** A page for the person in the browser when there is no client to send them back to. */
+function page(message: string, status = 400): Response {
+  return new Response(`AniConnect: ${message}\n`, { status, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+}
+
+function redirect(location: string): Response {
+  return new Response(null, { status: 302, headers: { Location: location, "Cache-Control": "no-store" } });
+}
+
+const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+/**
+ * Redirect URIs clients may register: https, http on this machine only (RFC 8252 loopback),
+ * or an app's own scheme (cursor://, vscode://). Never one that runs code in the browser.
+ */
+function allowedRedirect(uri: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(uri);
+  } catch {
+    return false;
+  }
+  if (url.hash) return false;
+  if (url.protocol === "https:") return true;
+  if (url.protocol === "http:") return LOOPBACK.has(url.hostname);
+  return !["javascript:", "data:", "file:", "vbscript:", "blob:", "about:"].includes(url.protocol);
+}
+
+function withParams(uri: string, params: Record<string, string | undefined>): string {
+  const url = new URL(uri);
+  for (const [k, v] of Object.entries(params)) if (v !== undefined) url.searchParams.set(k, v);
+  return url.toString();
+}
+
+export class OAuthServer {
+  readonly origin: string;
+  /** The MCP endpoint, which access tokens are for. */
+  readonly resource: string;
+  readonly callbackUrl: string;
+  /** Codes already swapped for a token, until they expire. */
+  private used = new Map<string, number>();
+
+  private constructor(
+    private readonly config: OAuthConfig,
+    private readonly sealer: Sealer,
+    private readonly fetchFn: FetchFn,
+    private readonly now: () => number,
+  ) {
+    this.origin = new URL(config.publicUrl).origin;
+    this.resource = `${this.origin}/mcp`;
+    this.callbackUrl = `${this.origin}/oauth/callback`;
+  }
+
+  static async create(
+    config: OAuthConfig,
+    options: { fetch?: FetchFn; now?: () => number } = {},
+  ): Promise<OAuthServer> {
+    return new OAuthServer(
+      config,
+      await Sealer.create(config.authSecret),
+      options.fetch ?? ((input, init) => fetch(input, init)),
+      options.now ?? Date.now,
+    );
+  }
+
+  get resourceMetadataUrl(): string {
+    return `${this.origin}/.well-known/oauth-protected-resource/mcp`;
+  }
+
+  /** RFC 9728: where clients learn which server signs them in. */
+  resourceMetadata(): Response {
+    return json({
+      resource: this.resource,
+      authorization_servers: [this.origin],
+      bearer_methods_supported: ["header"],
+      resource_name: "AniConnect",
+    });
+  }
+
+  /** RFC 8414. */
+  serverMetadata(): Response {
+    return json({
+      issuer: this.origin,
+      authorization_endpoint: `${this.origin}/authorize`,
+      token_endpoint: `${this.origin}/token`,
+      registration_endpoint: `${this.origin}/register`,
+      response_types_supported: ["code"],
+      grant_types_supported: ["authorization_code"],
+      code_challenge_methods_supported: ["S256"],
+      token_endpoint_auth_methods_supported: ["none", "client_secret_post", "client_secret_basic"],
+    });
+  }
+
+  /** RFC 7591 dynamic client registration. The registration lives in the client_id itself. */
+  async register(req: Request): Promise<Response> {
+    try {
+      let body: Record<string, unknown>;
+      try {
+        body = (await req.json()) as Record<string, unknown>;
+      } catch {
+        throw new OAuthError("invalid_client_metadata", "The body must be JSON client metadata.");
+      }
+      const uris = body.redirect_uris;
+      if (!Array.isArray(uris) || uris.length === 0 || uris.length > 10 || !uris.every((u) => typeof u === "string")) {
+        throw new OAuthError("invalid_redirect_uri", "Register 1 to 10 redirect_uris.");
+      }
+      const bad = uris.find((u) => u.length > 500 || !allowedRedirect(u));
+      if (bad !== undefined) {
+        throw new OAuthError(
+          "invalid_redirect_uri",
+          `Redirect URI not allowed: ${bad.slice(0, 100)}. Use https, http on localhost, or an app scheme.`,
+        );
+      }
+      const method = typeof body.token_endpoint_auth_method === "string" ? body.token_endpoint_auth_method : "client_secret_basic";
+      if (!["none", "client_secret_post", "client_secret_basic"].includes(method)) {
+        throw new OAuthError("invalid_client_metadata", `Unsupported token_endpoint_auth_method: ${method}.`);
+      }
+      for (const [field, allowed] of [
+        ["grant_types", "authorization_code"],
+        ["response_types", "code"],
+      ] as const) {
+        const value = body[field];
+        if (Array.isArray(value) && !value.includes(allowed)) {
+          throw new OAuthError("invalid_client_metadata", `${field} must include ${allowed}.`);
+        }
+      }
+      const name = typeof body.client_name === "string" ? body.client_name.slice(0, 100) : undefined;
+      const info: ClientInfo = { r: uris as string[], m: method, ...(name ? { n: name } : {}) };
+      const clientId = await this.sealer.seal("client", info);
+      const secret = method === "none" ? undefined : await this.sealer.seal("secret", { c: await sha256(clientId) });
+      return json(
+        {
+          client_id: clientId,
+          ...(secret ? { client_secret: secret, client_secret_expires_at: 0 } : {}),
+          client_id_issued_at: Math.floor(this.now() / 1000),
+          redirect_uris: info.r,
+          token_endpoint_auth_method: method,
+          grant_types: ["authorization_code"],
+          response_types: ["code"],
+          ...(name ? { client_name: name } : {}),
+        },
+        201,
+      );
+    } catch (err) {
+      if (err instanceof OAuthError) return errorJson(err);
+      throw err;
+    }
+  }
+
+  private client(clientId: string | null): Promise<ClientInfo | null> {
+    return this.sealer.open<ClientInfo>("client", clientId, this.now());
+  }
+
+  /** Checks the request and sends the user on to AniList to sign in. */
+  async authorize(req: Request): Promise<Response> {
+    const q = new URL(req.url).searchParams;
+    const clientId = q.get("client_id");
+    const client = await this.client(clientId);
+    // Without a known client and redirect URI there is nowhere safe to send an error.
+    if (!client || !clientId) return page("unknown client_id. Add AniConnect to your MCP client again.");
+    const asked = q.get("redirect_uri");
+    const redirectUri = asked ?? (client.r.length === 1 ? client.r[0] : null);
+    if (!redirectUri || !client.r.includes(redirectUri)) {
+      return page("the redirect_uri doesn't match the one this client registered.");
+    }
+    const state = q.get("state") ?? undefined;
+    const fail = (error: string, description: string) =>
+      redirect(withParams(redirectUri, { error, error_description: description, state }));
+
+    if (q.get("response_type") !== "code") return fail("unsupported_response_type", "Only response_type=code is supported.");
+    const challenge = q.get("code_challenge");
+    if (!challenge || q.get("code_challenge_method") !== "S256") {
+      return fail("invalid_request", "PKCE is required: send code_challenge with code_challenge_method=S256.");
+    }
+    const resource = q.get("resource");
+    if (resource && !this.isResource(resource)) return fail("invalid_target", `Tokens here are for ${this.resource}.`);
+
+    const pending: Pending = {
+      c: await sha256(clientId),
+      r: redirectUri,
+      ...(state !== undefined ? { s: state } : {}),
+      cc: challenge,
+      exp: this.now() + PENDING_MS,
+    };
+    return redirect(
+      withParams(ANILIST_AUTHORIZE, {
+        client_id: this.config.anilistClientId,
+        redirect_uri: this.callbackUrl,
+        response_type: "code",
+        state: await this.sealer.seal("pending", pending),
+      }),
+    );
+  }
+
+  /** AniList sends the user back here: swap its code for their token, and send them back to the client. */
+  async callback(req: Request): Promise<Response> {
+    const q = new URL(req.url).searchParams;
+    const pending = await this.sealer.open<Pending>("pending", q.get("state"), this.now());
+    if (!pending) return page("this sign-in has expired or isn't valid. Start again from your MCP client.");
+    const back = (params: Record<string, string>) => redirect(withParams(pending.r, { ...params, state: pending.s }));
+
+    const code = q.get("code");
+    if (!code) {
+      return back({
+        error: "access_denied",
+        error_description: q.get("error_description") ?? "AniList sign-in was cancelled.",
+      });
+    }
+    let token: string;
+    let expiresAt: number;
+    try {
+      ({ token, expiresAt } = await this.exchange(code));
+    } catch (err) {
+      return back({ error: "server_error", error_description: `AniList sign-in failed: ${(err as Error).message}` });
+    }
+    const ours: Code = { ...pending, t: token, te: expiresAt, j: crypto.randomUUID(), exp: this.now() + CODE_MS };
+    return back({ code: await this.sealer.seal("code", ours) });
+  }
+
+  /** AniList's authorization code grant: its code for the user's token. */
+  private async exchange(code: string): Promise<{ token: string; expiresAt: number }> {
+    const res = await this.fetchFn(ANILIST_TOKEN, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({
+        grant_type: "authorization_code",
+        client_id: this.config.anilistClientId,
+        client_secret: this.config.anilistClientSecret,
+        redirect_uri: this.callbackUrl,
+        code,
+      }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    let body: { access_token?: unknown; expires_in?: unknown; error?: unknown; message?: unknown } = {};
+    try {
+      body = (await res.json()) as typeof body;
+    } catch {
+      // Reported below.
+    }
+    if (!res.ok || typeof body.access_token !== "string" || !body.access_token) {
+      const why = typeof body.message === "string" ? body.message : typeof body.error === "string" ? body.error : `HTTP ${res.status}`;
+      throw new Error(why);
+    }
+    const token = body.access_token;
+    const expiresAt =
+      tokenExpiry(token) ??
+      (typeof body.expires_in === "number" ? this.now() + body.expires_in * 1000 : this.now() + YEAR_MS);
+    return { token, expiresAt };
+  }
+
+  /** The token endpoint: our code for an access token. */
+  async token(req: Request): Promise<Response> {
+    try {
+      const form = await this.form(req);
+      if (form.get("grant_type") !== "authorization_code") {
+        throw new OAuthError("unsupported_grant_type", "Only the authorization_code grant is supported.");
+      }
+      // Client authentication: HTTP Basic, a secret in the form, or none for public clients.
+      let clientId = form.get("client_id");
+      let secret = form.get("client_secret");
+      const basic = req.headers.get("Authorization");
+      if (basic?.toLowerCase().startsWith("basic ")) {
+        const [id, pass] = Buffer.from(basic.slice(6).trim(), "base64").toString("utf8").split(":");
+        try {
+          clientId = decodeURIComponent(id ?? "");
+          secret = decodeURIComponent(pass ?? "");
+        } catch {
+          throw new OAuthError("invalid_client", "Malformed Basic credentials.", 401);
+        }
+      }
+      const client = await this.client(clientId);
+      if (!client || !clientId) throw new OAuthError("invalid_client", "Unknown client_id.", 401);
+      const hash = await sha256(clientId);
+      if (client.m !== "none") {
+        const ok = await this.sealer.open<{ c: string }>("secret", secret, this.now());
+        if (ok?.c !== hash) throw new OAuthError("invalid_client", "Wrong or missing client_secret.", 401);
+      }
+
+      const code = await this.sealer.open<Code>("code", form.get("code"), this.now());
+      if (!code || code.c !== hash) throw new OAuthError("invalid_grant", "The code is invalid or has expired.");
+      const redirectUri = form.get("redirect_uri");
+      if (redirectUri !== null && redirectUri !== code.r) {
+        throw new OAuthError("invalid_grant", "redirect_uri doesn't match the one used to sign in.");
+      }
+      const verifier = form.get("code_verifier");
+      if (!verifier || (await sha256(verifier)) !== code.cc) {
+        throw new OAuthError("invalid_grant", "code_verifier doesn't match the code_challenge.");
+      }
+      const resource = form.get("resource");
+      if (resource && !this.isResource(resource)) throw new OAuthError("invalid_target", `Tokens here are for ${this.resource}.`);
+      this.forgetExpired();
+      if (this.used.has(code.j)) throw new OAuthError("invalid_grant", "The code has already been used.");
+      this.used.set(code.j, code.exp);
+
+      const access = await this.sealer.seal("access", { t: code.t, exp: code.te } satisfies Access);
+      return json({
+        access_token: access,
+        token_type: "Bearer",
+        expires_in: Math.max(0, Math.floor((code.te - this.now()) / 1000)),
+      });
+    } catch (err) {
+      if (err instanceof OAuthError) return errorJson(err);
+      throw err;
+    }
+  }
+
+  /** The AniList token inside a bearer token we issued, or null if it isn't valid now. */
+  async anilistToken(bearer: string | null): Promise<string | null> {
+    return (await this.sealer.open<Access>("access", bearer, this.now()))?.t ?? null;
+  }
+
+  /** The WWW-Authenticate header that points a client at sign-in (RFC 9728). */
+  challenge(error?: string): string {
+    return `Bearer resource_metadata="${this.resourceMetadataUrl}"${error ? `, error="${error}"` : ""}`;
+  }
+
+  private isResource(value: string): boolean {
+    // Clients name either the MCP endpoint or the server (RFC 8707); a trailing slash is the same place.
+    const strip = (s: string) => s.replace(/\/+$/, "");
+    return strip(value) === this.resource || strip(value) === this.origin;
+  }
+
+  private async form(req: Request): Promise<URLSearchParams> {
+    const type = req.headers.get("Content-Type") ?? "";
+    if (type.includes("application/json")) {
+      const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+      return new URLSearchParams(
+        Object.entries(body).filter((e): e is [string, string] => typeof e[1] === "string"),
+      );
+    }
+    return new URLSearchParams(await req.text());
+  }
+
+  private forgetExpired(): void {
+    const now = this.now();
+    for (const [id, exp] of this.used) if (exp <= now) this.used.delete(id);
+  }
+}

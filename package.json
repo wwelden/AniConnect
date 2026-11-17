@@ -10,6 +10,7 @@
   },
   "scripts": {
     "start": "bun src/index.ts",
+    "serve": "bun src/http.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit -p .",
     "eval": "bun evals/run.ts",
