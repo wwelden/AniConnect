@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { AniListClient } from "../src/anilist";
+import { AniListClient, LIST_TTL_MS } from "../src/anilist";
 import { createServer } from "../src/server";
 import { PERSONA } from "./fixtures/persona";
 import { catalog, FakeAniList } from "./support/fake-anilist";
@@ -328,5 +328,159 @@ describe('set_progress "latest" (caught up)', () => {
     } finally {
       onePiece.nextAiringEpisode = schedule;
     }
+  });
+});
+
+describe("list cache (R5.4)", () => {
+  let clock: number;
+  let c: Client;
+
+  const kinds = (calls: FakeAniList["calls"]) =>
+    calls.map((x) =>
+      x.query.includes("MediaListCollection")
+        ? "list"
+        : x.query.includes("Viewer")
+          ? "viewer"
+          : /^\s*mutation/.test(x.query)
+            ? "write"
+            : "other",
+    );
+
+  /** Calls a tool and returns its text with the kinds of AniList requests it made. */
+  async function run(name: string, args: Record<string, unknown>) {
+    const start = fake.calls.length;
+    const r = (await c.callTool({ name, arguments: args })) as { content: { text: string }[]; isError?: boolean };
+    return { text: r.content.map((x) => x.text).join("\n"), isError: Boolean(r.isError), requests: kinds(fake.calls.slice(start)) };
+  }
+
+  beforeEach(async () => {
+    clock = Date.parse("2026-11-17T12:00:00Z");
+    fake.seed(PERSONA);
+    const server = createServer(new AniListClient("t", fake.fetch), { now: () => clock });
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    c = new Client({ name: "t", version: "0" });
+    await Promise.all([server.connect(st), c.connect(ct)]);
+  });
+
+  test("two progress updates in a row fetch the list once and count from the first", async () => {
+    let r = await run("mark_episodes_watched", { anime: "jjk" });
+    expect(r.text).toContain("episode 3 -> 4");
+    expect(r.requests.filter((k) => k !== "viewer")).toEqual(["list", "write"]);
+
+    clock += 30_000;
+    r = await run("mark_episodes_watched", { anime: "jjk" });
+    expect(r.text).toContain("episode 4 -> 5");
+    expect(r.requests).toEqual(["write"]);
+    expect(fake.entries.get(145064)!.progress).toBe(5);
+  });
+
+  test("a status search after a write is served from the patched cache", async () => {
+    await run("search_my_list", { status: "PAUSED" });
+    let r = await run("set_status", { anime: "dandadan", status: "PAUSED" });
+    expect(r.requests).toEqual(["write"]);
+
+    r = await run("search_my_list", { status: "PAUSED" });
+    expect(r.requests).toEqual([]);
+    expect(r.text).toContain("2 matches");
+    expect(r.text).toContain("[171018]");
+
+    r = await run("search_my_list", { status: "CURRENT" });
+    expect(r.requests).toEqual([]);
+    expect(r.text).not.toContain("[171018]");
+  });
+
+  test("adding and removing a show patch the cache", async () => {
+    await run("search_my_list", {});
+    let r = await run("add_to_list", { anime: 9253 });
+    expect(r.text).toContain("Added:");
+    r = await run("search_my_list", { query: "steins gate" });
+    expect(r.text).toContain("1 match");
+    r = await run("search_my_list", {});
+    expect(r.text).toContain(`${PERSONA.length + 1} matches`);
+
+    r = await run("remove_from_list", { anime: "frieren" });
+    expect(r.text).toContain("Removed Frieren");
+    r = await run("search_my_list", { query: "frieren" });
+    expect(r.text).toContain("Nothing on tester's list");
+    expect(r.requests).toEqual([]);
+    expect(kinds(fake.calls).filter((k) => k === "list")).toHaveLength(1);
+  });
+
+  test("changes made on anilist.co show up once the cache expires", async () => {
+    await run("search_my_list", { query: "dandadan" });
+    fake.entries.get(171018)!.progress = 9; // edited on the website
+
+    let r = await run("search_my_list", { query: "dandadan" });
+    expect(r.requests).toEqual([]);
+    expect(r.text).toContain("7/12");
+
+    clock += LIST_TTL_MS;
+    r = await run("search_my_list", { query: "dandadan" });
+    expect(r.requests).toEqual(["list"]);
+    expect(r.text).toContain("9/12");
+  });
+
+  test("a failed write drops the cache", async () => {
+    await run("search_my_list", {});
+    fake.rateLimited = true;
+    expect((await run("mark_episodes_watched", { anime: "dandadan" })).isError).toBe(true);
+    fake.rateLimited = false;
+    const r = await run("search_my_list", { query: "dandadan" });
+    expect(r.requests).toEqual(["list"]);
+  });
+
+  /** A client whose save with `progress: 8` answers only once `release` is called. */
+  function heldClient() {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const client = new AniListClient("t", async (url, init) => {
+      const res = await fake.fetch(url, init);
+      if (JSON.parse(init.body as string).variables.progress === 8) await gate;
+      return res;
+    });
+    client.now = () => clock;
+    return { client, release };
+  }
+
+  test("overlapping writes to one show drop the cache instead of patching it out of order", async () => {
+    const { client, release } = heldClient();
+    await client.getMyList();
+    // The first save lands first but answers last, so its older entry would win a patch.
+    const first = client.saveEntry({ mediaId: 171018, progress: 8 });
+    await client.saveEntry({ mediaId: 171018, scoreRaw: 90 });
+    release();
+    await first;
+    const before = fake.calls.length;
+    const dandadan = (await client.getMyList()).find((e) => e.media.id === 171018)!;
+    expect(kinds(fake.calls.slice(before))).toEqual(["list"]);
+    expect([dandadan.progress, dandadan.score]).toEqual([8, 9]);
+  });
+
+  test("overlapping writes to different shows still patch the cache", async () => {
+    const { client, release } = heldClient();
+    await client.getMyList();
+    const first = client.saveEntry({ mediaId: 171018, progress: 8 });
+    await client.saveEntry({ mediaId: 21, scoreRaw: 90 });
+    release();
+    await first;
+    const before = fake.calls.length;
+    const list = await client.getMyList();
+    expect(kinds(fake.calls.slice(before))).toEqual([]);
+    expect(list.find((e) => e.media.id === 171018)!.progress).toBe(8);
+    expect(list.find((e) => e.media.id === 21)!.score).toBe(9);
+  });
+
+  test("a write that answers after the list was refetched drops the cache", async () => {
+    const { client, release } = heldClient();
+    await client.getMyList();
+    const save = client.saveEntry({ mediaId: 171018, progress: 8 });
+    await Bun.sleep(0);
+    fake.entries.get(171018)!.progress = 9; // another app, after our write landed
+    clock += LIST_TTL_MS;
+    await client.getMyList();
+    release();
+    await save;
+    const dandadan = (await client.getMyList()).find((e) => e.media.id === 171018)!;
+    expect(dandadan.progress).toBe(9);
   });
 });
