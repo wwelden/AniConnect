@@ -28,7 +28,7 @@ async function call(name: string, args: Record<string, unknown> = {}) {
 beforeEach(async () => {
   fake = new FakeAniList("POINT_10_DECIMAL").seed(PERSONA);
   fake.clock = () => NOW;
-  const server = createServer(new AniListClient("test-token", fake.fetch), { now: () => NOW });
+  const server = createServer(new AniListClient("test-token", (u, i) => fake.fetch(u, i)), { now: () => NOW });
   const [ct, st] = InMemoryTransport.createLinkedPair();
   client = new Client({ name: "test", version: "0" });
   await Promise.all([server.connect(st), client.connect(ct)]);
@@ -175,6 +175,64 @@ describe("undo (R3.1)", () => {
     const reads = fake.calls.slice(before).filter((c) => c.query.includes("id_in"));
     expect(reads.map((c) => c.variables.ids.length)).toEqual([50, 10]);
     for (const id of ids) expect(fake.entries.get(id)?.scoreRaw ?? 0).toBe(PERSONA_SCORES.get(id) ?? 0);
+  });
+  test("a status change and a rating sent together undo one at a time, keeping each other", async () => {
+    const before = state(DANDADAN);
+    await Promise.all([call("set_status", { anime: "dandadan", status: "PAUSED" }), call("rate_anime", { anime: "dandadan", score: 8 })]);
+    expect(fake.entries.get(DANDADAN)).toMatchObject({ status: "PAUSED", scoreRaw: 80 });
+    let r = await call("undo");
+    expect(r.text).not.toContain("changed since");
+    r = await call("undo");
+    expect(r.text).not.toContain("changed since");
+    expect(state(DANDADAN)).toMatchObject({ status: before!.status, scoreRaw: before!.scoreRaw, progress: before!.progress });
+  });
+
+  test("two undos at once take back two changes in order", async () => {
+    await call("mark_episodes_watched", { anime: "dandadan" });
+    await call("mark_episodes_watched", { anime: "dandadan" });
+    const results = await Promise.all([call("undo"), call("undo")]);
+    for (const r of results) expect(r.text).not.toContain("changed since");
+    expect(fake.entries.get(DANDADAN)!.progress).toBe(7);
+  });
+
+  test("an undo that fails partway keeps only the unfinished change for next time", async () => {
+    await call("rate_anime", { anime: "dandadan", score: 6 });
+    await call("rate_anime", { anime: "frieren", score: 6 });
+    // The first restore (Frieren, the newest) lands; the second (Dandadan) hits the rate limit.
+    const original = fake.fetch;
+    let writes = 0;
+    fake.fetch = async (url, init) => {
+      if (/^\s*mutation/.test(JSON.parse(init.body as string).query) && ++writes === 2) fake.rateLimited = true;
+      return original(url, init);
+    };
+    let r = await call("undo", { count: 2 });
+    expect(r.isError).toBe(true);
+    expect(r.text).toContain("Undone so far:");
+    expect(fake.entries.get(FRIEREN)!.scoreRaw).toBe(95);
+    expect(fake.entries.get(DANDADAN)!.scoreRaw).toBe(60);
+    fake.rateLimited = false;
+    fake.fetch = original;
+    r = await call("undo");
+    expect(r.text).toContain("Undid the last change (rate_anime):");
+    expect(r.text).not.toContain("Frieren");
+    expect(fake.entries.get(DANDADAN)!.scoreRaw).toBe(0);
+  });
+
+  test("a removal AniList refuses stays on the journal to try again", async () => {
+    await call("add_to_list", { anime: "chainsaw man" });
+    const chainsaw = findMedia("Chainsaw Man").id;
+    const original = fake.fetch;
+    fake.fetch = async (url, init) =>
+      JSON.parse(init.body as string).query.includes("DeleteMediaListEntry")
+        ? new Response(JSON.stringify({ data: { DeleteMediaListEntry: { deleted: false } } }))
+        : original(url, init);
+    let r = await call("undo");
+    expect(r.isError).toBe(true);
+    expect(r.text).toContain("AniList did not remove Chainsaw Man.");
+    fake.fetch = original;
+    r = await call("undo");
+    expect(r.text).toContain("Chainsaw Man: removed from your list again.");
+    expect(fake.entries.has(chainsaw)).toBe(false);
   });
 });
 

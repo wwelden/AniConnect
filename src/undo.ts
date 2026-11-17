@@ -140,9 +140,10 @@ async function undoOne(
   }
   const before = change.before;
   if (!before) {
-    const deleted = now ? await client.deleteEntry(now.id) : true;
-    if (deleted) current.set(change.mediaId, null);
-    return deleted ? `${title}: removed from your list again.` : `${title}: AniList did not remove it.`;
+    // Thrown, so the change stays on the journal and the next undo can try again.
+    if (now && !(await client.deleteEntry(now.id))) throw new Error(`AniList did not remove ${title}.`);
+    current.set(change.mediaId, null);
+    return `${title}: removed from your list again.`;
   }
   const saved = await client.saveEntry({
     mediaId: change.mediaId,

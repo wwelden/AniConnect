@@ -561,81 +561,10 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
     }),
   );
 
-  server.registerTool(
-    "add_to_list",
-    {
-      title: "Add to list",
-      description:
-        "Add an anime to the user's list (plan to watch by default). If it is already on the list, nothing changes; use set_status to move it." + BY_NAME,
-      inputSchema: { anime, status: status.default("PLANNING") },
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
-    },
-    safe(async ({ anime, status }) => {
-      const [viewer, { media, note }] = await Promise.all([client.getViewer(), find(anime, "add")]);
-      if (media.mediaListEntry) {
-        return text(
-          `${note}Already on your list, unchanged: ${describeEntry(media, media.mediaListEntry, viewer)}`,
-        );
-      }
-      const plan = planStatus(media, null, status, today(viewer));
-      const saved = await client.saveEntry({ mediaId: media.id, ...plan });
-      journal.record("add_to_list", [change(media, null, saved)]);
-      return text(
-        `${note}Added: ${describeEntry(saved.media, saved, viewer)}${describePlanDates(plan)}`,
-      );
-    }),
-  );
-
-  server.registerTool(
-    "set_status",
-    {
-      title: "Set list status",
-      description:
-        "Change an anime's status on the user's list (watching, completed, dropped, ...). Adds it to the list if it isn't there yet. COMPLETED also sets progress to the last episode (when the episode count is known), so use it when the user finished a show or season or watched its finale." + BY_NAME,
-      inputSchema: { anime, status },
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
-    },
-    safe(async ({ anime, status }) => {
-      const [viewer, { media, note }] = await Promise.all([client.getViewer(), find(anime, "status")]);
-      const entry = media.mediaListEntry;
-      const plan = planStatus(media, entry, status, today(viewer));
-      const saved = await client.saveEntry({ mediaId: media.id, ...plan });
-      journal.record("set_status", [change(media, entry, saved)]);
-      const before = entry ? statusLabel(entry.status) : "not on list";
-      const reset = plan.progress === 0 && entry ? ` Episode count reset from ${entry.progress} to 0 for the rewatch.` : "";
-      return text(
-        `${note}${before} -> ${statusLabel(status as ListStatus)}: ${describeEntry(saved.media, saved, viewer)}${reset}${describePlanDates(plan)}`,
-      );
-    }),
-  );
-
-  server.registerTool(
-    "rate_anime",
-    {
-      title: "Rate anime",
-      description:
-        "Rate an anime on the user's list. The score is always out of 10 (decimals like 7.5 allowed; 0 clears the rating), and AniList shows it in the user's own scoring format. Adds the show to the list if needed." + BY_NAME,
-      inputSchema: {
-        anime,
-        score: z.number().min(0).max(10).describe("Score out of 10. 0 removes the rating."),
-      },
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
-    },
-    safe(async ({ anime, score }) => {
-      const scoreRaw = toRawScore(score);
-      const [viewer, { media, note }] = await Promise.all([client.getViewer(), find(anime, "rate")]);
-      const saved = await client.saveEntry({ mediaId: media.id, scoreRaw });
-      journal.record("rate_anime", [change(media, media.mediaListEntry, saved)]);
-      return text(
-        `${note}Rated ${displayTitle(saved.media.title, viewer.titleLanguage)}: ${formatScore(saved.displayScore, viewer.scoreFormat)}`,
-      );
-    }),
-  );
-
-  // Progress updates read the entry, count from it, and save, so two at once for the same show
-  // would both count from the same episode. Writes that count from the entry take turns per
-  // show (#28), and one that read the entry before another's save finished reads it again
-  // once it has its turn.
+  // Writes read the entry, plan from it, save, and record it for undo, so two at once for the
+  // same show would both start from the same entry (#28: a lost episode; with undo, a "before"
+  // that drops the other write). Writes take turns per show, and one that read the entry
+  // before another's save finished reads it again once it has its turn.
   const turns = new Map<number, Promise<unknown>>();
   let saves = 0;
   const lastSave = new Map<number, number>();
@@ -658,6 +587,93 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       if (turns.get(id) === turn) turns.delete(id);
     }
   };
+
+  /** Runs `fn` on the show's turn with the show as it is now. */
+  const onTurn = <T>(media: Media, readAt: number, fn: (media: Media) => Promise<T>): Promise<T> =>
+    inTurn(media.id, readAt, async (stale) => fn(stale ? await client.getAnime(media.id) : media));
+
+  server.registerTool(
+    "add_to_list",
+    {
+      title: "Add to list",
+      description:
+        "Add an anime to the user's list (plan to watch by default). If it is already on the list, nothing changes; use set_status to move it." + BY_NAME,
+      inputSchema: { anime, status: status.default("PLANNING") },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    },
+    safe(async ({ anime, status }) => {
+      const readAt = saves;
+      const [viewer, resolved] = await Promise.all([client.getViewer(), find(anime, "add")]);
+      const { note } = resolved;
+      return onTurn(resolved.media, readAt, async (media) => {
+        if (media.mediaListEntry) {
+          return text(
+            `${note}Already on your list, unchanged: ${describeEntry(media, media.mediaListEntry, viewer)}`,
+          );
+        }
+        const plan = planStatus(media, null, status, today(viewer));
+        const saved = await client.saveEntry({ mediaId: media.id, ...plan });
+        journal.record("add_to_list", [change(media, null, saved)]);
+        return text(
+          `${note}Added: ${describeEntry(saved.media, saved, viewer)}${describePlanDates(plan)}`,
+        );
+      });
+    }),
+  );
+
+  server.registerTool(
+    "set_status",
+    {
+      title: "Set list status",
+      description:
+        "Change an anime's status on the user's list (watching, completed, dropped, ...). Adds it to the list if it isn't there yet. COMPLETED also sets progress to the last episode (when the episode count is known), so use it when the user finished a show or season or watched its finale." + BY_NAME,
+      inputSchema: { anime, status },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    },
+    safe(async ({ anime, status }) => {
+      const readAt = saves;
+      const [viewer, resolved] = await Promise.all([client.getViewer(), find(anime, "status")]);
+      const { note } = resolved;
+      return onTurn(resolved.media, readAt, async (media) => {
+        const entry = media.mediaListEntry;
+        const plan = planStatus(media, entry, status, today(viewer));
+        const saved = await client.saveEntry({ mediaId: media.id, ...plan });
+        journal.record("set_status", [change(media, entry, saved)]);
+        const before = entry ? statusLabel(entry.status) : "not on list";
+        const reset = plan.progress === 0 && entry ? ` Episode count reset from ${entry.progress} to 0 for the rewatch.` : "";
+        return text(
+          `${note}${before} -> ${statusLabel(status as ListStatus)}: ${describeEntry(saved.media, saved, viewer)}${reset}${describePlanDates(plan)}`,
+        );
+      });
+    }),
+  );
+
+  server.registerTool(
+    "rate_anime",
+    {
+      title: "Rate anime",
+      description:
+        "Rate an anime on the user's list. The score is always out of 10 (decimals like 7.5 allowed; 0 clears the rating), and AniList shows it in the user's own scoring format. Adds the show to the list if needed." + BY_NAME,
+      inputSchema: {
+        anime,
+        score: z.number().min(0).max(10).describe("Score out of 10. 0 removes the rating."),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    },
+    safe(async ({ anime, score }) => {
+      const scoreRaw = toRawScore(score);
+      const readAt = saves;
+      const [viewer, resolved] = await Promise.all([client.getViewer(), find(anime, "rate")]);
+      const { note } = resolved;
+      return onTurn(resolved.media, readAt, async (media) => {
+        const saved = await client.saveEntry({ mediaId: media.id, scoreRaw });
+        journal.record("rate_anime", [change(media, media.mediaListEntry, saved)]);
+        return text(
+          `${note}Rated ${displayTitle(saved.media.title, viewer.titleLanguage)}: ${formatScore(saved.displayScore, viewer.scoreFormat)}`,
+        );
+      });
+    }),
+  );
 
   /** Gives the new episode count from the current one, optionally with a note for the result. */
   type ProgressStep = (current: number, media: Media, language: TitleLanguage) => number | { episodes: number; note: string };
@@ -886,37 +902,41 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
     },
     safe(async ({ anime, confirmed }) => {
-      const { media, note } = await find(anime, "remove");
+      const readAt = saves;
+      const resolved = await find(anime, "remove");
+      const { note } = resolved;
       // Cached once fetched (resolving a name fetches it), so this is a request only on first use.
       const viewer = await client.getViewer();
-      const title = displayTitle(media.title, viewer.titleLanguage);
-      const entry = media.mediaListEntry;
-      if (!entry) return text(`${title} isn't on your list.`);
-      // `confirmed` only stands in for a dialog that closed without an answer for this show.
-      if (canAsk() && !(confirmed && unansweredRemovals.has(media.id))) {
-        // The description told the assistant not to ask, so no answer means no.
-        const answer = await ask({
-          message: `Remove ${title} from your AniList list? ${describeEntry(media, entry, viewer).replace(/^\[\d+\] /, "")}. Its progress, score, dates and notes go with it.`,
-          requestedSchema: {
-            type: "object",
-            properties: { confirm: { type: "boolean", title: `Remove ${title}`, default: true } },
-            required: [],
-          },
-        });
-        if (!answer || answer.action === "cancel") {
-          unansweredRemovals.add(media.id);
-          return text(
-            `${note}Not removed: the confirmation dialog closed without an answer (some clients can't show it). Ask the user in the chat whether to remove ${title}; if they say yes, call again with confirmed: true.`,
-          );
+      return onTurn(resolved.media, readAt, async (media) => {
+        const title = displayTitle(media.title, viewer.titleLanguage);
+        const entry = media.mediaListEntry;
+        if (!entry) return text(`${title} isn't on your list.`);
+        // `confirmed` only stands in for a dialog that closed without an answer for this show.
+        if (canAsk() && !(confirmed && unansweredRemovals.has(media.id))) {
+          // The description told the assistant not to ask, so no answer means no.
+          const answer = await ask({
+            message: `Remove ${title} from your AniList list? ${describeEntry(media, entry, viewer).replace(/^\[\d+\] /, "")}. Its progress, score, dates and notes go with it.`,
+            requestedSchema: {
+              type: "object",
+              properties: { confirm: { type: "boolean", title: `Remove ${title}`, default: true } },
+              required: [],
+            },
+          });
+          if (!answer || answer.action === "cancel") {
+            unansweredRemovals.add(media.id);
+            return text(
+              `${note}Not removed: the confirmation dialog closed without an answer (some clients can't show it). Ask the user in the chat whether to remove ${title}; if they say yes, call again with confirmed: true.`,
+            );
+          }
+          if (answer.action === "decline" || answer.content?.confirm === false) {
+            return text(`${note}Not removed: the user chose to keep ${title}.`);
+          }
         }
-        if (answer.action === "decline" || answer.content?.confirm === false) {
-          return text(`${note}Not removed: the user chose to keep ${title}.`);
-        }
-      }
-      const deleted = await client.deleteEntry(entry.id);
-      unansweredRemovals.delete(media.id);
-      if (deleted) journal.record("remove_from_list", [change(media, entry, null)]);
-      return text(`${note}${deleted ? `Removed ${title} from your list.` : `AniList did not delete ${title}.`}`);
+        const deleted = await client.deleteEntry(entry.id);
+        unansweredRemovals.delete(media.id);
+        if (deleted) journal.record("remove_from_list", [change(media, entry, null)]);
+        return text(`${note}${deleted ? `Removed ${title} from your list.` : `AniList did not delete ${title}.`}`);
+      });
     }),
   );
   // Clients that show forms confirm deletions themselves: no need for the assistant to ask too.
@@ -946,16 +966,24 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
     },
     safe(async ({ count }) => {
-      if (journal.size === 0) return text("Nothing to undo: AniConnect hasn't changed the list since it started.");
-      const viewer = await client.getViewer();
-      const groups = journal.take(count);
-      const body = await undoGroups(client, journal, groups, viewer);
-      const what =
-        groups.length === 1 ? `the last change (${groups[0]!.tool})` : `the last ${groups.length} changes (${groups.map((g) => g.tool).join(", ")})`;
-      const short = groups.length < count ? ` Only ${groups.length} could be undone; that's every change since AniConnect started.` : "";
-      return text(`Undid ${what}:${short}\n${body}`);
+      // One undo at a time, so a second one starts from the list the first left behind.
+      const run = undoing.then(() => undoLatest(count));
+      undoing = run.catch(() => {});
+      return run;
     }),
   );
+
+  let undoing: Promise<unknown> = Promise.resolve();
+  const undoLatest = async (count: number) => {
+    if (journal.size === 0) return text("Nothing to undo: AniConnect hasn't changed the list since it started.");
+    const viewer = await client.getViewer();
+    const groups = journal.take(count);
+    const body = await undoGroups(client, journal, groups, viewer);
+    const what =
+      groups.length === 1 ? `the last change (${groups[0]!.tool})` : `the last ${groups.length} changes (${groups.map((g) => g.tool).join(", ")})`;
+    const short = groups.length < count ? ` Only ${groups.length} could be undone; that's every change since AniConnect started.` : "";
+    return text(`Undid ${what}:${short}\n${body}`);
+  };
 
   return server;
 }
