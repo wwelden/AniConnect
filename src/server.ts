@@ -12,7 +12,7 @@ import {
 } from "./logic";
 import { describeCandidates, memo, resolveAnime, type AnimeSource, type Intent } from "./resolve";
 import { tokenWatch } from "./token";
-import { buildReport, caughtUpProgress, checkTimeZone, formatReport, formatShow, nextSeasons } from "./whatsnext";
+import { buildReport, caughtUpProgress, checkTimeZone, formatReport, formatShow, moviesBesideSeries, nextSeasons } from "./whatsnext";
 
 const anime = z
   .union([z.string().min(1), z.number().int().positive()])
@@ -190,14 +190,17 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
         // show is described (with its next season) rather than a similarly named one.
         const { media, note } = await target(client, anime, "status", source, false);
         const show = media.relations ? media : ((await client.getMany([media.id]))[0] ?? media);
-        return text(`${note}${formatShow(show, nextSeasons([show], listStatus), listStatus, at, zone, titleLanguage)}`);
+        const sequels = nextSeasons([show], listStatus, await client.getMany(moviesBesideSeries([show])));
+        return text(`${note}${formatShow(show, sequels, listStatus, at, zone, titleLanguage)}`);
       }
 
       const finished = list
         .filter((m) => m.mediaListEntry!.status === "COMPLETED")
         .sort((a, b) => dateNum(b.mediaListEntry!.completedAt) - dateNum(a.mediaListEntry!.completedAt))
         .slice(0, SEQUEL_CHECK_LIMIT);
-      const sequels = nextSeasons(await client.getMany(finished.map((m) => m.id)), listStatus);
+      const withRelations = await client.getMany(finished.map((m) => m.id));
+      // Usually no request: only shows with both a series and a movie sequel need one.
+      const sequels = nextSeasons(withRelations, listStatus, await client.getMany(moviesBesideSeries(withRelations)));
       return text(formatReport(buildReport(list, sequels, at), at, zone, titleLanguage));
     }),
   );

@@ -144,6 +144,68 @@ describe("whats_next tool", () => {
     expect(r.text).toBe("Nothing new: you're caught up on everything you're watching.");
   });
 
+  test("a movie that continues a finished show comes next, in the report and for the show", async () => {
+    fake.entries.clear();
+    fake.seed([{ anime: "Chainsaw Man", status: "COMPLETED" }]);
+    const line = "[171627] Chainsaw Man – The Movie: Reze Arc (movie, 2025), not on your list.";
+    const show = await call({ anime: "chainsaw man", timeZone: "UTC" });
+    expect(show.text).toContain(`Comes next: ${line}`);
+    const report = await call({ timeZone: "UTC" });
+    expect(report.text).toBe(`Next seasons of shows you finished:\n- After Chainsaw Man: ${line}`);
+    expect(report.requests).toBeLessThanOrEqual(3);
+  });
+
+  test("a movie that retells the next TV season is named with it, not listed again", async () => {
+    fake.entries.clear();
+    fake.seed([{ anime: "Kimetsu no Yaiba", status: "COMPLETED" }]);
+    const line =
+      "[129874] Demon Slayer: Kimetsu no Yaiba Mugen Train Arc (7 episodes, 2021), not on your list. " +
+      "Same story as the movie [112151] Demon Slayer -Kimetsu no Yaiba- The Movie: Mugen Train; watch either.";
+    const report = await call({ timeZone: "UTC" });
+    expect(report.text).toBe(`Next seasons of shows you finished:\n- After Demon Slayer: Kimetsu no Yaiba: ${line}`);
+    expect(report.requests).toBeLessThanOrEqual(4);
+    const show = await call({ anime: "demon slayer", timeZone: "UTC" });
+    expect(show.text).toContain(`Comes next: ${line}`);
+    expect(show.text.match(/Comes next/g)?.length).toBe(1);
+  });
+
+  test("having watched the movie version skips the TV version and moves on", async () => {
+    fake.entries.clear();
+    fake.seed([
+      { anime: "Kimetsu no Yaiba", status: "COMPLETED" },
+      { anime: "Kimetsu no Yaiba: Mugen Ressha-hen", status: "COMPLETED" },
+    ]);
+    const r = await call({ timeZone: "UTC" });
+    expect(r.text).not.toContain("[129874]");
+    expect(r.text).toContain("[142329] Demon Slayer: Kimetsu no Yaiba Entertainment District Arc");
+  });
+
+  test("a movie sequel that isn't the same story is listed on its own", async () => {
+    fake.entries.clear();
+    fake.seed([{ anime: "Tensei Shitara Slime Datta Ken 3rd Season", status: "COMPLETED" }]);
+    const r = await call({ timeZone: "UTC" });
+    expect(r.text).toContain("[182205] That Time I Got Reincarnated as a Slime Season 4");
+    expect(r.text).toContain("[182206] That Time I Got Reincarnated as a Slime the Movie: Tears of the Azure Sea (movie, 2026), not on your list.");
+    expect(r.text).not.toContain("Same story");
+  });
+
+  test("a movie already started isn't next; a planned one says so", async () => {
+    fake.entries.clear();
+    fake.seed([
+      { anime: "Chainsaw Man", status: "COMPLETED" },
+      { anime: "Chainsaw Man: Reze-hen", status: "PLANNING" },
+    ]);
+    expect((await call({ anime: "chainsaw man", timeZone: "UTC" })).text).toContain(
+      "(movie, 2025), on your plan-to-watch list.",
+    );
+    fake.entries.clear();
+    fake.seed([
+      { anime: "Chainsaw Man", status: "COMPLETED" },
+      { anime: "Chainsaw Man: Reze-hen", status: "CURRENT" },
+    ]);
+    expect((await call({ anime: "chainsaw man", timeZone: "UTC" })).text).not.toContain("Comes next");
+  });
+
   test("never writes", async () => {
     await call({ timeZone: "UTC" });
     await call({ anime: "jjk", timeZone: "UTC" });
