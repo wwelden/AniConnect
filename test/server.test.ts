@@ -382,11 +382,11 @@ describe("list cache (R5.4)", () => {
     r = await run("search_my_list", { status: "PAUSED" });
     expect(r.requests).toEqual([]);
     expect(r.text).toContain("2 matches");
-    expect(r.text).toContain("Dandadan");
+    expect(r.text).toContain("[171018]");
 
     r = await run("search_my_list", { status: "CURRENT" });
     expect(r.requests).toEqual([]);
-    expect(r.text).not.toContain("Dandadan");
+    expect(r.text).not.toContain("[171018]");
   });
 
   test("adding and removing a show patch the cache", async () => {
