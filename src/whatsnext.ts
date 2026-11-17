@@ -109,6 +109,8 @@ export interface Report {
   newEpisodes: Behind[];
   /** Watching and caught up on something still airing (with or without a scheduled next episode). */
   waiting: Media[];
+  /** Watching something airing where AniList doesn't say how many episodes are out. */
+  unknown: Media[];
   onHold: Behind[];
   nextSeasons: NextSeason[];
 }
@@ -116,6 +118,7 @@ export interface Report {
 export function buildReport(list: Media[], sequels: NextSeason[], now: number): Report {
   const newEpisodes: Behind[] = [];
   const waiting: Media[] = [];
+  const unknown: Media[] = [];
   const onHold: Behind[] = [];
   for (const m of list) {
     const entry = m.mediaListEntry;
@@ -124,7 +127,10 @@ export function buildReport(list: Media[], sequels: NextSeason[], now: number): 
     const behind = aired !== null && aired > entry.progress;
     if (WATCHING.has(entry.status)) {
       if (behind) newEpisodes.push({ media: m, progress: entry.progress, aired: aired! });
-      else if (upcoming(m, now) || (m.status !== "FINISHED" && m.status !== "CANCELLED")) waiting.push(m);
+      // No schedule means no aired count: that's not the same as being caught up.
+      else if (aired === null) {
+        if (m.status === "RELEASING" || m.status === "HIATUS") unknown.push(m);
+      } else if (upcoming(m, now) || m.status === "RELEASING" || m.status === "HIATUS") waiting.push(m);
     } else if (entry.status === "PAUSED" && behind) {
       onHold.push({ media: m, progress: entry.progress, aired: aired! });
     }
@@ -137,7 +143,7 @@ export function buildReport(list: Media[], sequels: NextSeason[], now: number): 
   onHold.sort(byUrgency);
   const airsAt = (m: Media) => upcoming(m, now)?.airingAt ?? Number.POSITIVE_INFINITY;
   waiting.sort((a, b) => airsAt(a) - airsAt(b));
-  return { newEpisodes, waiting, onHold, nextSeasons: sequels };
+  return { newEpisodes, waiting, unknown, onHold, nextSeasons: sequels };
 }
 
 function behindLine(b: Behind, now: number, timeZone: string): string {
@@ -176,6 +182,14 @@ export function formatReport(r: Report, now: number, timeZone: string): string {
             ? `- ${displayTitle(m.title)}: episode ${next.episode} airs ${formatAirTime(next.airingAt, now, timeZone)}.`
             : `- ${displayTitle(m.title)}: still airing, no date announced for the next episode.`;
         }),
+      ].join("\n"),
+    );
+  }
+  if (r.unknown.length) {
+    sections.push(
+      [
+        "Airing, but AniList doesn't say how many episodes are out:",
+        ...r.unknown.map((m) => `- ${displayTitle(m.title)}: you're on episode ${m.mediaListEntry!.progress}.`),
       ].join("\n"),
     );
   }

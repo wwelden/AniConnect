@@ -166,10 +166,20 @@ describe("buildReport edge cases", () => {
     startedAt: { year: null, month: null, day: null }, completedAt: { year: null, month: null, day: null },
   });
 
-  test("a show airing with no announced schedule still appears", () => {
-    const m = { ...base, id: 1, episodes: null, status: "RELEASING", nextAiringEpisode: null, mediaListEntry: entry("CURRENT", 4) } as Media;
+  test("a show airing with no schedule is reported as unknown, not caught up", () => {
+    const m = { ...base, id: 1, episodes: null, status: "RELEASING", nextAiringEpisode: null, mediaListEntry: entry("CURRENT", 0) } as Media;
     const text = formatReport(buildReport([m], [], NOW), NOW, "UTC");
-    expect(text).toContain("Show: still airing, no date announced for the next episode.");
+    expect(text).toBe("Airing, but AniList doesn't say how many episodes are out:\n- Show: you're on episode 0.");
+  });
+
+  test("caught up on an airing show whose next date isn't announced", () => {
+    // The last scheduled episode (4) has aired and been watched; no new date yet.
+    const m = {
+      ...base, id: 1, episodes: 12, status: "RELEASING",
+      nextAiringEpisode: { episode: 4, airingAt: NOW / 1000 - 3600 }, mediaListEntry: entry("CURRENT", 4),
+    } as Media;
+    const text = formatReport(buildReport([m], [], NOW), NOW, "UTC");
+    expect(text).toBe("Caught up, waiting for new episodes:\n- Show: still airing, no date announced for the next episode.");
   });
 
   test("cancelled sequels aren't suggested", () => {
