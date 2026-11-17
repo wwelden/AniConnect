@@ -216,7 +216,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
     {
       title: "Set list status",
       description:
-        "Change an anime's status on the user's list (watching, completed, dropped, ...). Adds it to the list if it isn't there yet." + BY_NAME,
+        "Change an anime's status on the user's list (watching, completed, dropped, ...). Adds it to the list if it isn't there yet. COMPLETED also sets progress to the last episode, so use it when the user finished a show or season or watched its finale." + BY_NAME,
       inputSchema: { anime, status },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
@@ -274,7 +274,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
     {
       title: "Mark episodes watched",
       description:
-        "Mark the next episode(s) of an anime as watched, counting up from the user's current progress. Finishing the last episode marks the show completed; watching something planned, paused or dropped moves it to watching." + BY_NAME,
+        "Mark the next episode(s) of an anime as watched, counting up from the user's current progress. Finishing the last episode marks the show completed; watching something planned, paused or dropped moves it to watching. If the user finished the show or watched its finale, call set_status with COMPLETED instead." + BY_NAME,
       inputSchema: {
         anime,
         count: z.number().int().min(1).default(1).describe("How many more episodes were watched"),

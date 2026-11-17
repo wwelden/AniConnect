@@ -61,7 +61,7 @@ Every tool that targets a show accepts a title (or an ID) and picks the right An
 | ID | Requirement | Status |
 |---|---|---|
 | R2.1 | Keep the tool set small (target ≤ 12) with clear, non-overlapping descriptions. | Done |
-| R2.2 | Common requests take one tool call. | Done: on 31 cases with an ideal call count, Opus 5.5 27/31 and Sonnet 5.5 28/31. Extra calls are mostly helpful follow-ups (suggesting what to watch after finishing a season, a lookup before deleting); baseline was 15/26 |
+| R2.2 | Common requests take one tool call. | Done: on 31 cases with an ideal call count, Opus 5.5 27/31, Sonnet 5.5 28/31, and Haiku 5.5 27/31 and 30/31 over two runs (2026-11-17). Extra calls are mostly helpful follow-ups (suggesting what to watch after finishing a season, a lookup before deleting); baseline was 15/26 |
 | R2.3 | Results are short, readable text that states exactly what changed (before → after). | Done |
 | R2.4 | Errors say what went wrong and what to do next (expired token, rate limit, unknown show). | Done |
 | R2.5 | Destructive tools are annotated as such and ask the assistant to confirm first. | Done |
@@ -99,7 +99,7 @@ Every tool that targets a show accepts a title (or an ID) and picks the right An
 |---|---|---|
 | R6.1 | A fixture of real AniList data for franchises that are hard to resolve (many seasons, split cours, movies, sequels with unrelated titles). | Done (196 entries, 24 franchises) |
 | R6.2 | Deterministic resolver tests: request text + user list → expected entry or "ambiguous". Run in `bun test`. | Done (65 cases) |
-| R6.3 | End-to-end evals with a real model: natural-language request → tool calls → final list state, scored on correctness and number of calls. | Done. 2026-11-17, 36 cases: 36/36 correct on Opus 5.5 and Sonnet 5.5, 1.14 and 1.11 tool calls per request, $0.68 and $0.35 per run |
+| R6.3 | End-to-end evals with a real model: natural-language request → tool calls → final list state, scored on correctness and number of calls. | Done. 2026-11-17, 36 cases: 36/36 correct on Opus 5.5 and Sonnet 5.5, 1.14 and 1.11 tool calls per request, $0.68 and $0.35 per run. Haiku 5.5, two runs on 2026-11-17: 34/36 and 36/36 correct, 1.17 and 1.06 tool calls per request, $0.02 per run. Its misses were its own: it searched first and rated the wrong Kaguya-sama season by ID, and it listed the Attack on Titan candidates without asking a question. Earlier Haiku runs found that "finished the season" requests logged one episode or took two calls; the progress tools now point those to `set_status` COMPLETED |
 | R6.4 | Run the same evals against competing servers for a side-by-side score. | Later |
 
 ### R7: Distribution
