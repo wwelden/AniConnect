@@ -553,8 +553,8 @@ async function seasonChain(root: Media, upTo: number, source: AnimeSource, fetch
   const learn = (m: Media) => {
     const had = known.get(m.id);
     // Keep the copy that has relations, and the list entry from whichever copy has one.
-    if (had?.relations && !m.relations) return;
-    known.set(m.id, { ...m, mediaListEntry: m.mediaListEntry ?? had?.mediaListEntry ?? null });
+    const keep = had?.relations && !m.relations ? had : m;
+    known.set(m.id, { ...keep, mediaListEntry: m.mediaListEntry ?? had?.mediaListEntry ?? null });
   };
   fetched.forEach(learn);
   learn(root);
