@@ -14,6 +14,11 @@ import {
   type Viewer,
 } from "./anilist";
 import {
+  after,
+  checkDateOrder,
+  NO_DATE,
+  parseFuzzyDate,
+  showDate,
   describeEntry,
   describePlanDates,
   displayTitle,
@@ -645,6 +650,10 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
     ),
   );
 
+  const date = z
+    .string()
+    .regex(/^(\d{4}(-\d{1,2}(-\d{1,2})?)?|clear)$/, 'YYYY-MM-DD, YYYY-MM, YYYY or "clear"')
+    .describe('YYYY-MM-DD, or YYYY-MM or YYYY when the user only gives the month or year; "clear" removes it');
   const updateItem = z.object({
     anime,
     status: status.optional(),
@@ -659,6 +668,8 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       .optional()
       .describe('Episodes watched since the last update, counted up from current progress ("two more" -> 2)'),
     score: z.number().min(0).max(10).optional().describe("Score out of 10; 0 removes the rating"),
+    startedAt: date.optional().describe("When the user started watching, if they say (\"I started it last March\")"),
+    completedAt: date.optional().describe("When the user finished it, if they say (\"I actually finished it in 2023\")"),
   });
   type Update = z.infer<typeof updateItem>;
 
@@ -673,9 +684,24 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
     else if (u.episodes === "latest") {
       ({ episodes: progress, note: stepNote } = caughtUpProgress(media, current, now(), viewer.titleLanguage));
     } else progress = u.episodes;
-    const plan = planUpdate(media, entry, { progress, status: u.status }, today(viewer));
+    const day = today(viewer);
+    const plan = planUpdate(media, entry, { progress, status: u.status }, day);
+    // Dates the user gave replace the ones a status change would fill in, and existing ones too.
+    const readDate = (text: string) => (text === "clear" ? NO_DATE : parseFuzzyDate(text, day));
+    const dates = {
+      ...(u.startedAt !== undefined && { startedAt: readDate(u.startedAt) }),
+      ...(u.completedAt !== undefined && { completedAt: readDate(u.completedAt) }),
+    };
+    // "Finished it on the 2nd" with Completed: today would be a start date after the finish, so leave it unset.
+    if (dates.completedAt && plan.startedAt && after(plan.startedAt, dates.completedAt)) delete plan.startedAt;
+    if (u.startedAt !== undefined || u.completedAt !== undefined) {
+      checkDateOrder(
+        dates.startedAt ?? plan.startedAt ?? entry?.startedAt,
+        dates.completedAt ?? plan.completedAt ?? entry?.completedAt,
+      );
+    }
     const scoreRaw = u.score === undefined ? undefined : toRawScore(u.score);
-    const saved = await client.saveEntry({ mediaId: media.id, ...plan, scoreRaw });
+    const saved = await client.saveEntry({ mediaId: media.id, ...plan, ...dates, scoreRaw });
     const format = viewer.scoreFormat;
     const parts = [
       entry?.status !== saved.status &&
@@ -683,10 +709,14 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       (progress !== undefined || current !== saved.progress) && `episode ${current} -> ${saved.progress}`,
       u.score !== undefined &&
         `score ${formatScore(entry?.displayScore ?? 0, format)} -> ${formatScore(saved.displayScore, format)}`,
+      u.startedAt !== undefined && `start date ${showDate(entry?.startedAt)} -> ${showDate(saved.startedAt)}`,
+      u.completedAt !== undefined && `finish date ${showDate(entry?.completedAt)} -> ${showDate(saved.completedAt)}`,
     ].filter(Boolean);
+    // Dates the user gave are in `parts`; only the ones filled in for them are worth a note.
+    const filled = { ...plan, ...(u.startedAt !== undefined && { startedAt: undefined }), ...(u.completedAt !== undefined && { completedAt: undefined }) };
     const title = displayTitle(saved.media.title, viewer.titleLanguage);
     return {
-      line: `${resolved.note}${title}: ${parts.join(", ") || "no change"}.${stepNote}${describePlanDates(plan)}${airedNote(media, saved.progress)}\n${describeEntry(saved.media, saved, viewer)}`,
+      line: `${resolved.note}${title}: ${parts.join(", ") || "no change"}.${stepNote}${describePlanDates(filled)}${airedNote(media, saved.progress)}\n${describeEntry(saved.media, saved, viewer)}`,
       change: change(media, entry, saved),
     };
   };
@@ -694,9 +724,9 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
   server.registerTool(
     "update_shows",
     {
-      title: "Update several shows",
+      title: "Update shows",
       description:
-        "Make several list changes in one call: to several shows (\"watched eps 3-5 of JJK and the Dandadan finale\") or several things about one show (\"finished Frieren, 9/10\"). Each update names a show plus any of status, episodes, watched and score, with the same rules as set_status, set_progress, mark_episodes_watched and rate_anime. Updates that are ambiguous or fail are listed with the reason, and the rest are still saved." +
+        "Make several list changes in one call: to several shows (\"watched eps 3-5 of JJK and the Dandadan finale\") or several things about one show (\"finished Frieren, 9/10\"). Also the only way to set or correct start and finish dates (\"I actually finished it last March\"). Each update names a show plus any of status, episodes, watched, score and dates, with the same rules as set_status, set_progress, mark_episodes_watched and rate_anime. Updates that are ambiguous or fail are listed with the reason, and the rest are still saved." +
         BY_NAME,
       inputSchema: { updates: z.array(updateItem).min(1).max(10).describe("One per show") },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
@@ -713,10 +743,11 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
               throw new Error("Give episodes or watched, not both.");
             }
             const counts = u.episodes !== undefined || u.watched !== undefined;
-            if (!counts && u.status === undefined && u.score === undefined) {
-              throw new Error("Nothing to change: give status, episodes, watched or score.");
+            const dated = u.startedAt !== undefined || u.completedAt !== undefined;
+            if (!counts && !dated && u.status === undefined && u.score === undefined) {
+              throw new Error("Nothing to change: give status, episodes, watched, score or a date.");
             }
-            const intent: Intent = counts ? "progress" : u.status ? "status" : "rate";
+            const intent: Intent = counts ? "progress" : u.status || dated ? "status" : "rate";
             const resolved = await target(client, u.anime, intent, source, false);
             return await inTurn(resolved.media.id, readAt, (stale) => saveUpdate(viewer, resolved, stale, u));
           } catch (err) {

@@ -161,7 +161,7 @@ export function planStatus(
   return plan;
 }
 
-const NO_DATE: FuzzyDate = { year: null, month: null, day: null };
+export const NO_DATE: FuzzyDate = { year: null, month: null, day: null };
 
 /**
  * Several changes to one entry in one save (R2.6): the episode count first, with the usual
@@ -191,6 +191,46 @@ export function planUpdate(
     if (change.progress !== undefined) plan.progress = change.progress;
   }
   return plan;
+}
+
+/** Whether `a` is after `b`, comparing only the parts both have: 2025-03 isn't after 2025-03-14. */
+export function after(a: FuzzyDate, b: FuzzyDate): boolean {
+  if (!a.year || !b.year) return false;
+  if (a.year !== b.year) return a.year > b.year;
+  if (!a.month || !b.month) return false;
+  if (a.month !== b.month) return a.month > b.month;
+  return Boolean(a.day && b.day && a.day > b.day);
+}
+
+/**
+ * Reads a start or finish date the user gave (R0.10): "2025-03-14", "2025-03" when they only
+ * remember the month, or "2025". Dates in the future are refused.
+ */
+export function parseFuzzyDate(text: string, today: FuzzyDate): FuzzyDate {
+  const m = /^(\d{4})(?:-(\d{1,2})(?:-(\d{1,2}))?)?$/.exec(text.trim());
+  if (!m) throw new Error(`Give dates as YYYY-MM-DD, YYYY-MM or YYYY (got "${text}").`);
+  const year = Number(m[1]);
+  const month = m[2] ? Number(m[2]) : null;
+  const day = m[3] ? Number(m[3]) : null;
+  if (month !== null && (month < 1 || month > 12)) throw new Error(`There's no month ${month} (got "${text}").`);
+  if (day !== null && (day < 1 || day > new Date(Date.UTC(year, month!, 0)).getUTCDate())) {
+    throw new Error(`There's no day ${day} in ${year}-${String(month).padStart(2, "0")} (got "${text}").`);
+  }
+  const date = { year, month, day };
+  if (after(date, today)) throw new Error(`${text} is in the future (today is ${formatDate(today)}).`);
+  return date;
+}
+
+/** Refuses a start date after the finish date. */
+export function checkDateOrder(startedAt: FuzzyDate | undefined | null, completedAt: FuzzyDate | undefined | null): void {
+  if (startedAt && completedAt && after(startedAt, completedAt)) {
+    throw new Error(`The start date (${formatDate(startedAt)}) is after the finish date (${formatDate(completedAt)}).`);
+  }
+}
+
+/** A date for results: "2025-03-14", "2025-03", "2025", or "none". */
+export function showDate(d: FuzzyDate | null | undefined): string {
+  return d?.year ? formatDate(d) : "none";
 }
 
 export function formatDate(d: FuzzyDate): string {

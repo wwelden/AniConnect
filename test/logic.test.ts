@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { bothTitles, describePlanDates, displayTitle, formatScore, matchesTitle, planProgress, planStatus, planUpdate, toRawScore } from "../src/logic";
+import { bothTitles, describePlanDates, displayTitle, formatScore, matchesTitle, parseFuzzyDate, planProgress, planStatus, planUpdate, toRawScore } from "../src/logic";
 
 const today = { year: 2026, month: 11, day: 16 };
 const unset = { year: null, month: null, day: null };
@@ -268,5 +268,27 @@ describe("planUpdate (R2.6)", () => {
 
   test("nothing to plan when only a score changes", () => {
     expect(planUpdate(show, planned, {}, today)).toEqual({});
+  });
+});
+
+describe("parseFuzzyDate (R0.10)", () => {
+  test("reads a day, a month or a year", () => {
+    expect(parseFuzzyDate("2025-03-14", today)).toEqual({ year: 2025, month: 3, day: 14 });
+    expect(parseFuzzyDate("2025-3", today)).toEqual({ year: 2025, month: 3, day: null });
+    expect(parseFuzzyDate("2025", today)).toEqual({ year: 2025, month: null, day: null });
+  });
+
+  test("today and this month count as past; leap days are real", () => {
+    expect(parseFuzzyDate("2026-11-16", today).day).toBe(16);
+    expect(parseFuzzyDate("2026-11", today).month).toBe(11);
+    expect(parseFuzzyDate("2024-02-29", today).day).toBe(29);
+  });
+
+  test("refuses the future and dates that don't exist", () => {
+    expect(() => parseFuzzyDate("2026-11-17", today)).toThrow("in the future");
+    expect(() => parseFuzzyDate("2027", today)).toThrow("in the future");
+    expect(() => parseFuzzyDate("2025-02-29", today)).toThrow("no day 29");
+    expect(() => parseFuzzyDate("2025-13", today)).toThrow("no month 13");
+    expect(() => parseFuzzyDate("March 2025", today)).toThrow("YYYY-MM-DD");
   });
 });

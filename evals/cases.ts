@@ -16,6 +16,9 @@ export interface Change {
   score?: number;
   added?: true;
   removed?: true;
+  /** As formatDate prints it: "2025-03-14", "2025-03" or "2025". */
+  startedAt?: string;
+  completedAt?: string;
 }
 
 export type Outcome =
@@ -122,6 +125,12 @@ export const CASES: EvalCase[] = [
       { anime: "Kaguya-sama wa Kokurasetai: Ultra Romantic", progress: 4 },
       { anime: "Dandadan", status: "PAUSED" },
     ] } },
+
+  // Start and finish dates (R0.10).
+  { id: "dates-finished-month", prompt: "I actually finished Frieren back in March 2025, can you fix that on my list?", idealCalls: 1,
+    expect: { changes: [{ anime: "Sousou no Frieren", completedAt: "2025-03" }] } },
+  { id: "dates-started-day", prompt: "I started Dandadan on October 4th 2024, put that on my list", idealCalls: 1,
+    expect: { changes: [{ anime: "Dandadan", startedAt: "2024-10-04" }] } },
 
   // Removing.
   { id: "remove", prompt: "remove haikyuu from my list", idealCalls: 1,
