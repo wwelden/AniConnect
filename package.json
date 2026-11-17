@@ -1,0 +1,26 @@
+{
+  "name": "aniconnect",
+  "version": "0.1.0",
+  "description": "MCP server for managing your AniList anime list",
+  "type": "module",
+  "private": true,
+  "module": "src/index.ts",
+  "bin": {
+    "aniconnect": "src/index.ts"
+  },
+  "scripts": {
+    "start": "bun src/index.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit -p .",
+    "eval": "bun evals/run.ts",
+    "snapshot": "bun scripts/snapshot-fixtures.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.4",
+    "typescript": "^7.0.2"
+  }
+}
