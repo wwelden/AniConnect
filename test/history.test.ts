@@ -60,6 +60,13 @@ describe("parsePeriod", () => {
     expect(parsePeriod("all time", NOW, "UTC").start).toBe(0);
   });
 
+  test("a year written only at the end of a range applies to its start", () => {
+    expect(range("March 1 to March 15, 2025")).toEqual(["2025-03-01T00:00:00.000Z", "2025-03-16T00:00:00.000Z"]);
+    expect(range("between March and June 2025")).toEqual(["2025-03-01T00:00:00.000Z", "2025-07-01T00:00:00.000Z"]);
+    // A range that crosses New Year starts the year before.
+    expect(range("Dec 20 to Jan 5, 2025")).toEqual(["2024-12-20T00:00:00.000Z", "2025-01-06T00:00:00.000Z"]);
+  });
+
   test("days start at local midnight, across daylight saving changes", () => {
     // 12:00 UTC is 7 AM in New York, so "today" is still the 17th there.
     expect(range("today", "America/New_York")).toEqual(["2026-11-17T05:00:00.000Z", "2026-11-18T05:00:00.000Z"]);
