@@ -652,6 +652,32 @@ async function resolveSeason(
     }
   }
 
+  // 3. A part with no season ("the final season part 2"): titles like "The Final Season Part 2"
+  // carry no season number (AniList's fan tags call it season 4), so match the part among the
+  // titles that fit the words.
+  if (matches.length === 0 && q.hint.season === undefined && q.hint.part !== undefined) {
+    const part = q.hint.part;
+    const ranks = STATUS_RANK[intent];
+    const withPart = pool.filter((s) => titlePart(s.media) === part);
+    const bestScore = Math.max(...withPart.map((s) => s.score));
+    // Best word match first, then the list status the intent points at; a tie is ambiguous.
+    const parts = withPart.filter((s) => s.score === bestScore).map((s) => s.media);
+    const bestRank = Math.min(...parts.map((m) => ranks[status(m)]));
+    const top = parts.filter((m) => ranks[status(m)] === bestRank);
+    if (top.length === 1) {
+      const m = top[0]!;
+      const why = parts.length === 1 ? "going by its title" : `and ${STATUS_WHY[status(m)]}`;
+      return { kind: "match", media: m, why: `it's part ${part}, ${why}` };
+    }
+    if (top.length > 1) {
+      return {
+        kind: "ambiguous",
+        candidates: top.slice(0, MAX_CANDIDATES),
+        why: `"${q.exact}" part ${part} matches ${top.length} shows.`,
+      };
+    }
+  }
+
   const label = `season ${wantSeason}${q.hint.part ? ` part ${q.hint.part}` : ""}`;
   if (matches.length === 0) {
     return { kind: "none", why: `Couldn't find ${label} of "${q.exact}" on AniList.` };
@@ -669,6 +695,11 @@ async function resolveSeason(
       ? `it's the first part of ${label}`
       : `it's ${label} and ${STATUS_WHY[status(best.media)]}`;
   return { kind: "match", media: best.media, why };
+}
+
+/** True when one of the show's titles is, or starts with, this number ("86", "86 Part 2"), not just contains it. */
+export function titledWithNumber(m: Media, digits: string): boolean {
+  return names(m).some((name) => name === digits || name.startsWith(`${digits} `));
 }
 
 /** Candidates keep a second title: the user may know the show by either name. */

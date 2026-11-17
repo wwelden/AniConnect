@@ -1,10 +1,12 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { AniListClient, LIST_TTL_MS } from "../src/anilist";
-import { createServer, INSTRUCTIONS, WRITE_TOOLS } from "../src/server";
+import { formatDate, todayFuzzy } from "../src/logic";
+import { createServer, INSTRUCTIONS, WRITE_TOOLS, type ServerOptions } from "../src/server";
+import pkg from "../package.json" with { type: "json" };
 import { PERSONA } from "./fixtures/persona";
-import { catalog, FakeAniList } from "./support/fake-anilist";
+import { catalog, FakeAniList, type CatalogMedia } from "./support/fake-anilist";
 
 let fake: FakeAniList;
 let client: Client;
@@ -17,13 +19,24 @@ async function call(name: string, args: Record<string, unknown>) {
   return { text: result.content.map((c) => c.text).join("\n"), isError: Boolean(result.isError) };
 }
 
-beforeEach(async () => {
-  fake = new FakeAniList("POINT_5");
-  const server = createServer(new AniListClient("test-token", fake.fetch));
+async function connect(options: ServerOptions = {}) {
+  const server = createServer(new AniListClient("test-token", fake.fetch), options);
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   client = new Client({ name: "test", version: "0" });
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+}
+
+beforeEach(async () => {
+  fake = new FakeAniList("POINT_5");
+  await connect();
 });
+
+/** 2026-11-17 noon UTC: Apothecary Diaries Season 3 has aired 7 episodes (episode 8 airs 2026-11-20). */
+const NOW = Date.UTC(2026, 10, 17, 12);
+// The server dates entries by its local day; derive the same so this passes in any time zone.
+const TODAY_DATE = todayFuzzy(new Date(NOW));
+const TODAY = formatDate(TODAY_DATE);
+const EARLIER = { year: 2024, month: 3, day: 1 };
 
 describe("title language", () => {
   test("the viewer query asks for the title language", async () => {
@@ -281,6 +294,202 @@ describe("tools", () => {
     const r = await call("search_anime", { query: "titan" });
     expect(r.isError).toBe(true);
     expect(r.text).toContain("Try again in 30 seconds");
+    expect(r.text).toContain("30 requests a minute");
+  });
+
+  test("reports the version from package.json", () => {
+    expect(client.getServerVersion()?.version).toBe(pkg.version);
+  });
+
+  test("a malformed viewer response isn't cached", async () => {
+    let broken = true;
+    const flaky = async (url: string, init: RequestInit) => {
+      const res = await fake.fetch(url, init);
+      if (!broken || !String(init.body).includes("Viewer")) return res;
+      broken = false;
+      const body = (await res.json()) as { data: { Viewer: { mediaListOptions: unknown } } };
+      body.data.Viewer.mediaListOptions = null; // Nullable in AniList's schema.
+      return new Response(JSON.stringify(body));
+    };
+    const anilist = new AniListClient("t", flaky);
+    expect(await anilist.getViewer().then(() => "loaded", () => "failed")).toBe("failed");
+    expect((await anilist.getViewer()).name).toBe("tester");
+  });
+
+  test("the first tool call fetches the viewer once", async () => {
+    await call("add_to_list", { anime: "frieren" });
+    expect(fake.calls.filter((c) => c.query.includes("Viewer")).length).toBe(1);
+  });
+});
+
+describe("titles made of digits", () => {
+  // Real AniList: ID 86 is Gundam ZZ, and "86" is the title of ID 116589.
+  const stub = (id: number, romaji: string, english: string | null, popularity: number) =>
+    ({
+      id, title: { romaji, english, native: null }, synonyms: [], episodes: 11, format: "TV", status: "FINISHED",
+      season: "SPRING", seasonYear: 2021, startDate: { year: 2021, month: 4, day: 11 }, averageScore: 80,
+      popularity, isAdult: false, siteUrl: `https://anilist.co/anime/${id}`, nextAiringEpisode: null, relations: { edges: [] }, franchise: romaji,
+    }) as unknown as CatalogMedia;
+  const added = [
+    stub(116589, "86", "86 EIGHTY-SIX", 300000),
+    stub(86, "Kidou Senshi Gundam ZZ", "Mobile Suit Gundam ZZ", 10000),
+    stub(900100, "100-man no Inochi no Ue ni Ore wa Tatteiru", "I'm Standing on a Million Lives", 50000),
+  ];
+  beforeEach(() => void catalog.push(...added));
+  afterEach(() => void catalog.splice(catalog.length - added.length, added.length));
+
+  test("a digit string that is a title resolves as that title", async () => {
+    const r = await call("add_to_list", { anime: "86" });
+    expect(r.isError).toBe(false);
+    expect(r.text).toContain('Matched "86" to 86 EIGHTY-SIX by title');
+    expect(fake.entries.has(116589)).toBe(true);
+    expect(fake.entries.has(86)).toBe(false);
+  });
+
+  test("a number is always an ID", async () => {
+    await call("add_to_list", { anime: 86 });
+    expect(fake.entries.has(86)).toBe(true);
+    expect(fake.entries.has(116589)).toBe(false);
+  });
+
+  test("a listed show that only contains the number doesn't stop the search for one titled with it", async () => {
+    // Mob Psycho 100 III is planned, which would otherwise end the search on the list.
+    fake.seed(PERSONA);
+    const r = await call("mark_episodes_watched", { anime: "100" });
+    expect(r.isError).toBe(false);
+    expect(fake.entries.get(900100)!.progress).toBe(1);
+  });
+
+  test("a digit string no show is titled with is an ID", async () => {
+    // No title starts with "1000" (the test above covers one that only contains its number);
+    // the fixture has no ID 1000.
+    const r = await call("add_to_list", { anime: "1000" });
+    expect(r.isError).toBe(true);
+    expect(r.text).toContain("No anime found with id 1000");
+  });
+});
+
+describe("status changes keep dates in sync (R0.7, R3.2)", () => {
+  test("set_status COMPLETED fills in progress and both dates", async () => {
+    await connect({ now: () => NOW });
+    fake.seed(PERSONA);
+    const r = await call("set_status", { anime: "haikyuu", status: "COMPLETED" });
+    const e = fake.entries.get(20464)!;
+    expect(e.progress).toBe(25);
+    expect(e.startedAt).toEqual(TODAY_DATE);
+    expect(e.completedAt).toEqual(TODAY_DATE);
+    expect(r.text).toContain(`Start date set to ${TODAY}, finish date set to ${TODAY}.`);
+  });
+
+  test("set_status CURRENT sets the start date, and add_to_list does too", async () => {
+    await connect({ now: () => NOW });
+    fake.seed(PERSONA);
+    await call("set_status", { anime: "haikyuu", status: "CURRENT" });
+    expect(fake.entries.get(20464)!.startedAt).toEqual(TODAY_DATE);
+    expect(fake.entries.get(20464)!.completedAt.year).toBeNull();
+
+    const r = await call("add_to_list", { anime: 127230, status: "CURRENT" });
+    expect(fake.entries.get(127230)!.startedAt).toEqual(TODAY_DATE);
+    expect(r.text).toContain(`Start date set to ${TODAY}.`);
+  });
+
+  test("set_status never overwrites dates already set", async () => {
+    fake.seed(PERSONA);
+    const vinland = fake.entries.get(101348)!;
+    vinland.startedAt = EARLIER;
+    const r = await call("set_status", { anime: "vinland saga", status: "COMPLETED" });
+    expect(fake.entries.get(101348)!.startedAt).toEqual(EARLIER);
+    expect(fake.entries.get(101348)!.completedAt.year).not.toBeNull();
+    expect(r.text).not.toContain("Start date");
+  });
+});
+
+describe("rewatches", () => {
+  test("starting a rewatch resets progress so episodes can be counted again", async () => {
+    fake.seed(PERSONA);
+    const bocchi = fake.entries.get(130003)!;
+    bocchi.startedAt = EARLIER;
+    bocchi.completedAt = EARLIER;
+
+    let r = await call("set_status", { anime: "bocchi the rock", status: "REPEATING" });
+    expect(r.isError).toBe(false);
+    expect(r.text).toContain("Episode count reset from 12 to 0 for the rewatch");
+    expect(fake.entries.get(130003)!.progress).toBe(0);
+    expect(fake.entries.get(130003)!.completedAt).toEqual(EARLIER);
+
+    r = await call("mark_episodes_watched", { anime: "bocchi the rock" });
+    expect(r.isError).toBe(false);
+    expect(r.text).toContain("episode 0 -> 1");
+    expect(fake.entries.get(130003)!.status).toBe("REPEATING");
+
+    r = await call("set_progress", { anime: "bocchi the rock", episodes: 12 });
+    expect(r.text).toContain("Status is now Completed (was Rewatching). Rewatch count is now 1.");
+    const done = fake.entries.get(130003)!;
+    expect(done).toMatchObject({ status: "COMPLETED", progress: 12, repeat: 1, startedAt: EARLIER, completedAt: EARLIER });
+  });
+});
+
+describe("lowering progress on a completed show", () => {
+  test("moves it back to watching and keeps its dates", async () => {
+    fake.seed(PERSONA);
+    const frieren = fake.entries.get(154587)!;
+    frieren.startedAt = EARLIER;
+    frieren.completedAt = EARLIER;
+    const r = await call("set_progress", { anime: 154587, episodes: 5 });
+    expect(r.text).toContain("episode 28 -> 5. Status is now Watching (was Completed).");
+    expect(fake.entries.get(154587)).toMatchObject({ status: "CURRENT", progress: 5, startedAt: EARLIER, completedAt: EARLIER });
+  });
+});
+
+describe("progress past what has aired", () => {
+  test("is saved, with a note saying how many episodes have aired", async () => {
+    await connect({ now: () => NOW });
+    fake.seed(PERSONA);
+    const r = await call("set_progress", { anime: "apothecary diaries", episodes: 11 });
+    expect(r.isError).toBe(false);
+    expect(fake.entries.get(195516)!.progress).toBe(11);
+    expect(r.text).toContain("AniList says only 7 episodes have aired so far.");
+  });
+
+  test("says nothing when progress is within what has aired", async () => {
+    await connect({ now: () => NOW });
+    fake.seed(PERSONA);
+    await call("set_progress", { anime: "apothecary diaries", episodes: 7 });
+    const r = await call("set_progress", { anime: "apothecary diaries", episodes: 6 });
+    expect(r.text).not.toContain("aired");
+  });
+});
+
+test("progress on a show that hasn't premiered says so", async () => {
+  await connect({ now: () => NOW });
+  fake.seed(PERSONA);
+  // Kusuriya no Hitorigoto: Bouhi no Hihou: episode 1 airs 2026-12-10.
+  const r = await call("set_progress", { anime: 200929, episodes: 1 });
+  expect(r.text).toContain("hasn't started airing yet");
+});
+
+test("progress on an unreleased show with no schedule yet says it hasn't aired", async () => {
+  await connect({ now: () => NOW });
+  // Bocchi the Rock! 2nd Season: not yet released, no airing schedule on AniList.
+  const r = await call("set_progress", { anime: 186712, episodes: 1 });
+  expect(r.isError).toBe(false);
+  expect(fake.entries.get(186712)!.progress).toBe(1);
+  expect(r.text).toContain("hasn't started airing yet");
+});
+
+describe("parts without a season number", () => {
+  test("a part that fits two seasons goes to the one the intent points at", async () => {
+    fake.seed([...PERSONA.filter((e) => e.anime !== "Shingeki no Kyojin Season 3 Part 2"), { anime: "Shingeki no Kyojin Season 3 Part 2", status: "CURRENT", progress: 2 }]);
+    const r = await call("mark_episodes_watched", { anime: "attack on titan part 2" });
+    expect(r.isError).toBe(false);
+    expect(fake.entries.get(104578)!.progress).toBe(3);
+  });
+
+  test("set_status finds The Final Season Part 2", async () => {
+    fake.seed(PERSONA);
+    const r = await call("set_status", { anime: "attack on titan final season part 2", status: "PLANNING" });
+    expect(r.isError).toBe(false);
+    expect(fake.entries.get(131681)!.status).toBe("PLANNING");
   });
 });
 
@@ -300,7 +509,7 @@ describe('set_progress "latest" (caught up)', () => {
     await connect();
     const r = await call("set_progress", { anime: "dandadan", episodes: "latest" });
     expect(r.isError).toBe(false);
-    expect(r.text).toContain("episode 7 -> 12. Status is now Completed. That's every episode.");
+    expect(r.text).toContain("episode 7 -> 12. Status is now Completed (was Watching). That's every episode.");
     expect(fake.entries.get(171018)).toMatchObject({ progress: 12, status: "COMPLETED" });
   });
 
@@ -315,7 +524,7 @@ describe('set_progress "latest" (caught up)', () => {
   test("a paused show still airing moves to watching", async () => {
     await connect([{ anime: "Kusuriya no Hitorigoto 3rd Season", status: "PAUSED", progress: 5 }]);
     const r = await call("set_progress", { anime: 195516, episodes: "latest" });
-    expect(r.text).toContain("episode 5 -> 7. Status is now Watching. Latest aired episode: 7 of 12.");
+    expect(r.text).toContain("episode 5 -> 7. Status is now Watching (was Paused). Latest aired episode: 7 of 12.");
     expect(fake.entries.get(195516)).toMatchObject({ progress: 7, status: "CURRENT" });
   });
 
