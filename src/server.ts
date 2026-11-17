@@ -313,7 +313,8 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
     },
     safe(async ({ anime }) => {
       const { media } = await target(client, anime, "remove");
-      const viewer = await client.getViewer(); // already fetched while resolving the name
+      // Cached once fetched (resolving a name fetches it), so this is a request only on first use.
+      const viewer = await client.getViewer();
       const title = displayTitle(media.title, viewer.titleLanguage);
       if (!media.mediaListEntry) return text(`${title} isn't on your list.`);
       const deleted = await client.deleteEntry(media.mediaListEntry.id);
