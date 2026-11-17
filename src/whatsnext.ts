@@ -30,12 +30,15 @@ export function caughtUpProgress(
   now: number,
   language: TitleLanguage,
 ): { episodes: number; note: string } {
-  const aired = airedEpisodes(m, now);
-  if (aired === null) {
+  const raw = airedEpisodes(m, now);
+  if (raw === null) {
     throw new Error(
-      `Nothing was changed. AniList has no airing schedule for ${displayTitle(m.title, language)}, so it doesn't say how many episodes are out. Ask the user which episode they're on, then call again with that number.`,
+      `Nothing was changed. AniList doesn't say how many episodes of ${displayTitle(m.title, language)} are out (no airing schedule or episode count). Ask the user which episode they're on, then call again with that number.`,
     );
   }
+  if (raw === 0) throw new Error(`Nothing was changed. ${displayTitle(m.title, language)} hasn't aired any episodes yet.`);
+  // The schedule can run past an episode count AniList hasn't updated yet.
+  const aired = m.episodes ? Math.min(raw, m.episodes) : raw;
   if (aired < progress) {
     return { episodes: progress, note: ` AniList says only ${aired} episode${aired === 1 ? " has" : "s have"} aired, so progress stays at ${progress}.` };
   }

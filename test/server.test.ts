@@ -321,7 +321,7 @@ describe('set_progress "latest" (caught up)', () => {
       const before = fake.writes.length;
       const r = await call("set_progress", { anime: "one piece", episodes: "latest" });
       expect(r.isError).toBe(true);
-      expect(r.text).toContain("Nothing was changed. AniList has no airing schedule for ONE PIECE");
+      expect(r.text).toContain("Nothing was changed. AniList doesn't say how many episodes of ONE PIECE are out");
       expect(r.text).toContain("Ask the user which episode they're on");
       expect(fake.writes.length).toBe(before);
       expect(fake.entries.get(21)!.progress).toBe(1100);
