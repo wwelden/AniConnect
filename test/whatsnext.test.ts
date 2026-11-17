@@ -3,7 +3,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { AniListClient, type ListStatus, type Media } from "../src/anilist";
 import { createServer } from "../src/server";
-import { airedEpisodes, buildReport, caughtUpProgress, checkTimeZone, formatAirTime, formatReport, nextSeasons } from "../src/whatsnext";
+import { airedEpisodes, buildReport, caughtUpProgress, checkTimeZone, formatAirTime, formatReport, formatShow, nextSeasons, watchTime } from "../src/whatsnext";
 import { PERSONA } from "./fixtures/persona";
 import { FakeAniList } from "./support/fake-anilist";
 
@@ -48,6 +48,32 @@ describe("formatAirTime", () => {
   });
 });
 
+describe("watchTime", () => {
+  test("minutes to the nearest 5 under an hour", () => {
+    expect(watchTime(1, 24)).toBe(", about 25 minutes");
+    expect(watchTime(2, 12)).toBe(", about 25 minutes");
+    expect(watchTime(1, 2)).toBe(", about 5 minutes");
+  });
+
+  test("hours to the nearest half from an hour up", () => {
+    expect(watchTime(1, 58)).toBe(", about 1 hour");
+    expect(watchTime(5, 24)).toBe(", about 2 hours");
+    expect(watchTime(6, 24)).toBe(", about 2.5 hours");
+    expect(watchTime(3, 24)).toBe(", about 1 hour");
+  });
+
+  test("whole hours from 10 up", () => {
+    expect(watchTime(25, 24)).toBe(", about 10 hours");
+    expect(watchTime(80, 24)).toBe(", about 32 hours");
+  });
+
+  test("nothing when the duration is unknown or nothing is left", () => {
+    expect(watchTime(5, null)).toBe("");
+    expect(watchTime(5, 0)).toBe("");
+    expect(watchTime(0, 24)).toBe("");
+  });
+});
+
 describe("whats_next tool", () => {
   let fake: FakeAniList;
   let client: Client;
@@ -82,9 +108,9 @@ describe("whats_next tool", () => {
     ]);
     // Airing shows first, then fewest episodes to go.
     expect(sections[0]).toContain(
-      "- ONE PIECE: 80 episodes to watch (on 1100 of 1180 aired). Episode 1181 airs Sun, Jan 3 at 2:16 PM (in 47 days).",
+      "- ONE PIECE: 80 episodes to watch, about 32 hours (on 1100 of 1180 aired). Episode 1181 airs Sun, Jan 3 at 2:16 PM (in 47 days).",
     );
-    expect(sections[0]!.split("\n")[2]).toContain("- DAN DA DAN: 5 episodes to watch (on 7 of 12 aired).");
+    expect(sections[0]!.split("\n")[2]).toContain("- DAN DA DAN: 5 episodes to watch, about 2 hours (on 7 of 12 aired).");
     expect(sections[1]).toContain("- The Apothecary Diaries Season 3: episode 8 airs Fri, Nov 20 at 2:00 PM (in 3 days).");
     // Sequels of finished shows that haven't been started; planned ones say so.
     expect(sections[2]).toContain("[182255] Frieren: Beyond Journey’s End Season 2");
@@ -93,7 +119,7 @@ describe("whats_next tool", () => {
     // Sequels already started aren't suggested; dropped shows aren't "on hold".
     expect(r.text).not.toContain("After JUJUTSU KAISEN");
     expect(r.text).not.toContain("VINLAND");
-    expect(sections[3]).toContain("- Attack on Titan Final Season: 6 episodes to watch");
+    expect(sections[3]).toContain("- Attack on Titan Final Season: 6 episodes to watch, about 2.5 hours (on 10 of 16 aired).");
     expect(sections[4]).toContain("Bocchi the Rock! 2nd Season (not out yet)");
     expect(r.requests).toBeLessThanOrEqual(3);
   });
@@ -105,6 +131,11 @@ describe("whats_next tool", () => {
     expect(r.text).toContain("You: Watching, watched 7.");
     expect(r.text).toContain("Next: episode 8 airs Fri, Nov 20 at 2:00 PM (in 3 days).");
     expect(r.text).toContain("Comes next: [200927] Kusuriya no Hitorigoto 3rd Season Part 2 (not out yet, expected 2027)");
+  });
+
+  test("one show you're behind on says how long the aired episodes take", async () => {
+    const r = await call({ anime: "dandadan", timeZone: "UTC" });
+    expect(r.text).toContain("You: Watching, watched 7, 5 aired episodes to go, about 2 hours.");
   });
 
   test("a finished show is described with its next season", async () => {
@@ -128,7 +159,7 @@ describe("whats_next tool", () => {
     const late = new Client({ name: "t", version: "0" });
     await Promise.all([server.connect(b), late.connect(a)]);
     const r = (await late.callTool({ name: "whats_next", arguments: { timeZone: "UTC" } })) as { content: { text: string }[] };
-    expect(r.content[0]!.text).toContain("1 episode to watch (on 7 of 8 aired).");
+    expect(r.content[0]!.text).toContain("1 episode to watch, about 25 minutes (on 7 of 8 aired).");
     expect(r.content[0]!.text).not.toContain("airs");
   });
 
@@ -239,6 +270,7 @@ describe("buildReport edge cases", () => {
   const base = {
     title: { romaji: "Show", english: null, native: null },
     synonyms: [],
+    duration: null,
     format: "TV",
     seasonYear: 2026,
     startDate: { year: 2026, month: 1, day: 1 },
@@ -278,6 +310,20 @@ describe("buildReport edge cases", () => {
     } as Media;
     expect(nextSeasons([show], new Map([[1, "COMPLETED"]])).map((s) => s.next.id)).toEqual([2]);
     expect(nextSeasons([show, movie], new Map<number, ListStatus>([[1, "COMPLETED"], [3, "COMPLETED"]]))).toEqual([]);
+  });
+
+  test("episode counts leave the time out when the duration is unknown", () => {
+    const m = { ...base, id: 1, episodes: 12, status: "FINISHED", nextAiringEpisode: null, mediaListEntry: entry("CURRENT", 2) } as Media;
+    expect(formatReport(buildReport([m], [], NOW), NOW, "UTC", "ENGLISH")).toBe("New episodes to watch:\n- Show: 10 episodes to watch (on 2 of 12 aired).");
+    expect(formatShow(m, [], new Map(), NOW, "UTC", "ENGLISH")).toContain("You: Watching, watched 2, 10 aired episodes to go.");
+  });
+
+  test("episode counts give the time when the duration is known", () => {
+    const m = { ...base, id: 1, episodes: 12, duration: 24, status: "FINISHED", nextAiringEpisode: null, mediaListEntry: entry("PAUSED", 9) } as Media;
+    expect(formatReport(buildReport([m], [], NOW), NOW, "UTC", "ENGLISH")).toBe(
+      "On hold, with episodes left:\n- Show: 3 episodes to watch, about 1 hour (on 9 of 12 aired).",
+    );
+    expect(formatShow(m, [], new Map(), NOW, "UTC", "ENGLISH")).toContain("You: Paused, watched 9, 3 aired episodes to go, about 1 hour.");
   });
 
   test("cancelled sequels aren't suggested", () => {

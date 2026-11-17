@@ -44,6 +44,7 @@ const FIELDS = `
   title { romaji english native }
   synonyms
   episodes
+  duration
   format
   status
   season
