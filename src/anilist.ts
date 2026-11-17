@@ -320,12 +320,12 @@ export class AniListClient {
         titleLanguage: data.Viewer.options?.titleLanguage ?? "ROMAJI",
         timeZone: parseTimeZone(data.Viewer.options?.timezone),
         displayAdultContent: data.Viewer.options?.displayAdultContent ?? false,
-      }),
-      (err) => {
+      }))
+      // After the mapping, so a malformed response isn't cached either.
+      .catch((err) => {
         if (this.viewer === pending) this.viewer = null; // Let the next call try again.
         throw err;
-      },
-    );
+      });
     this.viewer = pending;
     return this.viewer;
   }

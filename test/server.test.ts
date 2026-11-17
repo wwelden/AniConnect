@@ -301,6 +301,21 @@ describe("tools", () => {
     expect(client.getServerVersion()?.version).toBe(pkg.version);
   });
 
+  test("a malformed viewer response isn't cached", async () => {
+    let broken = true;
+    const flaky = async (url: string, init: RequestInit) => {
+      const res = await fake.fetch(url, init);
+      if (!broken || !String(init.body).includes("Viewer")) return res;
+      broken = false;
+      const body = (await res.json()) as { data: { Viewer: { mediaListOptions: unknown } } };
+      body.data.Viewer.mediaListOptions = null; // Nullable in AniList's schema.
+      return new Response(JSON.stringify(body));
+    };
+    const anilist = new AniListClient("t", flaky);
+    expect(await anilist.getViewer().then(() => "loaded", () => "failed")).toBe("failed");
+    expect((await anilist.getViewer()).name).toBe("tester");
+  });
+
   test("the first tool call fetches the viewer once", async () => {
     await call("add_to_list", { anime: "frieren" });
     expect(fake.calls.filter((c) => c.query.includes("Viewer")).length).toBe(1);
@@ -315,7 +330,11 @@ describe("titles made of digits", () => {
       season: "SPRING", seasonYear: 2021, startDate: { year: 2021, month: 4, day: 11 }, averageScore: 80,
       popularity, isAdult: false, siteUrl: `https://anilist.co/anime/${id}`, nextAiringEpisode: null, relations: { edges: [] }, franchise: romaji,
     }) as unknown as CatalogMedia;
-  const added = [stub(116589, "86", "86 EIGHTY-SIX", 300000), stub(86, "Kidou Senshi Gundam ZZ", "Mobile Suit Gundam ZZ", 10000)];
+  const added = [
+    stub(116589, "86", "86 EIGHTY-SIX", 300000),
+    stub(86, "Kidou Senshi Gundam ZZ", "Mobile Suit Gundam ZZ", 10000),
+    stub(900100, "100-man no Inochi no Ue ni Ore wa Tatteiru", "I'm Standing on a Million Lives", 50000),
+  ];
   beforeEach(() => void catalog.push(...added));
   afterEach(() => void catalog.splice(catalog.length - added.length, added.length));
 
@@ -333,11 +352,20 @@ describe("titles made of digits", () => {
     expect(fake.entries.has(116589)).toBe(false);
   });
 
-  test("a digit string that only appears inside a title is an ID", async () => {
-    // "Mob Psycho 100" contains 100 but isn't titled "100"; the fixture has no ID 100.
-    const r = await call("add_to_list", { anime: "100" });
+  test("a listed show that only contains the number doesn't stop the search for one titled with it", async () => {
+    // Mob Psycho 100 III is planned, which would otherwise end the search on the list.
+    fake.seed(PERSONA);
+    const r = await call("mark_episodes_watched", { anime: "100" });
+    expect(r.isError).toBe(false);
+    expect(fake.entries.get(900100)!.progress).toBe(1);
+  });
+
+  test("a digit string no show is titled with is an ID", async () => {
+    // No title starts with "1000" (the test above covers one that only contains its number);
+    // the fixture has no ID 1000.
+    const r = await call("add_to_list", { anime: "1000" });
     expect(r.isError).toBe(true);
-    expect(r.text).toContain("No anime found with id 100");
+    expect(r.text).toContain("No anime found with id 1000");
   });
 });
 

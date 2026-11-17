@@ -21,6 +21,7 @@ import {
   titledWithNumber,
   type AnimeSource,
   type Intent,
+  type Resolution,
 } from "./resolve";
 import { formatHistory, parsePeriod } from "./history";
 import { tokenWatch } from "./token";
@@ -131,18 +132,19 @@ async function target(
   const prefix = changes ? "Nothing was changed. " : "";
   if (typeof input === "number") return { media: await client.getAnime(input), note: "" };
   const { titleLanguage } = await client.getViewer();
-  let r = await resolveAnime(input, intent, source, titleLanguage);
-  const digits = input.trim();
-  if (/^\d+$/.test(digits)) {
-    // All digits: a title that is (or starts with) that number, like "86", wins; otherwise
-    // it's an AniList ID passed as a string. "Mob Psycho 100" doesn't make "100" a title.
-    if (r.kind === "ambiguous") {
-      const titled = r.candidates.filter((m) => titledWithNumber(m, digits));
-      if (titled.length === 1) r = { kind: "match", media: titled[0]!, why: `it's the show titled "${digits}"` };
-      else if (titled.length > 1) r = { kind: "ambiguous", candidates: titled, why: `"${digits}" is the title of ${titled.length} shows.` };
-      else r = { kind: "none", why: "" };
-    }
-    if (r.kind === "match" && !titledWithNumber(r.media, digits)) r = { kind: "none", why: "" };
+  const digits = /^\d+$/.test(input.trim()) ? input.trim() : undefined;
+  let r: Resolution;
+  if (digits) {
+    // All digits: a show titled with that number ("86", "86 Part 2") wins; otherwise it's an
+    // AniList ID passed as a string. The resolver only sees titled shows, so one that merely
+    // contains the number ("Mob Psycho 100" for "100") can't stand in for a search.
+    const titled = (shows: Media[]) => shows.filter((m) => titledWithNumber(m, digits));
+    const titledSource: AnimeSource = {
+      ...source,
+      listMedia: async () => titled(await source.listMedia()),
+      search: async (query) => titled(await source.search(query)),
+    };
+    r = await resolveAnime(input, intent, titledSource, titleLanguage);
     if (r.kind === "none") return { media: await client.getAnime(Number(digits)), note: "" };
     if (r.kind === "match") {
       return {
@@ -150,6 +152,9 @@ async function target(
         note: `Matched "${input}" to ${displayTitle(r.media.title, titleLanguage)} by title: ${r.why}. To mean AniList ID ${digits}, pass it as a number.\n`,
       };
     }
+    // Ambiguous: falls through to ask, listing only the titled shows.
+  } else {
+    r = await resolveAnime(input, intent, source, titleLanguage);
   }
   if (r.kind === "match") {
     return { media: r.media, note: `Matched "${input}" to ${displayTitle(r.media.title, titleLanguage)}: ${r.why}.\n` };
