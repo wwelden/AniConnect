@@ -27,8 +27,9 @@ export function tokenExpiry(token: string): number | null {
   }
 }
 
+/** e.g. "2026-11-27 03:00 UTC": a date alone can read as the wrong day outside UTC. */
 function day(ms: number): string {
-  return new Date(ms).toISOString().slice(0, 10);
+  return `${new Date(ms).toISOString().slice(0, 16).replace("T", " ")} UTC`;
 }
 
 /**

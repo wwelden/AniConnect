@@ -58,7 +58,7 @@ describe("token expiry in tool results", () => {
     let r = await call();
     expect(r.isError).toBe(false);
     expect(r.text).toContain("Attack on Titan");
-    expect(r.text).toContain("Heads-up: the AniList token expires on 2026-11-27 (in 10 days).");
+    expect(r.text).toContain("Heads-up: the AniList token expires on 2026-11-27 12:00 UTC (in 10 days).");
     expect(r.text).toContain("https://anilist.co/api/v2/oauth/authorize?client_id=YOUR_CLIENT_ID&response_type=token");
     expect(r.text.split("\n").filter((l) => l.includes("token expires")).length).toBe(1);
 
@@ -68,14 +68,14 @@ describe("token expiry in tool results", () => {
 
     advance(DAY);
     r = await call();
-    expect(r.text).toContain("expires on 2026-11-27 (in 9 days)");
+    expect(r.text).toContain("expires on 2026-11-27 12:00 UTC (in 9 days)");
   });
 
   test("expired: fails with a clear message and sends no request", async () => {
     const { call, fake } = await setup(expiringIn(-3 * DAY));
     const r = await call();
     expect(r.isError).toBe(true);
-    expect(r.text).toContain("AniList token expired on 2026-11-14, so nothing was sent.");
+    expect(r.text).toContain("AniList token expired on 2026-11-14 12:00 UTC, so nothing was sent.");
     expect(r.text).toContain("ANILIST_TOKEN");
     expect(fake.calls.length).toBe(0);
   });
