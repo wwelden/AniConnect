@@ -361,7 +361,15 @@ export class FakeAniList {
       return json({ Page: { media } });
     }
     if (query.includes("Media(id")) {
-      return json({ Media: this.mediaView(variables.id) });
+      const media = this.mediaView(variables.id);
+      if (!media) {
+        // Real AniList answers an unknown ID (or a manga ID on a type: ANIME query) with HTTP 404.
+        return new Response(
+          JSON.stringify({ errors: [{ message: "Not Found.", status: 404 }], data: { Media: null } }),
+          { status: 404 },
+        );
+      }
+      return json({ Media: media });
     }
     if (query.includes("MediaListCollection")) {
       const entries = [...this.entries.values()]

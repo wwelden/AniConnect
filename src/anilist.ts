@@ -151,7 +151,12 @@ export interface Viewer {
   displayAdultContent: boolean;
 }
 
-export class AniListError extends Error {}
+export class AniListError extends Error {
+  /** AniList's own status for the error (404 for an unknown ID), when it gave one. */
+  constructor(message: string, readonly status?: number) {
+    super(message);
+  }
+}
 
 export type ListItem = ListEntry & { media: Media };
 
@@ -289,7 +294,7 @@ export class AniListClient {
           `AniList rejected the token (${messages}). Check ANILIST_TOKEN; tokens expire after a year.`,
         );
       }
-      throw new AniListError(`AniList error: ${messages}`);
+      throw new AniListError(`AniList error: ${messages}`, body.errors[0]!.status ?? res.status);
     }
     if (!res.ok || !body.data) {
       throw new AniListError(`AniList returned HTTP ${res.status}.`);
@@ -396,8 +401,14 @@ export class AniListClient {
         }
       }`,
       { id: mediaId },
-    );
-    if (!data.Media) throw new AniListError(`No anime found with id ${mediaId}.`);
+    ).catch((err) => {
+      // AniList answers an unknown ID, or a manga ID, with HTTP 404 "Not Found.".
+      if (err instanceof AniListError && err.status === 404) return { Media: null };
+      throw err;
+    });
+    if (!data.Media) {
+      throw new AniListError(`No anime found with id ${mediaId}. Check the number, or pass the show's name.`);
+    }
     return data.Media;
   }
 
