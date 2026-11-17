@@ -121,7 +121,10 @@ function capitalize(word: string): string {
 function continues(media: Media, language: TitleLanguage): string {
   if (media.mediaListEntry && media.mediaListEntry.status !== "PLANNING") return "";
   const done = media.relations?.edges.find(
-    (e) => e.relationType === "PREQUEL" && e.node.mediaListEntry?.status === "COMPLETED",
+    (e) =>
+      e.relationType === "PREQUEL" &&
+      e.node.type === "ANIME" &&
+      (e.node.mediaListEntry?.status === "COMPLETED" || e.node.mediaListEntry?.status === "REPEATING"),
   );
   return done?.node.title ? `. Continues ${displayTitle(done.node.title, language)}, which you completed` : "";
 }
@@ -168,7 +171,9 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
         sort: z
           .enum(["popularity", "score", "newest"])
           .optional()
-          .describe("Order of results. Default: best title match with `query`, else popularity"),
+          .describe(
+            "Order of results. newest = latest start date, announced shows included. Default: best title match with `query`, else popularity",
+          ),
         limit: z.number().int().min(1).max(25).optional().describe("Default 5 for a title search, 10 when browsing"),
       },
       annotations: { readOnlyHint: true, openWorldHint: true },

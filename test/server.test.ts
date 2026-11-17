@@ -539,6 +539,12 @@ describe("search_anime filters", () => {
     expect(jjk).not.toContain("Continues");
   });
 
+  test("counts a prequel being rewatched as completed", async () => {
+    fake.seed([{ anime: "Sousou no Frieren", status: "REPEATING" }]);
+    const r = await call("search_anime", { query: "frieren 2nd season", limit: 1 });
+    expect(r.text).toContain("Continues Frieren: Beyond Journey’s End (Sousou no Frieren), which you completed");
+  });
+
   test("doesn't flag a continuation the user is already watching", async () => {
     fake.seed(PERSONA);
     const r = await call("search_anime", { query: "apothecary diaries season 3" });
