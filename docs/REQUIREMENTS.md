@@ -78,7 +78,7 @@ Every tool that targets a show accepts a title (or an ID) and picks the right An
 
 | ID | Requirement | Status |
 |---|---|---|
-| R3.1 | Undo recent changes exactly, including deleting an entry that was just added and restoring one that was just removed. | Planned |
+| R3.1 | Undo recent changes exactly, including deleting an entry that was just added and restoring one that was just removed. | Done (`undo`: the last 50 changes since the server started; one request to read the shows, then one write each. A show changed elsewhere since is left alone. Restores notes, privacy and custom lists too, though no tool writes those) |
 | R3.2 | Never overwrite data the user didn't ask to change (e.g. keep existing start/finish dates and rewatch completion dates). | Done |
 | R3.3 | Keep adult (18+) titles out of AniList-wide search and name resolution unless the user's AniList setting (`displayAdultContent`) allows them. Shows already on the list and direct AniList IDs always work. When only adult titles match, say so in one line rather than "not found". | Done (tool tests) |
 

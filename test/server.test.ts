@@ -114,6 +114,7 @@ describe("tools", () => {
       "search_my_list",
       "set_progress",
       "set_status",
+      "undo",
       "watch_history",
       "whats_next",
     ]);
@@ -122,7 +123,8 @@ describe("tools", () => {
   test("says the shared guidance once, in the server instructions", async () => {
     const { tools } = await client.listTools();
     expect(client.getInstructions()).toBe(INSTRUCTIONS);
-    const writers = tools.filter((t) => t.annotations?.readOnlyHint === false).map((t) => t.name);
+    // undo changes the list but takes no show.
+    const writers = tools.filter((t) => t.annotations?.readOnlyHint === false && t.name !== "undo").map((t) => t.name);
     expect([...WRITE_TOOLS].sort() as string[]).toEqual(writers.sort());
     for (const name of WRITE_TOOLS) expect(INSTRUCTIONS).toContain(name);
     // Each write tool keeps a short hint of its own, for clients that don't show instructions.

@@ -52,6 +52,12 @@ export interface ListEntry {
   completedAt: FuzzyDate;
   /** How many times the user has rewatched it. */
   repeat?: number;
+  /** The user's private notes on the entry. */
+  notes?: string | null;
+  private?: boolean | null;
+  hiddenFromStatusLists?: boolean | null;
+  /** Every custom list the user has, and whether this entry is on it. */
+  customLists?: { name: string; enabled: boolean }[] | null;
 }
 
 export interface Media {
@@ -228,6 +234,10 @@ const ENTRY_FIELDS = `
   startedAt { year month day }
   completedAt { year month day }
   repeat
+  notes
+  private
+  hiddenFromStatusLists
+  customLists(asArray: true)
 `;
 
 /** How long account settings (such as the 18+ content setting) are trusted before being read again. */
@@ -618,15 +628,21 @@ export class AniListClient {
     startedAt?: FuzzyDate;
     completedAt?: FuzzyDate;
     repeat?: number;
+    notes?: string;
+    private?: boolean;
+    hiddenFromStatusLists?: boolean;
+    customLists?: string[];
   }): Promise<ListItem> {
     const save = this.request<{ SaveMediaListEntry: ListItem }>(
       `mutation (
         $mediaId: Int, $status: MediaListStatus, $progress: Int, $scoreRaw: Int,
-        $startedAt: FuzzyDateInput, $completedAt: FuzzyDateInput, $repeat: Int
+        $startedAt: FuzzyDateInput, $completedAt: FuzzyDateInput, $repeat: Int, $notes: String,
+        $private: Boolean, $hiddenFromStatusLists: Boolean, $customLists: [String]
       ) {
         SaveMediaListEntry(
           mediaId: $mediaId, status: $status, progress: $progress, scoreRaw: $scoreRaw,
-          startedAt: $startedAt, completedAt: $completedAt, repeat: $repeat
+          startedAt: $startedAt, completedAt: $completedAt, repeat: $repeat, notes: $notes,
+          private: $private, hiddenFromStatusLists: $hiddenFromStatusLists, customLists: $customLists
         ) {
           ${ENTRY_FIELDS}
           media { ${MEDIA_FIELDS} }

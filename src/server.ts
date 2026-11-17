@@ -1,7 +1,18 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import pkg from "../package.json" with { type: "json" };
-import { AniListClient, LIST_STATUSES, SEASONS, type BrowseFilters, type LinkOptions, type ListStatus, type Media, type TitleLanguage, type Viewer } from "./anilist";
+import {
+  AniListClient,
+  LIST_STATUSES,
+  SEASONS,
+  type BrowseFilters,
+  type LinkOptions,
+  type ListEntry,
+  type ListStatus,
+  type Media,
+  type TitleLanguage,
+  type Viewer,
+} from "./anilist";
 import {
   describeEntry,
   describePlanDates,
@@ -25,6 +36,7 @@ import {
 } from "./resolve";
 import { formatHistory, parsePeriod } from "./history";
 import { tokenWatch } from "./token";
+import { Journal, snapshot, undoGroups, type EntryChange } from "./undo";
 import {
   airedEpisodes,
   buildReport,
@@ -64,7 +76,9 @@ export const WRITE_TOOLS = [
  */
 export const INSTRUCTIONS = `AniConnect manages the user's AniList anime list.
 
-The tools that change the list (${WRITE_TOOLS.join(", ")}) take the show as the user named it ("jjk", "spy x family season 2") and pick the right entry and season from the user's list themselves, so don't search first. If a name is ambiguous, nothing changes and the candidates come back: ask the user which one they mean, then call again with its ID.`;
+The tools that change the list (${WRITE_TOOLS.join(", ")}) take the show as the user named it ("jjk", "spy x family season 2") and pick the right entry and season from the user's list themselves, so don't search first. If a name is ambiguous, nothing changes and the candidates come back: ask the user which one they mean, then call again with its ID.
+
+To take back a change (the user says "undo that" or that you got it wrong), call undo rather than writing the old values back: it restores the entry exactly, dates and all.`;
 
 /** The short form of INSTRUCTIONS on each write tool, for clients that don't show instructions (R2.2). */
 const BY_NAME = " Takes the show's name; don't search first.";
@@ -215,6 +229,11 @@ function continues(media: Media, language: TitleLanguage): string {
   return done?.node.title ? `. Continues ${displayTitle(done.node.title, language)}, which you completed` : "";
 }
 
+/** One show's change, for the undo journal. */
+function change(media: Pick<Media, "id" | "title">, before: Partial<ListEntry> | null, after: Partial<ListEntry> | null): EntryChange {
+  return { mediaId: media.id, title: media.title, before: snapshot(before), after: snapshot(after) };
+}
+
 function dateNum(d: { year: number | null; month: number | null; day: number | null } | null | undefined): number {
   return d?.year ? d.year * 10000 + (d.month ?? 0) * 100 + (d.day ?? 0) : 0;
 }
@@ -239,6 +258,8 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
   // The user's date in their AniList time zone; without one, the server's local date.
   const today = (viewer: Viewer) => todayFuzzy(new Date(now()), viewer.timeZone ?? undefined);
   const server = new McpServer({ name: "aniconnect", version: pkg.version }, { instructions: INSTRUCTIONS });
+  /** What this server changed, so it can be undone (R3.1). */
+  const journal = new Journal();
 
   server.registerTool(
     "search_anime",
@@ -462,6 +483,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       }
       const plan = planStatus(media, null, status, today(viewer));
       const saved = await client.saveEntry({ mediaId: media.id, ...plan });
+      journal.record("add_to_list", [change(media, null, saved)]);
       return text(
         `${note}Added: ${describeEntry(saved.media, saved, viewer)}${describePlanDates(plan)}`,
       );
@@ -482,6 +504,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       const entry = media.mediaListEntry;
       const plan = planStatus(media, entry, status, today(viewer));
       const saved = await client.saveEntry({ mediaId: media.id, ...plan });
+      journal.record("set_status", [change(media, entry, saved)]);
       const before = entry ? statusLabel(entry.status) : "not on list";
       const reset = plan.progress === 0 && entry ? ` Episode count reset from ${entry.progress} to 0 for the rewatch.` : "";
       return text(
@@ -506,6 +529,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       const scoreRaw = toRawScore(score);
       const [viewer, { media, note }] = await Promise.all([client.getViewer(), target(client, anime, "rate")]);
       const saved = await client.saveEntry({ mediaId: media.id, scoreRaw });
+      journal.record("rate_anime", [change(media, media.mediaListEntry, saved)]);
       return text(
         `${note}Rated ${displayTitle(saved.media.title, viewer.titleLanguage)}: ${formatScore(saved.displayScore, viewer.scoreFormat)}`,
       );
@@ -522,6 +546,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
   const lastProgressSave = new Map<number, number>();
 
   const applyProgress = async (
+    tool: string,
     input: string | number,
     next: ProgressStep,
   ) => {
@@ -532,7 +557,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       .catch(() => {})
       .then(async () => {
         try {
-          return await saveProgress(viewer, resolved, readAt, next);
+          return await saveProgress(tool, viewer, resolved, readAt, next);
         } finally {
           lastProgressSave.set(id, ++progressSaves);
         }
@@ -546,6 +571,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
   };
 
   const saveProgress = async (
+    tool: string,
     viewer: Viewer,
     resolved: { media: Media; note: string },
     readAt: number,
@@ -561,6 +587,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
     const { episodes, note: stepNote } = typeof step === "number" ? { episodes: step, note: "" } : step;
     const plan = planProgress(media, entry, episodes, today(viewer));
     const saved = await client.saveEntry({ mediaId: media.id, ...plan });
+    journal.record(tool, [change(media, entry, saved)]);
     const was = entry ? ` (was ${statusLabel(entry.status)})` : "";
     const statusNote = plan.status ? ` Status is now ${statusLabel(plan.status)}${was}.` : "";
     // Saved anyway: AniList's schedule can lag, and some people watch early releases.
@@ -589,7 +616,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
-    safe(async ({ anime, count }) => applyProgress(anime, (current) => current + count)),
+    safe(async ({ anime, count }) => applyProgress("mark_episodes_watched", anime, (current) => current + count)),
   );
 
   server.registerTool(
@@ -607,7 +634,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
     safe(async ({ anime, episodes }) =>
-      applyProgress(anime, (current, media, language) =>
+      applyProgress("set_progress", anime, (current, media, language) =>
         episodes === "latest" ? caughtUpProgress(media, current, now(), language) : episodes,
       ),
     ),
@@ -629,7 +656,37 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       const title = displayTitle(media.title, viewer.titleLanguage);
       if (!media.mediaListEntry) return text(`${title} isn't on your list.`);
       const deleted = await client.deleteEntry(media.mediaListEntry.id);
+      if (deleted) journal.record("remove_from_list", [change(media, media.mediaListEntry, null)]);
       return text(deleted ? `Removed ${title} from your list.` : `AniList did not delete ${title}.`);
+    }),
+  );
+
+  server.registerTool(
+    "undo",
+    {
+      title: "Undo",
+      description:
+        "Undo the latest change(s) AniConnect made to the user's list since it started, newest first, restoring each show exactly as it was: a removed show comes back with its progress, score, dates and notes, and a newly added one is removed again. Shows changed since on anilist.co are left alone. AniList's activity feed keeps its posts about the undone change.",
+      inputSchema: {
+        count: z
+          .number()
+          .int()
+          .min(1)
+          .max(10)
+          .default(1)
+          .describe("How many changes to undo; each earlier tool call that changed the list is one"),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+    },
+    safe(async ({ count }) => {
+      if (journal.size === 0) return text("Nothing to undo: AniConnect hasn't changed the list since it started.");
+      const viewer = await client.getViewer();
+      const groups = journal.take(count);
+      const body = await undoGroups(client, journal, groups, viewer);
+      const what =
+        groups.length === 1 ? `the last change (${groups[0]!.tool})` : `the last ${groups.length} changes (${groups.map((g) => g.tool).join(", ")})`;
+      const short = groups.length < count ? ` Only ${groups.length} could be undone; that's every change since AniConnect started.` : "";
+      return text(`Undid ${what}:${short}\n${body}`);
     }),
   );
 

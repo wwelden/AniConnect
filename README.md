@@ -19,6 +19,7 @@ Every tool that changes your list takes the show the way you'd say it: "jjk", "t
 | `mark_episodes_watched` | Count up from where you are ("I watched the next two episodes"). |
 | `set_progress` | Set an exact episode count ("I'm on episode 7"), or catch up to the latest aired episode ("I'm caught up on Dandadan"). |
 | `remove_from_list` | Delete a show from your list. |
+| `undo` | Take back the last change, or the last few, exactly: a removed show comes back with its progress, score, dates and notes, and a show just added is removed again. |
 | `whats_next` | What to watch next: aired episodes you haven't seen and how long they take, when the next ones air, shows on hold with episodes left, and the next season or sequel movie of shows you've finished. Or ask about one show ("when's the next Apothecary Diaries episode?", "where can I watch Frieren?"), which also lists where it streams. |
 
 Project goals and requirements: [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md).
@@ -77,6 +78,7 @@ Then try: *"Add Frieren to my plan-to-watch list"*, *"What am I currently watchi
 
 ## Notes
 
+- Undo covers changes AniConnect made since it started (the last 50), not ones made on anilist.co. A show changed elsewhere after AniConnect changed it is left alone. AniList's activity feed keeps its posts about an undone change.
 - AniList allows 30 requests a minute. If you hit the limit, the tool says how long to wait instead of retrying.
 - Titles come back in the language you picked on AniList (Settings, Anime & Manga, Title Language): English, romaji or native. You can still name shows in any language. When a name could mean more than one show, the choices also list a second title.
 - A tool call usually makes 1–4 AniList requests, including season lookups such as "the new season of My Hero Academia".
