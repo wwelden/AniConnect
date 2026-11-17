@@ -271,7 +271,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
     {
       title: "What to watch next",
       description:
-        "What the user can watch next: aired episodes they haven't seen for each show they're watching and how long they take, when the next episodes air, shows on hold with episodes left, and the next season of shows they've finished. Pass `anime` to ask about one show (\"when's the next Apothecary Diaries episode?\", \"is there more Frieren?\").",
+        "What the user can watch next: aired episodes they haven't seen for each show they're watching and how long they take, when the next episodes air, shows on hold with episodes left, and the next season of shows they've finished. Pass `anime` to ask about one show (\"when's the next Apothecary Diaries episode?\", \"is there more Frieren?\", \"where can I watch Frieren?\"); that answer also lists the sites streaming it.",
       inputSchema: {
         anime: anime.optional(),
         timeZone: z
