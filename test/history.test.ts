@@ -65,6 +65,10 @@ describe("parsePeriod", () => {
     expect(range("between March and June 2025")).toEqual(["2025-03-01T00:00:00.000Z", "2025-07-01T00:00:00.000Z"]);
     // A range that crosses New Year starts the year before.
     expect(range("Dec 20 to Jan 5, 2025")).toEqual(["2024-12-20T00:00:00.000Z", "2025-01-06T00:00:00.000Z"]);
+    // A leap day that doesn't exist this year.
+    expect(range("Feb 29 to Mar 1, 2024")).toEqual(["2024-02-29T00:00:00.000Z", "2024-03-02T00:00:00.000Z"]);
+    // Swapped days in one month are an error, not a year-long range.
+    expect(() => parsePeriod("March 20 to March 15, 2025", NOW, "UTC")).toThrow("ends before it starts");
   });
 
   test("days start at local midnight, across daylight saving changes", () => {
