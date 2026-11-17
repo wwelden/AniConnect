@@ -202,7 +202,7 @@ export function parseTimeZone(raw: string | null | undefined): string | null {
   }
 }
 
-type FetchFn = (input: string, init: RequestInit) => Promise<Response>;
+export type FetchFn = (input: string, init: RequestInit) => Promise<Response>;
 
 const MEDIA_FIELDS = `
   id
@@ -258,6 +258,8 @@ export class AniListClient {
   requestTimeoutMs = REQUEST_TIMEOUT_MS;
   /** How to get a new token: set by the hosted server, which signs users in itself (R7.2). */
   renew: string | null = null;
+  /** Set once AniList has rejected the token (revoked, or expired early). */
+  rejected = false;
 
   constructor(
     private readonly token: string,
@@ -324,6 +326,7 @@ export class AniListClient {
         )
         .join("; ");
       if (res.status === 401 || /invalid token/i.test(messages)) {
+        this.rejected = true;
         throw new AniListError(
           `AniList rejected the token (${messages}). ${this.renew ?? "Check ANILIST_TOKEN; tokens expire after a year."}`,
         );

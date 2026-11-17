@@ -105,8 +105,8 @@ function text(body: string): ToolResult {
  * can read and recover from, fails before any request once the token has expired, and adds a
  * one-line warning when it expires soon.
  */
-function safeFor(client: AniListClient, now: () => number) {
-  const watch = tokenWatch(client.tokenExpiresAt, client.renew ?? undefined);
+function safeFor(client: AniListClient, now: () => number, user: UserState) {
+  const watch = (user.watch ??= tokenWatch(client.tokenExpiresAt, client.renew ?? undefined));
   return <A>(fn: (args: A) => Promise<ToolResult>) =>
     async (args: A): Promise<ToolResult> => {
       const token = watch(now());
@@ -307,8 +307,25 @@ function dateNum(d: { year: number | null; month: number | null; day: number | n
 export interface ServerOptions {
   /** Current time in ms; injectable so tests and evals get stable air times. */
   now?: () => number;
-  /** Undo history to share between servers for the same user (the hosted server's sessions). */
-  journal?: Journal;
+  /** State to share between servers for the same user (the hosted server's sessions). */
+  user?: UserState;
+}
+
+/**
+ * What all of one user's servers share: the undo history, the per-show write turns, the undo
+ * queue, and when the token warning was last shown. The stdio server has one user; the hosted
+ * server makes one per signed-in user, shared by their conversations.
+ */
+export class UserState {
+  readonly journal = new Journal();
+  /** Each show's latest write, which the next one waits for. */
+  readonly turns = new Map<number, Promise<unknown>>();
+  /** Counts saves; a write notes it when it reads the entry. */
+  saves = 0;
+  /** The count when each show was last saved. */
+  readonly lastSave = new Map<number, number>();
+  undoing: Promise<unknown> = Promise.resolve();
+  watch?: ReturnType<typeof tokenWatch>;
 }
 
 /** The user's zone from their AniList settings, else the server's (right when it runs on the user's machine). */
@@ -327,13 +344,14 @@ const REMOVE_DESCRIPTION =
 
 export function createServer(client: AniListClient, options: ServerOptions = {}): McpServer {
   const now = options.now ?? Date.now;
-  const safe = safeFor(client, now);
+  const user = options.user ?? new UserState();
+  const safe = safeFor(client, now, user);
   client.now = now;
   // The user's date in their AniList time zone; without one, the server's local date.
   const today = (viewer: Viewer) => todayFuzzy(new Date(now()), viewer.timeZone ?? undefined);
   const server = new McpServer({ name: "aniconnect", version: pkg.version }, { instructions: INSTRUCTIONS });
   /** What this server changed, so it can be undone (R3.1). */
-  const journal = options.journal ?? new Journal();
+  const { journal, turns, lastSave } = user;
 
   /** Whether the client can show the user a form (MCP elicitation, R2.7). */
   const canAsk = () => {
@@ -567,9 +585,6 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
   // same show would both start from the same entry (#28: a lost episode; with undo, a "before"
   // that drops the other write). Writes take turns per show, and one that read the entry
   // before another's save finished reads it again once it has its turn.
-  const turns = new Map<number, Promise<unknown>>();
-  let saves = 0;
-  const lastSave = new Map<number, number>();
 
   /** Runs `fn` on its show's turn; `stale` says another write to the show finished after `readAt`. */
   const inTurn = async <T>(id: number, readAt: number, fn: (stale: boolean) => Promise<T>): Promise<T> => {
@@ -579,7 +594,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
         try {
           return await fn((lastSave.get(id) ?? 0) > readAt);
         } finally {
-          lastSave.set(id, ++saves);
+          lastSave.set(id, ++user.saves);
         }
       });
     turns.set(id, turn);
@@ -604,7 +619,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
     safe(async ({ anime, status }) => {
-      const readAt = saves;
+      const readAt = user.saves;
       const [viewer, resolved] = await Promise.all([client.getViewer(), find(anime, "add")]);
       const { note } = resolved;
       return onTurn(resolved.media, readAt, async (media) => {
@@ -633,7 +648,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
     safe(async ({ anime, status }) => {
-      const readAt = saves;
+      const readAt = user.saves;
       const [viewer, resolved] = await Promise.all([client.getViewer(), find(anime, "status")]);
       const { note } = resolved;
       return onTurn(resolved.media, readAt, async (media) => {
@@ -664,7 +679,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
     },
     safe(async ({ anime, score }) => {
       const scoreRaw = toRawScore(score);
-      const readAt = saves;
+      const readAt = user.saves;
       const [viewer, resolved] = await Promise.all([client.getViewer(), find(anime, "rate")]);
       const { note } = resolved;
       return onTurn(resolved.media, readAt, async (media) => {
@@ -681,7 +696,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
   type ProgressStep = (current: number, media: Media, language: TitleLanguage) => number | { episodes: number; note: string };
 
   const applyProgress = async (tool: string, input: string | number, next: ProgressStep) => {
-    const readAt = saves;
+    const readAt = user.saves;
     const [viewer, resolved] = await Promise.all([client.getViewer(), find(input, "progress")]);
     return inTurn(resolved.media.id, readAt, (stale) => saveProgress(tool, viewer, resolved, stale, next));
   };
@@ -848,7 +863,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
     safe(async ({ updates }) => {
-      const readAt = saves;
+      const readAt = user.saves;
       const viewer = await client.getViewer();
       const source = memo(clientSource(client));
       // In the order they were saved, so undo can take them back newest first.
@@ -904,7 +919,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
     },
     safe(async ({ anime, confirmed }) => {
-      const readAt = saves;
+      const readAt = user.saves;
       const resolved = await find(anime, "remove");
       const { note } = resolved;
       // Cached once fetched (resolving a name fetches it), so this is a request only on first use.
@@ -969,13 +984,12 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
     },
     safe(async ({ count }) => {
       // One undo at a time, so a second one starts from the list the first left behind.
-      const run = undoing.then(() => undoLatest(count));
-      undoing = run.catch(() => {});
+      const run = user.undoing.then(() => undoLatest(count));
+      user.undoing = run.catch(() => {});
       return run;
     }),
   );
 
-  let undoing: Promise<unknown> = Promise.resolve();
   const undoLatest = async (count: number) => {
     if (journal.size === 0) return text("Nothing to undo: AniConnect hasn't changed the list since it started.");
     const viewer = await client.getViewer();

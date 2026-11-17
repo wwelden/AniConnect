@@ -11,6 +11,7 @@
  * off as another. A restart or a second instance signs nobody out. The one piece of memory is
  * the set of codes already used, so a code works once per instance.
  */
+import type { FetchFn } from "./anilist";
 import { tokenExpiry } from "./token";
 
 export const ANILIST_AUTHORIZE = "https://anilist.co/api/v2/oauth/authorize";
@@ -18,6 +19,8 @@ export const ANILIST_TOKEN = "https://anilist.co/api/v2/oauth/token";
 
 /** How long the user has to finish signing in on AniList. */
 const PENDING_MS = 10 * 60_000;
+/** The longest `state` a client may send; it rides along to AniList and back. */
+const MAX_STATE = 1024;
 /** How long the client has to swap our code for a token. */
 const CODE_MS = 5 * 60_000;
 /** AniList's tokens last a year; used when one doesn't say when it expires. */
@@ -33,8 +36,6 @@ export interface OAuthConfig {
   authSecret: string;
 }
 
-type FetchFn = (input: string, init: RequestInit) => Promise<Response>;
-
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 
@@ -42,7 +43,7 @@ function b64url(bytes: Uint8Array | ArrayBuffer): string {
   return Buffer.from(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)).toString("base64url");
 }
 
-async function sha256(text: string): Promise<string> {
+export async function sha256(text: string): Promise<string> {
   return b64url(await crypto.subtle.digest("SHA-256", enc.encode(text)));
 }
 
@@ -108,6 +109,8 @@ interface Pending {
   s?: string;
   /** PKCE code challenge (S256). */
   cc: string;
+  /** Names the consent cookie, which proves the approval came from the consent page itself. */
+  x?: string;
   exp: number;
 }
 
@@ -185,6 +188,35 @@ function withParams(uri: string, params: Record<string, string | undefined>): st
   const url = new URL(uri);
   for (const [k, v] of Object.entries(params)) if (v !== undefined) url.searchParams.set(k, v);
   return url.toString();
+}
+
+function escapeHtml(text: string): string {
+  return text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+}
+
+/** Where a redirect URI sends the user, as they'd recognize it. */
+function destination(uri: string): string {
+  const url = new URL(uri);
+  return url.host ? `${url.protocol}//${url.host}` : `${url.protocol}${url.pathname.split("/")[0]}`;
+}
+
+function consentPage(name: string | undefined, redirectUri: string, pending: string): string {
+  const app = name ? `<b>${escapeHtml(name)}</b> (as the app calls itself)` : "An app";
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Connect AniConnect</title>
+<style>body{font:16px/1.5 system-ui,sans-serif;max-width:32rem;margin:3rem auto;padding:0 1rem}code{word-break:break-all}button{font:inherit;padding:.5rem 1rem;margin-right:.5rem}</style>
+</head><body>
+<h1>Connect AniConnect to your AniList?</h1>
+<p>${app} wants to manage your AniList anime list through AniConnect: read it, and add, change and remove shows.</p>
+<p>After you sign in on AniList, you'll go back to <code>${escapeHtml(destination(redirectUri))}</code>. Only approve if you just added AniConnect there yourself.</p>
+<form method="post" action="/authorize">
+<input type="hidden" name="pending" value="${escapeHtml(pending)}">
+<button name="action" value="approve">Approve and sign in with AniList</button>
+<button name="action" value="deny">Cancel</button>
+</form>
+</body></html>
+`;
 }
 
 export class OAuthServer {
@@ -306,43 +338,76 @@ export class OAuthServer {
     return this.sealer.open<ClientInfo>("client", clientId, this.now());
   }
 
-  /** Checks the request and sends the user on to AniList to sign in. */
+  /**
+   * Checks the request and asks the user to approve the app. Anyone can register a client, so
+   * without this step a link from anyone would go straight to AniList, whose page names only
+   * AniConnect, and the code would go to whatever redirect URI they registered (the "confused
+   * deputy" the MCP spec warns about). Errors here are pages, not redirects, so the server is
+   * never an open redirector to a registered URI.
+   */
   async authorize(req: Request): Promise<Response> {
     const q = new URL(req.url).searchParams;
     const clientId = q.get("client_id");
     const client = await this.client(clientId);
-    // Without a known client and redirect URI there is nowhere safe to send an error.
     if (!client || !clientId) return page("unknown client_id. Add AniConnect to your MCP client again.");
     const asked = q.get("redirect_uri");
     const redirectUri = asked ?? (client.r.length === 1 ? client.r[0] : null);
     if (!redirectUri || !client.r.includes(redirectUri)) {
       return page("the redirect_uri doesn't match the one this client registered.");
     }
-    const state = q.get("state") ?? undefined;
-    const fail = (error: string, description: string) =>
-      redirect(withParams(redirectUri, { error, error_description: description, state }));
-
-    if (q.get("response_type") !== "code") return fail("unsupported_response_type", "Only response_type=code is supported.");
+    if (q.get("response_type") !== "code") return page("only response_type=code is supported.");
     const challenge = q.get("code_challenge");
-    if (!challenge || q.get("code_challenge_method") !== "S256") {
-      return fail("invalid_request", "PKCE is required: send code_challenge with code_challenge_method=S256.");
+    if (!challenge || challenge.length > 128 || q.get("code_challenge_method") !== "S256") {
+      return page("PKCE is required: send code_challenge with code_challenge_method=S256.");
     }
     const resource = q.get("resource");
-    if (resource && !this.isResource(resource)) return fail("invalid_target", `Tokens here are for ${this.resource}.`);
+    if (resource && !this.isResource(resource)) return page(`tokens here are for ${this.resource}.`);
+    const state = q.get("state") ?? undefined;
+    if (state && state.length > MAX_STATE) return page(`state is longer than ${MAX_STATE} characters.`);
 
+    const consent = crypto.randomUUID();
     const pending: Pending = {
       c: await sha256(clientId),
       r: redirectUri,
       ...(state !== undefined ? { s: state } : {}),
       cc: challenge,
+      x: consent,
       exp: this.now() + PENDING_MS,
     };
+    const secure = this.origin.startsWith("https:") ? "; Secure" : "";
+    return new Response(consentPage(client.n, redirectUri, await this.sealer.seal("pending", pending)), {
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store",
+        // The cookie only comes back on a same-site request, so another site can't post the form for the user.
+        "Set-Cookie": `aniconnect_consent=${consent}; Path=/authorize; Max-Age=${PENDING_MS / 1000}; HttpOnly; SameSite=Strict${secure}`,
+        "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'",
+        "X-Frame-Options": "DENY",
+      },
+    });
+  }
+
+  /** The consent form's answer: on to AniList to sign in, or back to the app with access_denied. */
+  async approve(req: Request): Promise<Response> {
+    const form = new URLSearchParams(await req.text());
+    const sealed = form.get("pending");
+    const pending = await this.sealer.open<Pending>("pending", sealed, this.now());
+    if (!pending || !sealed) return page("this sign-in has expired or isn't valid. Start again from your MCP client.");
+    const cookie = /(?:^|;\s*)aniconnect_consent=([^;]+)/.exec(req.headers.get("Cookie") ?? "")?.[1];
+    if (!pending.x || cookie !== pending.x) {
+      return page("couldn't confirm this approval came from this page. Start again from your MCP client.", 403);
+    }
+    if (form.get("action") !== "approve") {
+      return redirect(
+        withParams(pending.r, { error: "access_denied", error_description: "The user didn't approve the app.", state: pending.s }),
+      );
+    }
     return redirect(
       withParams(ANILIST_AUTHORIZE, {
         client_id: this.config.anilistClientId,
         redirect_uri: this.callbackUrl,
         response_type: "code",
-        state: await this.sealer.seal("pending", pending),
+        state: sealed,
       }),
     );
   }

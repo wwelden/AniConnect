@@ -92,7 +92,7 @@ AniConnect can also run as a remote server that people add by URL, signing in wi
    bun run serve          # listens on $PORT, default 3000
    ```
 
-3. In claude.ai, open Settings, Connectors, **Add custom connector**, and enter `https://your-host/mcp`. Claude sends you to AniList to approve, and the tools work from then on. Claude Code: `claude mcp add --transport http aniconnect https://your-host/mcp`, then `/mcp` to sign in.
+3. In claude.ai, open Settings, Connectors, **Add custom connector**, and enter `https://your-host/mcp`. AniConnect asks you to approve the app, then sends you to AniList to sign in, and the tools work from then on. Claude Code: `claude mcp add --transport http aniconnect https://your-host/mcp`, then `/mcp` to sign in.
 
 | Setting | What it is |
 |---|---|
@@ -101,7 +101,7 @@ AniConnect can also run as a remote server that people add by URL, signing in wi
 | `AUTH_SECRET` | 32 or more random characters. AniConnect keeps no database: it seals sign-ins with this. Changing it signs everyone out. |
 | `PORT` | Port to listen on (default 3000). |
 
-A sign-in lasts as long as the AniList token behind it, a year; then the client asks the user to sign in again. Undo works across a user's conversations until they've been idle for an hour. AniList's limit of 30 requests a minute applies per server IP, so it is shared by everyone using one server.
+A sign-in lasts as long as the AniList token behind it, a year; then the client asks the user to sign in again. If you revoke AniConnect on AniList, the client asks you to sign in again. A user's conversations share one undo history, until they've been idle for an hour. AniList's limit of 30 requests a minute applies per server IP, so it is shared by everyone using one server.
 
 ## Notes
 

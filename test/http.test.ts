@@ -7,7 +7,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { UnauthorizedError, type OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 import type { OAuthClientInformationMixed, OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
-import { configFromEnv, createHttpApp, IDLE_MS } from "../src/http";
+import { configFromEnv, createHttpApp, IDLE_MS, MAX_SESSIONS } from "../src/http";
 import { ANILIST_AUTHORIZE, ANILIST_TOKEN } from "../src/oauth";
 import { PERSONA } from "./fixtures/persona";
 import { FakeAniList, findMedia } from "./support/fake-anilist";
@@ -33,6 +33,8 @@ let anilistCodes: Map<string, string>;
 let exchanges: Record<string, string>[];
 /** AniList tokens AniList no longer accepts (the user revoked the app). */
 let revoked: Set<string>;
+/** Delays AniList's answer to writes, so two of them overlap. */
+let slowWrites: boolean;
 
 beforeEach(async () => {
   clock = START;
@@ -44,6 +46,7 @@ beforeEach(async () => {
   ]);
   exchanges = [];
   revoked = new Set();
+  slowWrites = false;
   const fetchFn = async (url: string, init: RequestInit) => {
     if (url === ANILIST_TOKEN) {
       const body = JSON.parse(init.body as string) as Record<string, string>;
@@ -55,6 +58,7 @@ beforeEach(async () => {
     if (revoked.has(new Headers(init.headers).get("Authorization")!.slice(7))) {
       return Response.json({ errors: [{ message: "Invalid token", status: 401 }], data: null }, { status: 401 });
     }
+    if (slowWrites && /^\s*mutation/.test(JSON.parse(init.body as string).query)) await Bun.sleep(50);
     return fake.fetch(url, init);
   };
   // Bind first so PUBLIC_URL can name the real port.
@@ -115,9 +119,29 @@ class MemoryProvider implements OAuthClientProvider {
   }
 }
 
-/** The browser: follows our /authorize to AniList, "approves" with `anilistCode`, and comes back. */
+/** The consent page for an /authorize URL: its sealed sign-in and the cookie that goes with it. */
+async function consent(authorizationUrl: URL | string) {
+  const res = await fetch(authorizationUrl, { redirect: "manual" });
+  expect(res.status).toBe(200);
+  const html = await res.text();
+  const pending = /name="pending" value="([^"]+)"/.exec(html)![1]!;
+  const cookie = res.headers.get("Set-Cookie")!.split(";")[0]!;
+  return { html, pending, cookie, res };
+}
+
+function answer(pending: string, action: string, cookie?: string) {
+  return fetch(`${base}/authorize`, {
+    method: "POST",
+    redirect: "manual",
+    headers: { "Content-Type": "application/x-www-form-urlencoded", ...(cookie ? { Cookie: cookie } : {}) },
+    body: new URLSearchParams({ pending, action }),
+  });
+}
+
+/** The browser: approves AniConnect, goes on to AniList, "approves" with `anilistCode`, and comes back. */
 async function approve(authorizationUrl: URL | string, anilistCode: string | null): Promise<URL> {
-  const toAniList = await fetch(authorizationUrl, { redirect: "manual" });
+  const { pending, cookie } = await consent(authorizationUrl);
+  const toAniList = await answer(pending, "approve", cookie);
   expect(toAniList.status).toBe(302);
   const atAniList = new URL(toAniList.headers.get("Location")!);
   expect(`${atAniList.origin}${atAniList.pathname}`).toBe(ANILIST_AUTHORIZE);
@@ -304,15 +328,56 @@ describe("authorization checks", () => {
     expect(forged.status).toBe(400);
   });
 
-  test("PKCE is required", async () => {
+  test("a bad request gets an error page, never a redirect to the registered URI", async () => {
     const { body } = await register();
-    const res = await fetch(
-      `${base}/authorize?${new URLSearchParams({ client_id: body.client_id!, redirect_uri: REDIRECT, response_type: "code", state: "s" })}`,
-      { redirect: "manual" },
-    );
-    const back = new URL(res.headers.get("Location")!);
-    expect(back.searchParams.get("error")).toBe("invalid_request");
+    const good = {
+      client_id: body.client_id!,
+      redirect_uri: REDIRECT,
+      response_type: "code",
+      code_challenge: "x",
+      code_challenge_method: "S256",
+      state: "s",
+    };
+    for (const bad of <Record<string, string>[]>[
+      { code_challenge: "" }, // PKCE is required
+      { code_challenge_method: "plain" },
+      { response_type: "token" },
+      { resource: "https://elsewhere.example/mcp" },
+      { state: "s".repeat(1025) },
+    ]) {
+      const res = await fetch(`${base}/authorize?${new URLSearchParams({ ...good, ...bad })}`, { redirect: "manual" });
+      expect(res.status).toBe(400);
+      expect(res.headers.get("Location")).toBeNull();
+    }
+  });
+
+  test("the user approves the app on AniConnect's own page before AniList", async () => {
+    const { body } = await register({ client_name: "<b>Evil</b> app", redirect_uris: ["https://evil.example/cb"] });
+    const url = `${base}/authorize?${new URLSearchParams({
+      client_id: body.client_id!,
+      response_type: "code",
+      code_challenge: "x",
+      code_challenge_method: "S256",
+      state: "s",
+    })}`;
+    const { html, pending, cookie, res } = await consent(url);
+    // Names where the user goes back to; the app's name is escaped.
+    expect(html).toContain("https://evil.example");
+    expect(html).toContain("&#60;b&#62;Evil&#60;/b&#62; app");
+    expect(html).not.toContain("<b>Evil</b>");
+    expect(res.headers.get("Content-Security-Policy")).toContain("frame-ancestors 'none'");
+    expect(res.headers.get("Set-Cookie")).toContain("SameSite=Strict");
+
+    // Another site posting the form for the user (no cookie, or someone else's) gets nowhere.
+    expect((await answer(pending, "approve")).status).toBe(403);
+    expect((await answer(pending, "approve", "aniconnect_consent=guess")).status).toBe(403);
+    // Cancel goes back to the app with access_denied.
+    const denied = await answer(pending, "deny", cookie);
+    const back = new URL(denied.headers.get("Location")!);
+    expect(back.origin).toBe("https://evil.example");
+    expect(back.searchParams.get("error")).toBe("access_denied");
     expect(back.searchParams.get("state")).toBe("s");
+    expect(back.searchParams.get("code")).toBeNull();
   });
 
   test("a code works once, with the right verifier, for the client it was issued to", async () => {
@@ -396,14 +461,23 @@ describe("authorization checks", () => {
     expect(late.headers.get("WWW-Authenticate")).toContain('error="invalid_token"');
   });
 
-  test("when AniList stops accepting the token, the tool says to sign in again", async () => {
-    const { client } = await connectSignedIn();
+  test("when AniList stops accepting the token, the tool says to sign in again and the client is signed out", async () => {
+    const { client, provider } = await connectSignedIn();
     revoked.add(anilistToken("alice"));
     const result = await call(client, "search_my_list", { status: "CURRENT" });
     expect(result.isError).toBe(true);
     expect(result.text).toContain("sign in with AniList again: reconnect AniConnect");
     expect(result.text).not.toContain("ANILIST_TOKEN");
-    await client.close();
+    // The next request is refused with invalid_token, which makes the client sign in again.
+    const next = await fetch(`${base}/mcp`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${provider.saved!.access_token}`, "Content-Type": "application/json" },
+      body: "{}",
+    });
+    expect(next.status).toBe(401);
+    expect(next.headers.get("WWW-Authenticate")).toContain('error="invalid_token"');
+    expect(app.stats()).toEqual({ sessions: 0, accounts: 0 });
+    await client.close().catch(() => {});
   });
 });
 
@@ -419,6 +493,38 @@ describe("sessions", () => {
     expect(undone.isError).toBe(false);
     expect(fake.entries.get(DANDADAN)?.progress).toBe(7);
     await second.close();
+  });
+
+  test("parallel writes from two conversations take turns, so no episode is lost", async () => {
+    const first = await connectSignedIn();
+    const second = new Client({ name: "test", version: "0" });
+    await second.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`), { authProvider: first.provider }));
+    await call(first.client, "search_my_list", { status: "CURRENT" }); // both start from the cached list
+    slowWrites = true;
+    const results = await Promise.all([
+      call(first.client, "mark_episodes_watched", { anime: "dandadan" }),
+      call(second, "mark_episodes_watched", { anime: "dandadan" }),
+    ]);
+    expect(results.map((r) => r.isError)).toEqual([false, false]);
+    expect(fake.entries.get(DANDADAN)?.progress).toBe(9);
+    await first.client.close();
+    await second.close();
+  });
+
+  test("a user's oldest session closes when they open too many", async () => {
+    const { client, provider } = await connectSignedIn();
+    const others: Client[] = [];
+    for (let i = 0; i < MAX_SESSIONS; i++) {
+      clock += 1000;
+      const c = new Client({ name: "test", version: "0" });
+      await c.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`), { authProvider: provider }));
+      others.push(c);
+    }
+    expect(app.stats().sessions).toBe(MAX_SESSIONS);
+    await expect(client.listTools()).rejects.toThrow();
+    expect((await others.at(-1)!.listTools()).tools.length).toBeGreaterThan(0);
+    await Promise.all(others.map((c) => c.close()));
+    await client.close().catch(() => {});
   });
 
   test("one user can't use another user's session", async () => {
@@ -487,5 +593,6 @@ describe("settings", () => {
     expect(() => configFromEnv({ ...env, AUTH_SECRET: "short" })).toThrow("at least 32 characters");
     expect(() => configFromEnv({ ...env, PUBLIC_URL: "http://aniconnect.example.com" })).toThrow("must be https");
     expect(() => configFromEnv({ ...env, PUBLIC_URL: "http://localhost:3000" })).not.toThrow();
+    expect(() => configFromEnv({ ...env, PUBLIC_URL: "http://[::1]:3000" })).not.toThrow();
   });
 });

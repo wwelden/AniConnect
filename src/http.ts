@@ -10,16 +10,16 @@
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { AniListClient } from "./anilist";
-import { OAuthServer, type OAuthConfig } from "./oauth";
-import { createServer } from "./server";
+import { AniListClient, type FetchFn } from "./anilist";
+import { OAuthServer, sha256, type OAuthConfig } from "./oauth";
+import { createServer, UserState } from "./server";
 import { HOSTED_RENEW } from "./token";
-import { Journal } from "./undo";
-
-type FetchFn = (input: string, init: RequestInit) => Promise<Response>;
 
 /** Sessions and users idle this long are dropped (the client starts a new session if it comes back). */
 export const IDLE_MS = 60 * 60_000;
+
+/** Open sessions one user may have; opening another closes their least recently used. */
+export const MAX_SESSIONS = 20;
 
 export interface HttpOptions {
   /** For AniList's GraphQL API and its token endpoint; tests pass a fake. */
@@ -29,7 +29,7 @@ export interface HttpOptions {
 
 interface Account {
   client: AniListClient;
-  journal: Journal;
+  user: UserState;
   lastUsed: number;
 }
 
@@ -62,35 +62,37 @@ function rpcError(status: number, message: string, headers: Record<string, strin
   });
 }
 
-async function hash(text: string): Promise<string> {
-  return Buffer.from(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))).toString("base64url");
-}
-
 export async function createHttpApp(config: OAuthConfig, options: HttpOptions = {}) {
   const now = options.now ?? Date.now;
   const oauth = await OAuthServer.create(config, { fetch: options.fetch, now });
   const accounts = new Map<string, Account>();
   const sessions = new Map<string, Session>();
+  /** Users whose AniList token AniList has rejected: their access token is refused, so the client signs in again. */
+  const rejected = new Set<string>();
 
   function account(key: string, token: string): Account {
     let found = accounts.get(key);
     if (!found) {
       const client = new AniListClient(token, options.fetch);
       client.renew = HOSTED_RENEW;
-      found = { client, journal: new Journal(), lastUsed: now() };
+      found = { client, user: new UserState(), lastUsed: now() };
       accounts.set(key, found);
     }
     found.lastUsed = now();
     return found;
   }
 
+  async function close(id: string): Promise<void> {
+    const session = sessions.get(id);
+    sessions.delete(id);
+    await session?.transport.close().catch(() => {});
+  }
+
   /** Closes idle sessions and forgets idle users. */
   async function sweep(): Promise<void> {
     const cutoff = now() - IDLE_MS;
     for (const [id, s] of sessions) {
-      if (s.lastUsed > cutoff) continue;
-      sessions.delete(id);
-      await s.transport.close().catch(() => {});
+      if (s.lastUsed <= cutoff) await close(id);
     }
     const active = new Set([...sessions.values()].map((s) => s.account));
     for (const [key, a] of accounts) if (a.lastUsed <= cutoff && !active.has(key)) accounts.delete(key);
@@ -100,12 +102,18 @@ export async function createHttpApp(config: OAuthConfig, options: HttpOptions = 
     const auth = req.headers.get("Authorization");
     const bearer = auth?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim() ?? null;
     const token = await oauth.anilistToken(bearer);
-    if (!token) {
+    const key = token && (await sha256(token));
+    if (key && (rejected.has(key) || accounts.get(key)?.client.rejected)) {
+      // Sign the user out here too, so the client asks them to sign in again.
+      rejected.add(key);
+      accounts.delete(key);
+      for (const [id, s] of sessions) if (s.account === key) await close(id);
+    }
+    if (!token || !key || rejected.has(key)) {
       return rpcError(401, bearer ? "Invalid or expired access token; sign in again." : "Sign in with AniList first.", {
         "WWW-Authenticate": oauth.challenge(bearer ? "invalid_token" : undefined),
       });
     }
-    const key = await hash(token);
     const sessionId = req.headers.get("Mcp-Session-Id");
 
     if (sessionId) {
@@ -133,7 +141,9 @@ export async function createHttpApp(config: OAuthConfig, options: HttpOptions = 
     }
 
     const user = account(key, token);
-    const server = createServer(user.client, { now, journal: user.journal });
+    const open = [...sessions].filter(([, s]) => s.account === key).sort(([, a], [, b]) => a.lastUsed - b.lastUsed);
+    for (const [id] of open.slice(0, Math.max(0, open.length - MAX_SESSIONS + 1))) await close(id);
+    const server = createServer(user.client, { now, user: user.user });
     const transport: WebStandardStreamableHTTPServerTransport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: () => crypto.randomUUID(),
       onsessioninitialized: (id) => {
@@ -174,6 +184,7 @@ export async function createHttpApp(config: OAuthConfig, options: HttpOptions = 
     }
     if (req.method === "POST") {
       if (pathname === "/register") return oauth.register(req);
+      if (pathname === "/authorize") return oauth.approve(req);
       if (pathname === "/token") return oauth.token(req);
     }
     return new Response("Not found\n", { status: 404 });
@@ -218,7 +229,7 @@ export function configFromEnv(env: Record<string, string | undefined> = process.
   } catch {
     throw new Error(`PUBLIC_URL isn't a URL: ${config.publicUrl}`);
   }
-  if (url.protocol !== "https:" && !["localhost", "127.0.0.1"].includes(url.hostname)) {
+  if (url.protocol !== "https:" && !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)) {
     throw new Error("PUBLIC_URL must be https (http is allowed only for localhost).");
   }
   return config;
