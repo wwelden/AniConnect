@@ -50,8 +50,13 @@ export function bothTitles(title: MediaTitle, language: TitleLanguage): string {
   return other ? `${main} (${other})` : main;
 }
 
-export function todayFuzzy(now = new Date()): FuzzyDate {
-  return { year: now.getFullYear(), month: now.getMonth() + 1, day: now.getDate() };
+/** Today's date in `timeZone` (an IANA name or an offset like "-05:00"), or in the server's zone. */
+export function todayFuzzy(now = new Date(), timeZone?: string): FuzzyDate {
+  if (!timeZone) return { year: now.getFullYear(), month: now.getMonth() + 1, day: now.getDate() };
+  const fields = new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric", month: "numeric", day: "numeric" })
+    .formatToParts(now);
+  const get = (type: Intl.DateTimeFormatPartTypes) => Number(fields.find((f) => f.type === type)?.value);
+  return { year: get("year"), month: get("month"), day: get("day") };
 }
 
 function isSet(date: FuzzyDate | undefined | null): boolean {

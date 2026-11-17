@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { AniListClient, LIST_STATUSES, SEASONS, type BrowseFilters, type ListStatus, type Media, type TitleLanguage } from "./anilist";
+import { AniListClient, LIST_STATUSES, SEASONS, type BrowseFilters, type ListStatus, type Media, type TitleLanguage, type Viewer } from "./anilist";
 import {
   describeEntry,
   displayTitle,
@@ -8,6 +8,7 @@ import {
   matchesTitle,
   planProgress,
   statusLabel,
+  todayFuzzy,
   toRawScore,
 } from "./logic";
 import { describeCandidates, memo, resolveAnime, type AnimeSource, type Intent } from "./resolve";
@@ -138,6 +139,11 @@ export interface ServerOptions {
   now?: () => number;
 }
 
+/** The user's zone from their AniList settings, else the server's (right when it runs on the user's machine). */
+function userZone(viewer: Viewer): string {
+  return viewer.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+}
+
 /** How many recently finished shows to check for sequels (one AniList request). */
 const SEQUEL_CHECK_LIMIT = 50;
 
@@ -254,12 +260,12 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
         timeZone: z
           .string()
           .optional()
-          .describe('IANA time zone for air times, e.g. "America/New_York". Defaults to the server\'s time zone.'),
+          .describe('IANA time zone for air times, e.g. "America/New_York". Defaults to the user\'s AniList time zone.'),
       },
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
     safe(async ({ anime, timeZone }) => {
-      const zone = checkTimeZone(timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone);
+      const zone = checkTimeZone(timeZone ?? userZone(await client.getViewer()));
       const at = now();
       const source = memo(clientSource(client));
       const list = await source.listMedia();
@@ -367,7 +373,9 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
     const before = entry?.progress ?? 0;
     const step = next(before, media, viewer.titleLanguage);
     const { episodes, note: stepNote } = typeof step === "number" ? { episodes: step, note: "" } : step;
-    const plan = planProgress(media, entry, episodes);
+    // Without an AniList zone, the server's local date (as before).
+    const today = todayFuzzy(new Date(now()), viewer.timeZone ?? undefined);
+    const plan = planProgress(media, entry, episodes, today);
     const saved = await client.saveEntry({ mediaId: media.id, ...plan });
     const statusNote = plan.status ? ` Status is now ${statusLabel(plan.status)}.` : "";
     return text(

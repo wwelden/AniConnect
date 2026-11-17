@@ -34,7 +34,7 @@ Status: **Done**, **In progress**, **Planned**, **Later**.
 | R0.4 | Change a show's status. | Done |
 | R0.5 | Rate a show out of 10; report the score in the user's own scoring format. | Done |
 | R0.6 | Mark the next episode(s) watched, or set an exact episode count. | Done |
-| R0.7 | Episode changes keep status and dates in sync: watching moves planned/paused/dropped to watching and sets the start date; the last episode completes the show and sets the finish date; shows with an unknown episode count never auto-complete. | Done |
+| R0.7 | Episode changes keep status and dates in sync: watching moves planned/paused/dropped to watching and sets the start date; the last episode completes the show and sets the finish date; shows with an unknown episode count never auto-complete. "Today" is the date in the user's AniList time zone (the server's when AniList has none). | Done |
 | R0.8 | Remove a show from the list. | Done |
 | R0.9 | Finishing a rewatch increments AniList's rewatch count. | Planned |
 | R0.10 | Set or correct start and finish dates ("I actually finished it last March"). | Planned |
@@ -84,7 +84,7 @@ Every tool that targets a show accepts a title (or an ID) and picks the right An
 | ID | Requirement | Status |
 |---|---|---|
 | R4.1 | "What's out that I haven't watched?": compare progress with aired episodes for shows being watched. | Done (`whats_next`) |
-| R4.2 | Show when the next episode airs. | Done (`whats_next`, in the user's time zone) |
+| R4.2 | Show when the next episode airs, in the user's time zone. | Done (`whats_next`: the time zone from the user's AniList settings, read with the viewer at no extra request; a `timeZone` argument overrides it; the server's zone when AniList has none. AniList stores an offset, which has no daylight saving, so times name it: "2:00 PM UTC-05:00") |
 | R4.3 | "What should I watch next?": combine unwatched aired episodes (R4.1) with the next entry in each franchise relative to the user's list ("you finished seasons 1–3; next is The Final Season, paused at episode 10"). The next entry is a direct sequel (AniList `SEQUEL`) that is a series or a movie, and movies are labeled as movies; recaps, specials and OVAs don't count. Sequels the user has started or finished aren't next; planned ones say so. When a movie and a series sequel tell the same story (AniList links them as `ALTERNATIVE`, like Demon Slayer's Mugen Train movie and TV arc), the series is listed once and names the movie ("watch either"), and having watched either one counts for both. | Done (`whats_next`; checks the 50 most recently finished shows in one request, plus one more only when a show has both a series and a movie sequel) |
 | R4.4 | Say how long the unwatched episodes take ("5 episodes to watch, about 2 hours"), from AniList's episode length, so "what can I finish tonight?" needs no arithmetic. Left out when AniList doesn't know the length. | Done (`whats_next`) |
 
