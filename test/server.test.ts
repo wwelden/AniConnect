@@ -518,6 +518,14 @@ describe("search_anime filters", () => {
     expect(r.text).not.toContain("SPY×FAMILY");
   });
 
+  test("several genres must all match, like AniList's genre_in", async () => {
+    const r = await call("search_anime", { genres: ["Romance", "Horror"], limit: 25 });
+    expect(r.text.split("\n")[0]).toBe("Romance and Horror, most popular first:");
+    expect(r.text).toContain("Reze Arc");
+    // Dandadan is romance without horror.
+    expect(r.text).not.toContain("DAN DA DAN");
+  });
+
   test("filters by format and airing status", async () => {
     const r = await call("search_anime", { formats: ["MOVIE"], airingStatus: "NOT_YET_RELEASED", limit: 25 });
     expect(r.text.split("\n")[0]).toBe("MOVIE, not yet aired, most popular first:");
@@ -542,7 +550,7 @@ describe("search_anime filters", () => {
   test("counts a prequel being rewatched as completed", async () => {
     fake.seed([{ anime: "Sousou no Frieren", status: "REPEATING" }]);
     const r = await call("search_anime", { query: "frieren 2nd season", limit: 1 });
-    expect(r.text).toContain("Continues Frieren: Beyond Journey’s End (Sousou no Frieren), which you completed");
+    expect(r.text).toContain("Continues Frieren: Beyond Journey’s End, which you completed");
   });
 
   test("doesn't flag a continuation the user is already watching", async () => {

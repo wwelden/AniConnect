@@ -180,7 +180,7 @@ export class FakeAniList {
 
   /**
    * Rough imitation of AniList search and filters: every word somewhere in a title, then
-   * season, year, genres (any of), formats (any of) and airing status.
+   * season, year, genres (all of, like AniList's genre_in), formats (any of) and airing status.
    */
   search(text: string, perPage: number, filters: SearchVariables = {}) {
     const words = normalize(text).split(" ").filter(Boolean);
@@ -198,7 +198,7 @@ export class FakeAniList {
         (m) =>
           (filters.season == null || m.season === filters.season) &&
           (filters.seasonYear == null || m.seasonYear === filters.seasonYear) &&
-          (filters.genres == null || m.genres.some((g) => filters.genres!.includes(g))) &&
+          (filters.genres == null || filters.genres.every((g) => m.genres.includes(g))) &&
           (filters.formats == null || (m.format !== null && filters.formats.includes(m.format))) &&
           (filters.status == null || m.status === filters.status),
       )

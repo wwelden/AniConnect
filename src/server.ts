@@ -162,7 +162,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
             "Anime season; needs `year`. WINTER is January-March, SPRING April-June, SUMMER July-September, FALL October-December, so in November \"this winter\" is WINTER of next year.",
           ),
         year: z.number().int().min(1940).max(2100).optional().describe("Year the show aired (with `season`, the season's year)"),
-        genres: z.array(z.enum(GENRES)).min(1).optional().describe("Shows with any of these genres"),
+        genres: z.array(z.enum(GENRES)).min(1).optional().describe("Shows with all of these genres"),
         formats: z.array(z.enum(FORMATS)).min(1).optional().describe("Shows in any of these formats"),
         airingStatus: z
           .enum(AIRING_STATUSES)
@@ -187,7 +187,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       const filter = [
         query && `"${query}"`,
         season ? `${capitalize(season)} ${year}` : year && String(year),
-        genres?.join(" or "),
+        genres?.join(" and "),
         formats?.join(" or "),
         airingStatus && AIRING_LABEL[airingStatus],
       ]
