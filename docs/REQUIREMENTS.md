@@ -71,6 +71,7 @@ Every tool that targets a show accepts a title (or an ID) and picks the right An
 | R2.7 | Where the client supports MCP elicitation, ask the user directly to pick between ambiguous candidates and to confirm deletions; otherwise fall back to R1.7. | Planned |
 | R2.8 | Return structured results alongside the text, so clients can render lists and entries. | Planned |
 | R2.9 | Print one title per show, in the title language the user picked on AniList (English, romaji or native), falling back to another when a show has none in that language. Lists of ambiguous candidates (R1.7) add a second name, since the user may know the show by either. Names in any language still match (R1.1). | Done |
+| R2.10 | Say guidance that several tools share once, in the server's instructions, not in full in every tool description; each write tool keeps a short hint so clients that don't show instructions still take one call. | Done: `tools/list` 9,119 → 8,005 characters; in Claude Code the server costs 3,602 → 3,483 input tokens per conversation, instructions included. Sonnet 5.5, two runs each, ideal calls out of 31 (all 36/36 correct): master 30 and 26; with instructions 30 and 30; with instructions off 28 and 29 (20 without the short hint) |
 
 ### R3: Safety
 

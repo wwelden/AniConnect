@@ -27,9 +27,26 @@ const status = z
     "CURRENT = watching, PLANNING = plan to watch, COMPLETED, DROPPED, PAUSED, REPEATING = rewatching",
   );
 
-/** Appended to every tool that changes the list (requirement R2.2: one call per request). */
-const BY_NAME =
-  " Pass the show as the user named it; this tool picks the right entry and season from their list, so don't search first. If the name is ambiguous, nothing changes and the candidates come back to ask about.";
+/** Tools that take the show by name and change the list. */
+export const WRITE_TOOLS = [
+  "add_to_list",
+  "set_status",
+  "rate_anime",
+  "mark_episodes_watched",
+  "set_progress",
+  "remove_from_list",
+] as const;
+
+/**
+ * Guidance several tools share, sent once as the server's instructions instead of being
+ * repeated in each tool description (requirement R2.10). It keeps requests to one call (R2.2).
+ */
+export const INSTRUCTIONS = `AniConnect manages the user's AniList anime list.
+
+The tools that change the list (${WRITE_TOOLS.join(", ")}) take the show as the user named it ("jjk", "spy x family season 2") and pick the right entry and season from the user's list themselves, so don't search first. If a name is ambiguous, nothing changes and the candidates come back: ask the user which one they mean, then call again with its ID.`;
+
+/** The short form of INSTRUCTIONS on each write tool, for clients that don't show instructions (R2.2). */
+const BY_NAME = " Takes the show's name; don't search first.";
 
 type ToolResult = { content: { type: "text"; text: string }[]; isError?: boolean };
 
@@ -151,14 +168,14 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
   const now = options.now ?? Date.now;
   const safe = safeFor(client, now);
   client.now = now;
-  const server = new McpServer({ name: "aniconnect", version: "0.3.0" });
+  const server = new McpServer({ name: "aniconnect", version: "0.3.0" }, { instructions: INSTRUCTIONS });
 
   server.registerTool(
     "search_anime",
     {
       title: "Search AniList",
       description:
-        "Search all of AniList for anime by title, or browse it by season, year, genre, format and airing status (\"what's airing this season?\", \"best-rated romance from 2023\"). For a title lookup pass just `query`. Returns IDs, whether each show is already on the user's list, and which results continue a show the user completed. Tools that change the list take names directly and don't need this first.",
+        "Search all of AniList for anime by title, or browse it by season, year, genre, format and airing status (\"what's airing this season?\", \"best-rated romance from 2023\"). For a title lookup pass just `query`. Returns IDs, whether each show is already on the user's list, and which results continue a show the user completed.",
       inputSchema: {
         query: z.string().min(1).optional().describe("Title to search for, in English, romaji or Japanese"),
         season: z
@@ -223,7 +240,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
     {
       title: "Search my list",
       description:
-        "Answer questions about the user's own AniList anime list (what they're watching, whether something is on it). Filter by title words and/or list status; leave query empty to list everything in a status. Tools that change the list take names directly and don't need this first.",
+        "Answer questions about the user's own AniList anime list (what they're watching, whether something is on it). Filter by title words and/or list status; leave query empty to list everything in a status.",
       inputSchema: {
         query: z.string().optional().describe("Words that must all appear in the title"),
         status: status.optional(),
