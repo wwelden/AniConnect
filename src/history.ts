@@ -69,8 +69,12 @@ function monthNumber(word: string): number {
   return word.length >= 3 ? MONTHS.findIndex((name) => name.startsWith(word)) + 1 : 0;
 }
 
-/** Days as [first, last] (both inclusive), from one phrase that names a single span. */
-function span(text: string, today: Day): [Day, Day] | null {
+/**
+ * Days as [first, last] (both inclusive), from one phrase that names a single span.
+ * A month or day named without a year is the latest one not in the future, unless
+ * `pastOnly` is false (the end of a range: "Nov 10 to Nov 20").
+ */
+function span(text: string, today: Day, pastOnly = true): [Day, Day] | null {
   const t = text.trim();
   let m: RegExpMatchArray | null;
   if (t === "today") return [today, today];
@@ -122,7 +126,7 @@ function span(text: string, today: Day): [Day, Day] | null {
     // Without a year, the most recent such month (or day) that isn't in the future.
     let year = m[3] ? Number(m[3]) : today.year;
     const day = m[2] ? Number(m[2]) : null;
-    if (!m[3] && (month > today.month || (month === today.month && day !== null && day > today.day))) year -= 1;
+    if (pastOnly && !m[3] && (month > today.month || (month === today.month && day !== null && day > today.day))) year -= 1;
     if (day !== null) {
       const d = { year, month, day };
       const check = shift(d, {});
@@ -144,23 +148,28 @@ export function parsePeriod(period: string, now: number, timeZone: string): Rang
     .toLowerCase()
     .replace(/\s+/g, " ")
     .trim()
-    .replace(/^(in|during|from|over) (the )?/, "");
+    .replace(/^(in|during|from|over) /, "");
   const today = dayOf(now, timeZone);
   const end = (d: Day) => startOf(shift(d, { days: 1 }), timeZone);
+  const checked = (r: Range): Range => {
+    if (r.start > now) throw new Error(`"${period}" hasn't started yet; history only covers the past.`);
+    if (r.start >= r.end) throw new Error(`"${period}" ends before it starts.`);
+    return r;
+  };
 
   if (/^(all|all time|ever|anytime|any time)$/.test(text)) return { start: 0, end: end(today) };
   const since = text.match(/^since (.+)$/);
   if (since) {
     const s = span(since[1]!, today);
-    if (s) return { start: startOf(s[0], timeZone), end: end(today) };
+    if (s) return checked({ start: startOf(s[0], timeZone), end: end(today) });
   }
   const whole = span(text, today);
-  if (whole) return { start: startOf(whole[0], timeZone), end: end(whole[1]) };
+  if (whole) return checked({ start: startOf(whole[0], timeZone), end: end(whole[1]) });
   const between = text.match(/^(?:between )?(.+?)(?: to | until | through | and | - | – |\.\.)(.+)$/);
   if (between) {
     const a = span(between[1]!, today);
-    const b = span(between[2]!, today);
-    if (a && b) return { start: startOf(a[0], timeZone), end: end(b[1]) };
+    const b = span(between[2]!, today, false);
+    if (a && b) return checked({ start: startOf(a[0], timeZone), end: end(b[1]) });
   }
   throw new Error(
     `Couldn't read the time range "${period}". Use words like "this week", "last month", "March", "March 2025", "last 30 days", "since June", or dates like "2026-03-01 to 2026-03-15".`,
@@ -179,7 +188,9 @@ export function describeActivity(a: Pick<ListActivity, "status" | "progress">): 
   const status = a.status ?? "updated";
   if (/^(re)?watched episode$/.test(status) && progress.includes("-")) return `${status}s ${progress}`;
   if (status === "plans to watch") return "added to plan to watch";
-  if (status === "paused watching") return "put on hold";
+  const at = progress ? ` at episode ${progress}` : "";
+  if (status === "paused watching") return `put on hold${at}`;
+  if (status === "dropped") return `dropped${at}`;
   return progress ? `${status} ${progress}` : status;
 }
 

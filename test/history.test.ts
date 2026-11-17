@@ -29,6 +29,7 @@ describe("parsePeriod", () => {
   test("rolling periods", () => {
     expect(range("last 7 days")).toEqual(["2026-11-11T00:00:00.000Z", "2026-11-18T00:00:00.000Z"]);
     expect(range("past week")).toEqual(["2026-11-11T00:00:00.000Z", "2026-11-18T00:00:00.000Z"]);
+    expect(range("in the last week")).toEqual(["2026-11-11T00:00:00.000Z", "2026-11-18T00:00:00.000Z"]);
     expect(range("the past 2 weeks")).toEqual(["2026-11-04T00:00:00.000Z", "2026-11-18T00:00:00.000Z"]);
     expect(range("last 3 months")).toEqual(["2026-08-18T00:00:00.000Z", "2026-11-18T00:00:00.000Z"]);
     // A month before March 31 is the end of February, not March 3.
@@ -52,6 +53,9 @@ describe("parsePeriod", () => {
     expect(range("2026-03-01 to 2026-03-15")).toEqual(["2026-03-01T00:00:00.000Z", "2026-03-16T00:00:00.000Z"]);
     expect(range("between March 1 and March 15")).toEqual(["2026-03-01T00:00:00.000Z", "2026-03-16T00:00:00.000Z"]);
     expect(range("since June")).toEqual(["2026-06-01T00:00:00.000Z", "2026-11-18T00:00:00.000Z"]);
+    // The end of a range isn't pushed back a year just because it's later this month.
+    expect(range("nov 10 to nov 20")).toEqual(["2026-11-10T00:00:00.000Z", "2026-11-21T00:00:00.000Z"]);
+    expect(range("dec 20 to jan 5")).toEqual(["2025-12-20T00:00:00.000Z", "2026-01-06T00:00:00.000Z"]);
     expect(parsePeriod("all time", NOW, "UTC").start).toBe(0);
   });
 
@@ -67,6 +71,9 @@ describe("parsePeriod", () => {
     expect(() => parsePeriod("whenever", NOW, "UTC")).toThrow('Couldn\'t read the time range "whenever"');
     expect(() => parsePeriod("Feb 30", NOW, "UTC")).toThrow("Couldn't read");
     expect(() => parsePeriod("2026-13", NOW, "UTC")).toThrow("Couldn't read");
+    expect(() => parsePeriod("2027", NOW, "UTC")).toThrow("hasn't started yet");
+    expect(() => parsePeriod("last 0 days", NOW, "UTC")).toThrow("hasn't started yet");
+    expect(() => parsePeriod("2026-03-15 to 2026-03-01", NOW, "UTC")).toThrow("ends before it starts");
   });
 });
 
@@ -78,6 +85,8 @@ describe("describeActivity", () => {
     expect(describeActivity({ status: "completed", progress: null })).toBe("completed");
     expect(describeActivity({ status: "plans to watch", progress: null })).toBe("added to plan to watch");
     expect(describeActivity({ status: "paused watching", progress: null })).toBe("put on hold");
+    expect(describeActivity({ status: "paused watching", progress: "12" })).toBe("put on hold at episode 12");
+    expect(describeActivity({ status: "dropped", progress: "5" })).toBe("dropped at episode 5");
   });
 });
 
