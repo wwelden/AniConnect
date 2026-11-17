@@ -3,7 +3,7 @@
  * "frieran") into one AniList entry, or a short list of candidates when it is
  * genuinely ambiguous. See docs/REQUIREMENTS.md, R1.
  */
-import type { ListStatus, Media } from "./anilist";
+import type { ListStatus, Media, RelationEdge } from "./anilist";
 import { displayTitle, normalize } from "./logic";
 
 /** What the caller wants to do with the show; it decides which season is most likely meant. */
@@ -311,8 +311,8 @@ function preferSeries(items: Scored[], hint: SeasonHint): Scored[] {
 
 const MAX_CANDIDATES = 8;
 
-/** Fetch the list once and each search once per resolution. */
-function memo(source: AnimeSource): AnimeSource {
+/** Fetch the list once and each search once per resolution (or per tool call). */
+export function memo(source: AnimeSource): AnimeSource {
   let list: Promise<Media[]> | undefined;
   const searches = new Map<string, Promise<Media[]>>();
   return {
@@ -501,7 +501,7 @@ async function seasonChain(root: Media, upTo: number, source: AnimeSource): Prom
     chain.push({ media: current, season, part });
     if (season > upTo) break;
     const withRelations: Media | undefined = current.relations ? current : (await source.getMany([current.id]))[0];
-    const edges: NonNullable<Media["relations"]>["edges"] = withRelations?.relations?.edges ?? [];
+    const edges: RelationEdge[] = withRelations?.relations?.edges ?? [];
     const sequel = edges.find(
       (e) => e.relationType === "SEQUEL" && e.node.type === "ANIME" && SERIES_FORMATS.has(e.node.format ?? ""),
     );

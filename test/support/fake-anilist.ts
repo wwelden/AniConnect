@@ -113,7 +113,7 @@ export class FakeAniList {
   private mediaView(id: number, withRelations = false) {
     const m = catalog.find((c) => c.id === id);
     if (!m) return null;
-    const { relations, franchise, popularity, nextAiringEpisode, ...rest } = m;
+    const { relations, franchise, popularity, ...rest } = m;
     const entry = this.entries.get(id);
     return {
       ...rest,
@@ -126,7 +126,18 @@ export class FakeAniList {
     return {
       edges: relations.edges.map((e) => ({
         relationType: e.relationType,
-        node: { id: e.node.id, type: e.node.type, format: catalog.find((c) => c.id === e.node.id)?.format ?? null },
+        node: (() => {
+          const target = catalog.find((c) => c.id === e.node.id);
+          return {
+            id: e.node.id,
+            type: e.node.type,
+            format: target?.format ?? null,
+            status: target?.status ?? null,
+            episodes: target?.episodes ?? null,
+            title: target?.title ?? { romaji: null, english: null, native: null },
+            startDate: target?.startDate ?? null,
+          };
+        })(),
       })),
     };
   }

@@ -23,8 +23,8 @@ export type Outcome =
   | { changes: Change[] }
   /** Nothing changes and the assistant asks the user something. */
   | { asks: true }
-  /** Nothing changes; the reply mentions each of these (case-insensitive). */
-  | { readOnly: true; mentions?: string[] };
+  /** Nothing changes; the reply mentions each of these (ignoring case and spacing) and the named tools were called. */
+  | { readOnly: true; mentions?: string[]; tools?: string[] };
 
 export interface EvalCase {
   id: string;
@@ -112,4 +112,16 @@ export const CASES: EvalCase[] = [
     expect: { readOnly: true, mentions: ["Dandadan", "One Piece", "Jujutsu Kaisen"] } },
   { id: "read-planned", prompt: "Is the second season of Spy x Family on my list?",
     expect: { readOnly: true, mentions: ["plan"] } },
+
+  // What to watch next (R4).
+  { id: "next-free-time", prompt: "I've got a free evening, what should I watch?", idealCalls: 1,
+    expect: { readOnly: true, tools: ["whats_next"] } },
+  { id: "next-anything-new", prompt: "anything new out for the stuff I'm watching?", idealCalls: 1,
+    expect: { readOnly: true, tools: ["whats_next"], mentions: ["One Piece"] } },
+  { id: "next-air-date", prompt: "When does the next episode of The Apothecary Diaries come out?", idealCalls: 1,
+    expect: { readOnly: true, tools: ["whats_next"], mentions: ["episode 8"] } },
+  { id: "next-behind", prompt: "How far behind am I on One Piece?", idealCalls: 1,
+    expect: { readOnly: true, mentions: ["80"] } },
+  { id: "next-more-frieren", prompt: "I finished Frieren, is there more?", idealCalls: 1,
+    expect: { readOnly: true, mentions: ["season 2"] } },
 ];

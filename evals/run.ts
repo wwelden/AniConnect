@@ -32,7 +32,7 @@ const { values: args } = parseArgs({
 });
 
 const SYSTEM_PROMPT =
-  "You are a helpful assistant. The user keeps track of the anime they watch on AniList, and you can manage their list with the tools provided. Today is 2026-11-16.";
+  "You are a helpful assistant. The user keeps track of the anime they watch on AniList, and you can manage their list with the tools provided. Today is 2026-11-17 and the user is in the UTC time zone.";
 
 const SERVER = join(import.meta.dir, "fake-server.ts");
 
@@ -131,7 +131,7 @@ async function runCase(c: EvalCase): Promise<RunResult> {
     }
 
     const final = await Bun.file(statePath).json();
-    const problem = gradeCase(c, diff(initial.entries, final.entries), reply);
+    const problem = gradeCase(c, diff(initial.entries, final.entries), reply, toolCalls);
     return { ...base, passed: problem === null, detail: problem ?? "" };
   } finally {
     if (!args["keep-temp"]) await rm(dir, { recursive: true, force: true });

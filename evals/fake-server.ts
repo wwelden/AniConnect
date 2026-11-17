@@ -27,5 +27,8 @@ const fetchAndPersist = async (url: string, init: RequestInit) => {
   return res;
 };
 
-const server = createServer(new AniListClient("eval", fetchAndPersist));
+// The fixture's airing schedule was captured on 2026-11-17; keep the clock there.
+const server = createServer(new AniListClient("eval", fetchAndPersist), {
+  now: () => Date.parse("2026-11-17T12:00:00Z"),
+});
 await server.connect(new StdioServerTransport());

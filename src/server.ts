@@ -10,7 +10,8 @@ import {
   statusLabel,
   toRawScore,
 } from "./logic";
-import { describeCandidates, resolveAnime, type AnimeSource, type Intent } from "./resolve";
+import { describeCandidates, memo, resolveAnime, type AnimeSource, type Intent } from "./resolve";
+import { buildReport, checkTimeZone, formatReport, formatShow, nextSeasons } from "./whatsnext";
 
 const anime = z
   .union([z.string().min(1), z.number().int().positive()])
@@ -59,24 +60,40 @@ async function target(
   client: AniListClient,
   input: string | number,
   intent: Intent,
+  source: AnimeSource = clientSource(client),
+  changes = true,
 ): Promise<{ media: Media; note: string }> {
+  const prefix = changes ? "Nothing was changed. " : "";
   if (typeof input === "number" || /^\d+$/.test(input.trim())) {
     return { media: await client.getAnime(Number(input)), note: "" };
   }
-  const r = await resolveAnime(input, intent, clientSource(client));
+  const r = await resolveAnime(input, intent, source);
   if (r.kind === "match") {
     return { media: r.media, note: `Matched "${input}" to ${displayTitle(r.media.title)}: ${r.why}.\n` };
   }
   if (r.kind === "ambiguous") {
     throw new Error(
-      `Nothing was changed. ${r.why} Ask the user which one they mean, then call again with its ID:\n${describeCandidates(r.candidates)}`,
+      `${prefix}${r.why} Ask the user which one they mean, then call again with its ID:\n${describeCandidates(r.candidates)}`,
     );
   }
-  throw new Error(`Nothing was changed. ${r.why} Try search_anime with a different spelling.`);
+  throw new Error(`${prefix}${r.why} Pass just the show's name, or try search_anime with a different spelling.`);
 }
 
-export function createServer(client: AniListClient): McpServer {
-  const server = new McpServer({ name: "aniconnect", version: "0.2.0" });
+function dateNum(d: { year: number | null; month: number | null; day: number | null } | null | undefined): number {
+  return d?.year ? d.year * 10000 + (d.month ?? 0) * 100 + (d.day ?? 0) : 0;
+}
+
+export interface ServerOptions {
+  /** Current time in ms; injectable so tests and evals get stable air times. */
+  now?: () => number;
+}
+
+/** How many recently finished shows to check for sequels (one AniList request). */
+const SEQUEL_CHECK_LIMIT = 50;
+
+export function createServer(client: AniListClient, options: ServerOptions = {}): McpServer {
+  const now = options.now ?? Date.now;
+  const server = new McpServer({ name: "aniconnect", version: "0.3.0" });
 
   server.registerTool(
     "search_anime",
@@ -127,6 +144,44 @@ export function createServer(client: AniListClient): McpServer {
       const lines = shown.map((e) => describeEntry(e.media, e, viewer.scoreFormat));
       const header = `${entries.length} match${entries.length === 1 ? "" : "es"} on ${viewer.name}'s list${filter ? ` for ${filter}` : ""}${entries.length > limit ? ` (showing ${limit})` : ""}:`;
       return text([header, ...lines].join("\n"));
+    }),
+  );
+
+  server.registerTool(
+    "whats_next",
+    {
+      title: "What to watch next",
+      description:
+        "What the user can watch next: aired episodes they haven't seen for each show they're watching, when the next episodes air, shows on hold with episodes left, and the next season of shows they've finished. Pass `anime` to ask about one show (\"when's the next Apothecary Diaries episode?\", \"is there more Frieren?\").",
+      inputSchema: {
+        anime: anime.optional(),
+        timeZone: z
+          .string()
+          .optional()
+          .describe('IANA time zone for air times, e.g. "America/New_York". Defaults to the server\'s time zone.'),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: true },
+    },
+    safe(async ({ anime, timeZone }) => {
+      const zone = checkTimeZone(timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone);
+      const at = now();
+      const source = memo(clientSource(client));
+      const list = await source.listMedia();
+      const listStatus = new Map(list.map((m) => [m.id, m.mediaListEntry!.status]));
+
+      if (anime !== undefined) {
+        const { media, note } = await target(client, anime, "progress", source, false);
+        const [withRelations] = await client.getMany([media.id]);
+        const show = withRelations ?? media;
+        return text(`${note}${formatShow(show, nextSeasons([show], listStatus), listStatus, at, zone)}`);
+      }
+
+      const finished = list
+        .filter((m) => m.mediaListEntry!.status === "COMPLETED")
+        .sort((a, b) => dateNum(b.mediaListEntry!.completedAt) - dateNum(a.mediaListEntry!.completedAt))
+        .slice(0, SEQUEL_CHECK_LIMIT);
+      const sequels = nextSeasons(await client.getMany(finished.map((m) => m.id)), listStatus);
+      return text(formatReport(buildReport(list, sequels, at), at, zone));
     }),
   );
 

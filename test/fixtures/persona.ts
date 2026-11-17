@@ -29,4 +29,8 @@ export const PERSONA: SeedEntry[] = [
   { anime: "Kaguya-sama wa Kokurasetai: Ultra Romantic", status: "CURRENT", progress: 2 },
   { anime: "VINLAND SAGA", status: "DROPPED", progress: 10 },
   { anime: "Haikyuu!!", status: "PLANNING" },
+  // Airing now and caught up: episode 8 airs 2026-11-20.
+  { anime: "Kusuriya no Hitorigoto", status: "COMPLETED" },
+  { anime: "Kusuriya no Hitorigoto 2nd Season", status: "COMPLETED" },
+  { anime: "Kusuriya no Hitorigoto 3rd Season", status: "CURRENT", progress: 7 },
 ];
