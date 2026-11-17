@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { bothTitles, describePlanDates, displayTitle, formatScore, matchesTitle, planProgress, planStatus, toRawScore } from "../src/logic";
+import { bothTitles, describePlanDates, displayTitle, formatScore, matchesTitle, parseFuzzyDate, planProgress, planStatus, planUpdate, toRawScore } from "../src/logic";
 
 const today = { year: 2026, month: 11, day: 16 };
 const unset = { year: null, month: null, day: null };
@@ -226,5 +226,76 @@ describe("scores", () => {
     expect(formatScore(85, "POINT_100")).toBe("85/100");
     expect(formatScore(4, "POINT_5")).toBe("4 stars (of 5)");
     expect(formatScore(0, "POINT_10")).toBe("unrated");
+  });
+});
+
+describe("planUpdate (R2.6)", () => {
+  const show = { episodes: 12 };
+  const planned = { status: "PLANNING" as const, progress: 0, startedAt: unset, completedAt: unset };
+
+  test("episodes then a status, as if saved one after the other", () => {
+    expect(planUpdate(show, planned, { progress: 3, status: "PAUSED" }, today)).toEqual({
+      progress: 3,
+      status: "PAUSED",
+      startedAt: today,
+    });
+  });
+
+  test("a status alone plans like set_status", () => {
+    expect(planUpdate(show, planned, { status: "COMPLETED" }, today)).toEqual(planStatus(show, planned, "COMPLETED", today));
+  });
+
+  test("episodes alone plan like set_progress", () => {
+    expect(planUpdate(show, planned, { progress: 12 }, today)).toEqual(planProgress(show, planned, 12, today));
+  });
+
+  test("an explicit episode count wins over the one a status implies", () => {
+    const done = { status: "COMPLETED" as const, progress: 12, startedAt: earlier, completedAt: earlier };
+    expect(planUpdate(show, done, { progress: 3, status: "REPEATING" }, today)).toEqual({
+      progress: 3,
+      status: "REPEATING",
+    });
+  });
+
+  test("a new show watched and finished in one go gets both dates", () => {
+    expect(planUpdate(show, null, { progress: 12, status: "COMPLETED" }, today)).toEqual({
+      progress: 12,
+      status: "COMPLETED",
+      startedAt: today,
+      completedAt: today,
+    });
+  });
+
+  test("the last episode with another status named doesn't complete it", () => {
+    const watching = { status: "CURRENT" as const, progress: 10, startedAt: earlier, completedAt: unset };
+    expect(planUpdate(show, watching, { progress: 12, status: "PAUSED" }, today)).toEqual({ progress: 12, status: "PAUSED" });
+    const rewatching = { status: "REPEATING" as const, progress: 10, startedAt: earlier, completedAt: earlier, repeat: 1 };
+    expect(planUpdate(show, rewatching, { progress: 12, status: "REPEATING" }, today)).toEqual({ progress: 12, status: "REPEATING" });
+  });
+
+  test("nothing to plan when only a score changes", () => {
+    expect(planUpdate(show, planned, {}, today)).toEqual({});
+  });
+});
+
+describe("parseFuzzyDate (R0.10)", () => {
+  test("reads a day, a month or a year", () => {
+    expect(parseFuzzyDate("2025-03-14", today)).toEqual({ year: 2025, month: 3, day: 14 });
+    expect(parseFuzzyDate("2025-3", today)).toEqual({ year: 2025, month: 3, day: null });
+    expect(parseFuzzyDate("2025", today)).toEqual({ year: 2025, month: null, day: null });
+  });
+
+  test("today and this month count as past; leap days are real", () => {
+    expect(parseFuzzyDate("2026-11-16", today).day).toBe(16);
+    expect(parseFuzzyDate("2026-11", today).month).toBe(11);
+    expect(parseFuzzyDate("2024-02-29", today).day).toBe(29);
+  });
+
+  test("refuses the future and dates that don't exist", () => {
+    expect(() => parseFuzzyDate("2026-11-17", today)).toThrow("in the future");
+    expect(() => parseFuzzyDate("2027", today)).toThrow("in the future");
+    expect(() => parseFuzzyDate("2025-02-29", today)).toThrow("no day 29");
+    expect(() => parseFuzzyDate("2025-13", today)).toThrow("no month 13");
+    expect(() => parseFuzzyDate("March 2025", today)).toThrow("YYYY-MM-DD");
   });
 });

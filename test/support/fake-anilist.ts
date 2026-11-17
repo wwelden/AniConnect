@@ -30,6 +30,11 @@ export interface StoredEntry {
   startedAt: { year: number | null; month: number | null; day: number | null };
   completedAt: { year: number | null; month: number | null; day: number | null };
   repeat?: number;
+  notes?: string | null;
+  private?: boolean;
+  hiddenFromStatusLists?: boolean;
+  /** Names of the custom lists the entry is on. */
+  customLists?: string[];
 }
 
 export interface SeedEntry {
@@ -237,6 +242,11 @@ export class FakeAniList {
       startedAt: e.startedAt,
       completedAt: e.completedAt,
       repeat: e.repeat ?? 0,
+      // AniList returns an empty note as null.
+      notes: e.notes || null,
+      private: e.private ?? false,
+      hiddenFromStatusLists: e.hiddenFromStatusLists ?? false,
+      customLists: (e.customLists ?? []).map((name) => ({ name, enabled: true })),
     };
   }
 
@@ -386,7 +396,8 @@ export class FakeAniList {
       return json({ MediaListCollection: { lists: [{ entries }, { entries: entries.slice(0, 1) }] } });
     }
     if (query.includes("SaveMediaListEntry")) {
-      const { mediaId, scoreRaw, status, progress, startedAt, completedAt, repeat } = variables;
+      const { mediaId, scoreRaw, status, progress, startedAt, completedAt, repeat, notes, hiddenFromStatusLists, customLists } =
+        variables;
       if (!catalog.some((c) => c.id === mediaId)) {
         return new Response(
           JSON.stringify({ errors: [{ message: "validation", validation: { mediaId: ["The selected media id is invalid."] } }] }),
@@ -411,6 +422,10 @@ export class FakeAniList {
         ...(startedAt !== undefined && { startedAt }),
         ...(completedAt !== undefined && { completedAt }),
         ...(repeat !== undefined && { repeat }),
+        ...(notes !== undefined && { notes }),
+        ...(variables.private !== undefined && { private: variables.private }),
+        ...(hiddenFromStatusLists !== undefined && { hiddenFromStatusLists }),
+        ...(customLists !== undefined && { customLists }),
       };
       this.entries.set(mediaId, updated);
       this.recordActivity(before, updated);

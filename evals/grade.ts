@@ -1,5 +1,5 @@
 /** Grades an eval run by comparing list state before and after. */
-import { normalize } from "../src/logic";
+import { formatDate, normalize } from "../src/logic";
 import { findMedia, type StoredEntry } from "../test/support/fake-anilist";
 import type { Change, EvalCase, Outcome } from "./cases";
 
@@ -14,6 +14,10 @@ export function mentions(reply: string, name: string): boolean {
   return words.some((_, i) => words.slice(i).join("").startsWith(target));
 }
 
+function shownDate(d: StoredEntry["startedAt"]): string {
+  return d.year ? formatDate(d) : "";
+}
+
 export type Changes = Map<number, { before?: StoredEntry; after?: StoredEntry }>;
 
 /** What changed between two list states, keyed by AniList media ID. */
@@ -24,7 +28,16 @@ export function diff(before: StoredEntry[], after: StoredEntry[]) {
   for (const id of new Set([...b.keys(), ...a.keys()])) {
     const x = b.get(id);
     const y = a.get(id);
-    if (!x || !y || x.status !== y.status || x.progress !== y.progress || x.scoreRaw !== y.scoreRaw) {
+    if (
+      !x ||
+      !y ||
+      x.status !== y.status ||
+      x.progress !== y.progress ||
+      x.scoreRaw !== y.scoreRaw ||
+      shownDate(x.startedAt) !== shownDate(y.startedAt) ||
+      shownDate(x.completedAt) !== shownDate(y.completedAt) ||
+      (x.notes || "") !== (y.notes || "")
+    ) {
       changed.set(id, { before: x, after: y });
     }
   }
@@ -42,6 +55,15 @@ function checkChange(want: Change, got: { before?: StoredEntry; after?: StoredEn
     return `${title} progress ${got.after.progress}, wanted ${want.progress}`;
   if (want.score !== undefined && got.after.scoreRaw !== Math.round(want.score * 10))
     return `${title} score ${got.after.scoreRaw / 10}, wanted ${want.score}`;
+  for (const field of ["startedAt", "completedAt"] as const) {
+    const want_ = want[field];
+    if (want_ !== undefined && shownDate(got.after[field]) !== want_) {
+      return `${title} ${field} ${shownDate(got.after[field]) || "none"}, wanted ${want_}`;
+    }
+  }
+  const note = got.after.notes ?? "";
+  const missing = (want.noteHas ?? []).filter((w) => !note.toLowerCase().includes(w.toLowerCase()));
+  if (missing.length) return `${title} note "${note}" lacks ${missing.join(", ")}`;
   return null;
 }
 

@@ -5,6 +5,11 @@ import { diff, gradeCase, mentions } from "../evals/grade";
 import { PERSONA } from "./fixtures/persona";
 import { FakeAniList, findMedia } from "./support/fake-anilist";
 
+function date(text: string) {
+  const [year, month, day] = text.split("-").map(Number);
+  return { year: year!, month: month ?? null, day: day ?? null };
+}
+
 function applyChanges(changes: Change[]) {
   const fake = new FakeAniList().seed(PERSONA);
   const before = fake.exportState().entries.map((e) => ({ ...e }));
@@ -23,6 +28,9 @@ function applyChanges(changes: Change[]) {
       ...(c.status && { status: c.status }),
       ...(c.progress !== undefined && { progress: c.progress }),
       ...(c.score !== undefined && { scoreRaw: Math.round(c.score * 10) }),
+      ...(c.startedAt !== undefined && { startedAt: date(c.startedAt) }),
+      ...(c.completedAt !== undefined && { completedAt: date(c.completedAt) }),
+      ...(c.noteHas && { notes: c.noteHas.join(" ") }),
     });
   }
   return diff(before, fake.exportState().entries);
