@@ -144,6 +144,90 @@ describe("whats_next tool", () => {
     expect(r.text).toBe("Nothing new: you're caught up on everything you're watching.");
   });
 
+  test("a movie that continues a finished show comes next, in the report and for the show", async () => {
+    fake.entries.clear();
+    fake.seed([{ anime: "Chainsaw Man", status: "COMPLETED" }]);
+    const line = "[171627] Chainsaw Man – The Movie: Reze Arc (movie, 2025), not on your list.";
+    const show = await call({ anime: "chainsaw man", timeZone: "UTC" });
+    expect(show.text).toContain(`Comes next: ${line}`);
+    const report = await call({ timeZone: "UTC" });
+    expect(report.text).toBe(`Next seasons of shows you finished:\n- After Chainsaw Man: ${line}`);
+    expect(report.requests).toBeLessThanOrEqual(3);
+  });
+
+  test("a movie that retells the next TV season is named with it, not listed again", async () => {
+    fake.entries.clear();
+    fake.seed([{ anime: "Kimetsu no Yaiba", status: "COMPLETED" }]);
+    const line =
+      "[129874] Demon Slayer: Kimetsu no Yaiba Mugen Train Arc (7 episodes, 2021), not on your list. " +
+      "Same story as the movie [112151] Demon Slayer -Kimetsu no Yaiba- The Movie: Mugen Train; watch either.";
+    const report = await call({ timeZone: "UTC" });
+    expect(report.text).toBe(`Next seasons of shows you finished:\n- After Demon Slayer: Kimetsu no Yaiba: ${line}`);
+    expect(report.requests).toBeLessThanOrEqual(4);
+    const show = await call({ anime: "demon slayer", timeZone: "UTC" });
+    expect(show.text).toContain(`Comes next: ${line}`);
+    expect(show.text.match(/Comes next/g)?.length).toBe(1);
+  });
+
+  test("having watched the movie version skips the TV version and moves on", async () => {
+    fake.entries.clear();
+    fake.seed([
+      { anime: "Kimetsu no Yaiba", status: "COMPLETED" },
+      { anime: "Kimetsu no Yaiba: Mugen Ressha-hen", status: "COMPLETED" },
+    ]);
+    const r = await call({ timeZone: "UTC" });
+    expect(r.text).not.toContain("[129874]");
+    expect(r.text).toContain("[142329] Demon Slayer: Kimetsu no Yaiba Entertainment District Arc");
+  });
+
+  test("a planned movie version of the next season says it's planned", async () => {
+    fake.entries.clear();
+    fake.seed([
+      { anime: "Kimetsu no Yaiba", status: "COMPLETED" },
+      { anime: "Kimetsu no Yaiba: Mugen Ressha-hen", status: "PLANNING" },
+    ]);
+    const r = await call({ timeZone: "UTC" });
+    expect(r.text).toContain("Mugen Train Arc (7 episodes, 2021), not on your list.");
+    expect(r.text).toContain("The Movie: Mugen Train (on your plan-to-watch list); watch either.");
+  });
+
+  test("a movie sequel that isn't the same story is listed on its own", async () => {
+    fake.entries.clear();
+    fake.seed([{ anime: "Tensei Shitara Slime Datta Ken 3rd Season", status: "COMPLETED" }]);
+    const r = await call({ timeZone: "UTC" });
+    expect(r.text).toContain("[182205] That Time I Got Reincarnated as a Slime Season 4");
+    expect(r.text).toContain("[182206] That Time I Got Reincarnated as a Slime the Movie: Tears of the Azure Sea (movie, 2026), not on your list.");
+    expect(r.text).not.toContain("Same story");
+  });
+
+  test("a recap movie isn't next, even when another recap lists it as a sequel", async () => {
+    fake.entries.clear();
+    fake.seed([
+      { anime: "Bocchi the Rock!", status: "COMPLETED" },
+      { anime: "Bocchi the Rock! Re:", status: "COMPLETED" },
+    ]);
+    const r = await call({ timeZone: "UTC" });
+    expect(r.text).not.toContain("[171099]");
+    expect(r.text).toContain("Bocchi the Rock! 2nd Season");
+  });
+
+  test("a movie already started isn't next; a planned one says so", async () => {
+    fake.entries.clear();
+    fake.seed([
+      { anime: "Chainsaw Man", status: "COMPLETED" },
+      { anime: "Chainsaw Man: Reze-hen", status: "PLANNING" },
+    ]);
+    expect((await call({ anime: "chainsaw man", timeZone: "UTC" })).text).toContain(
+      "(movie, 2025), on your plan-to-watch list.",
+    );
+    fake.entries.clear();
+    fake.seed([
+      { anime: "Chainsaw Man", status: "COMPLETED" },
+      { anime: "Chainsaw Man: Reze-hen", status: "CURRENT" },
+    ]);
+    expect((await call({ anime: "chainsaw man", timeZone: "UTC" })).text).not.toContain("Comes next");
+  });
+
   test("never writes", async () => {
     await call({ timeZone: "UTC" });
     await call({ anime: "jjk", timeZone: "UTC" });
@@ -180,6 +264,20 @@ describe("buildReport edge cases", () => {
     } as Media;
     const text = formatReport(buildReport([m], [], NOW), NOW, "UTC", "ENGLISH");
     expect(text).toBe("Caught up, waiting for new episodes:\n- Show: still airing, no date announced for the next episode.");
+  });
+
+  test("a sequel isn't next when the user finished another version of it", () => {
+    // Show 1's only sequel is series 2; movie 3, finished, is the same story as 2.
+    const show = {
+      ...base, id: 1, episodes: 12, status: "FINISHED", nextAiringEpisode: null, mediaListEntry: entry("COMPLETED", 12),
+      relations: { edges: [{ relationType: "SEQUEL", node: { id: 2, type: "ANIME", format: "TV", status: "FINISHED" } }] },
+    } as Media;
+    const movie = {
+      ...show, id: 3, format: "MOVIE", episodes: 1,
+      relations: { edges: [{ relationType: "ALTERNATIVE", node: { id: 2, type: "ANIME", format: "TV", status: "FINISHED" } }] },
+    } as Media;
+    expect(nextSeasons([show], new Map([[1, "COMPLETED"]])).map((s) => s.next.id)).toEqual([2]);
+    expect(nextSeasons([show, movie], new Map<number, ListStatus>([[1, "COMPLETED"], [3, "COMPLETED"]]))).toEqual([]);
   });
 
   test("cancelled sequels aren't suggested", () => {

@@ -104,23 +104,82 @@ export interface NextSeason {
   after: Media;
   next: RelationEdge["node"];
   planned: boolean;
+  /** A movie that tells the same story as `next` (AniList calls them ALTERNATIVE versions). */
+  sameStoryAs?: RelationEdge["node"];
+  sameStoryPlanned?: boolean;
+}
+
+const isMovie = (node: RelationEdge["node"]) => node.format === "MOVIE";
+
+/** SEQUEL edges to series and movies that aren't cancelled. Recaps, specials and OVAs don't count. */
+function sequelEdges(m: Media): RelationEdge[] {
+  return (m.relations?.edges ?? []).filter(
+    (e) =>
+      e.relationType === "SEQUEL" &&
+      e.node.type === "ANIME" &&
+      e.node.status !== "CANCELLED" &&
+      (SERIES_FORMATS.has(e.node.format ?? "") || isMovie(e.node)),
+  );
 }
 
 /**
- * Series sequels of finished shows that the user hasn't started. `finished` must carry
- * relations; `listStatus` maps every media ID on the list to its status.
+ * Movie sequels that sit beside a series sequel of the same show, and aren't in `finished`.
+ * Their relations (fetch them with getMany) say whether the movie retells the series.
  */
-export function nextSeasons(finished: Media[], listStatus: Map<number, ListStatus>): NextSeason[] {
+export function moviesBesideSeries(finished: Media[]): number[] {
+  const known = new Set(finished.map((m) => m.id));
+  const ids = new Set<number>();
+  for (const m of finished) {
+    const edges = sequelEdges(m);
+    if (!edges.some((e) => !isMovie(e.node))) continue;
+    for (const e of edges) if (isMovie(e.node) && !known.has(e.node.id)) ids.add(e.node.id);
+  }
+  return [...ids];
+}
+
+/**
+ * Sequels (series or movie) of finished shows that the user hasn't started. `finished` must
+ * carry relations; `listStatus` maps every media ID on the list to its status; `movies` are
+ * the moviesBesideSeries, with relations.
+ *
+ * A movie that retells a series sequel (Demon Slayer's Mugen Train) is one step, not two:
+ * the series is listed and names the movie, and watching either one counts for both.
+ */
+export function nextSeasons(finished: Media[], listStatus: Map<number, ListStatus>, movies: Media[] = []): NextSeason[] {
+  const versions = new Map<number, Set<number>>();
+  // Recap movies can be each other's SEQUEL (Bocchi the Rock! Re: and Re:Re:); the show they recap lists them as SUMMARY.
+  const recaps = new Set<number>();
+  for (const m of [...finished, ...movies]) {
+    for (const e of m.relations?.edges ?? []) {
+      if (e.relationType === "SUMMARY") recaps.add(e.node.id);
+      if (e.relationType !== "ALTERNATIVE") continue;
+      for (const [a, b] of [[m.id, e.node.id], [e.node.id, m.id]] as const) {
+        versions.set(a, (versions.get(a) ?? new Set()).add(b));
+      }
+    }
+  }
+  const started = (id: number) => {
+    const status = listStatus.get(id);
+    return status !== undefined && status !== "PLANNING";
+  };
   const out = new Map<number, NextSeason>();
   for (const m of finished) {
-    for (const edge of m.relations?.edges ?? []) {
-      if (edge.relationType !== "SEQUEL" || edge.node.type !== "ANIME" || !SERIES_FORMATS.has(edge.node.format ?? "")) {
-        continue;
-      }
-      if (edge.node.status === "CANCELLED") continue;
-      const status = listStatus.get(edge.node.id);
-      if (status && status !== "PLANNING") continue;
-      if (!out.has(edge.node.id)) out.set(edge.node.id, { after: m, next: edge.node, planned: status === "PLANNING" });
+    const edges = sequelEdges(m);
+    const sameStory = (movie: RelationEdge, series: RelationEdge) =>
+      isMovie(movie.node) && !isMovie(series.node) && Boolean(versions.get(movie.node.id)?.has(series.node.id));
+    for (const edge of edges) {
+      if (recaps.has(edge.node.id) || edges.some((series) => sameStory(edge, series))) continue;
+      const movie = edges.find((e) => sameStory(e, edge))?.node;
+      // Any version the user has started (as AniList links them) counts.
+      if (started(edge.node.id) || [...(versions.get(edge.node.id) ?? [])].some(started)) continue;
+      if (out.has(edge.node.id)) continue;
+      const planned = (id: number) => listStatus.get(id) === "PLANNING";
+      out.set(edge.node.id, {
+        after: m,
+        next: edge.node,
+        planned: planned(edge.node.id),
+        ...(movie ? { sameStoryAs: movie, sameStoryPlanned: planned(movie.id) } : {}),
+      });
     }
   }
   return [...out.values()];
@@ -183,11 +242,13 @@ function behindLine(b: Behind, now: number, timeZone: string, language: TitleLan
 function sequelDetail(s: NextSeason, language: TitleLanguage): string {
   const aired = AIRED_STATUSES.has(s.next.status ?? "");
   const year = s.next.startDate?.year;
+  const movie = isMovie(s.next);
   const availability = aired
-    ? `${s.next.episodes ? `${s.next.episodes} episodes` : "airing now"}${year ? `, ${year}` : ""}`
-    : `not out yet${year ? `, expected ${year}` : ""}`;
+    ? `${movie ? "movie" : s.next.episodes ? `${s.next.episodes} episodes` : "airing now"}${year ? `, ${year}` : ""}`
+    : `${movie ? "movie, " : ""}not out yet${year ? `, expected ${year}` : ""}`;
   const where = s.planned ? "on your plan-to-watch list" : "not on your list";
-  return `[${s.next.id}] ${edgeTitle(s.next, language)} (${availability}), ${where}.`;
+  const same = s.sameStoryAs ? ` Same story as the movie [${s.sameStoryAs.id}] ${edgeTitle(s.sameStoryAs, language)}${s.sameStoryPlanned ? " (on your plan-to-watch list)" : ""}; watch either.` : "";
+  return `[${s.next.id}] ${edgeTitle(s.next, language)} (${availability}), ${where}.${same}`;
 }
 
 function sequelLine(s: NextSeason, language: TitleLanguage): string {
