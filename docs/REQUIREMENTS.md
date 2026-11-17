@@ -68,6 +68,7 @@ Every tool that targets a show accepts a title (or an ID) and picks the right An
 | R2.6 | Log several shows in one request with one tool call ("watched eps 3–5 of JJK and the Dandadan finale"), resolving each title. | Planned |
 | R2.7 | Where the client supports MCP elicitation, ask the user directly to pick between ambiguous candidates and to confirm deletions; otherwise fall back to R1.7. | Planned |
 | R2.8 | Return structured results alongside the text, so clients can render lists and entries. | Planned |
+| R2.9 | Print one title per show, in the title language the user picked on AniList (English, romaji or native), falling back to another when a show has none in that language. Lists of ambiguous candidates (R1.7) add a second name, since the user may know the show by either. Names in any language still match (R1.1). | Done |
 
 ### R3: Safety
 

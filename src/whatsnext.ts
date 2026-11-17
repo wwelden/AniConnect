@@ -2,7 +2,7 @@
  * "What should I watch next?" (requirement R4): unwatched aired episodes, upcoming air
  * times, shows on hold with episodes left, and the next season of finished shows.
  */
-import type { ListStatus, Media, RelationEdge } from "./anilist";
+import type { ListStatus, Media, RelationEdge, TitleLanguage } from "./anilist";
 import { displayTitle, statusLabel } from "./logic";
 import { AIRED as AIRED_STATUSES, SERIES_FORMATS } from "./resolve";
 
@@ -69,8 +69,8 @@ export function checkTimeZone(timeZone: string): string {
   }
 }
 
-function edgeTitle(node: RelationEdge["node"]): string {
-  return node.title ? displayTitle(node.title) : `AniList ${node.id}`;
+function edgeTitle(node: RelationEdge["node"], language: TitleLanguage): string {
+  return node.title ? displayTitle(node.title, language) : `AniList ${node.id}`;
 }
 
 export interface NextSeason {
@@ -146,31 +146,32 @@ export function buildReport(list: Media[], sequels: NextSeason[], now: number): 
   return { newEpisodes, waiting, unknown, onHold, nextSeasons: sequels };
 }
 
-function behindLine(b: Behind, now: number, timeZone: string): string {
+function behindLine(b: Behind, now: number, timeZone: string, language: TitleLanguage): string {
   const n = b.aired - b.progress;
   const next = upcoming(b.media, now);
   const airing = next ? ` Episode ${next.episode} airs ${formatAirTime(next.airingAt, now, timeZone)}.` : "";
-  return `- ${displayTitle(b.media.title)}: ${n} episode${n === 1 ? "" : "s"} to watch (on ${b.progress} of ${b.aired} aired).${airing}`;
+  return `- ${displayTitle(b.media.title, language)}: ${n} episode${n === 1 ? "" : "s"} to watch (on ${b.progress} of ${b.aired} aired).${airing}`;
 }
 
-function sequelDetail(s: NextSeason): string {
+function sequelDetail(s: NextSeason, language: TitleLanguage): string {
   const aired = AIRED_STATUSES.has(s.next.status ?? "");
   const year = s.next.startDate?.year;
   const availability = aired
     ? `${s.next.episodes ? `${s.next.episodes} episodes` : "airing now"}${year ? `, ${year}` : ""}`
     : `not out yet${year ? `, expected ${year}` : ""}`;
   const where = s.planned ? "on your plan-to-watch list" : "not on your list";
-  return `[${s.next.id}] ${edgeTitle(s.next)} (${availability}), ${where}.`;
+  return `[${s.next.id}] ${edgeTitle(s.next, language)} (${availability}), ${where}.`;
 }
 
-function sequelLine(s: NextSeason): string {
-  return `- After ${displayTitle(s.after.title)}: ${sequelDetail(s)}`;
+function sequelLine(s: NextSeason, language: TitleLanguage): string {
+  return `- After ${displayTitle(s.after.title, language)}: ${sequelDetail(s, language)}`;
 }
 
-export function formatReport(r: Report, now: number, timeZone: string): string {
+export function formatReport(r: Report, now: number, timeZone: string, language: TitleLanguage): string {
+  const title = (m: Media) => displayTitle(m.title, language);
   const sections: string[] = [];
   if (r.newEpisodes.length) {
-    sections.push(["New episodes to watch:", ...r.newEpisodes.map((b) => behindLine(b, now, timeZone))].join("\n"));
+    sections.push(["New episodes to watch:", ...r.newEpisodes.map((b) => behindLine(b, now, timeZone, language))].join("\n"));
   }
   if (r.waiting.length) {
     sections.push(
@@ -179,8 +180,8 @@ export function formatReport(r: Report, now: number, timeZone: string): string {
         ...r.waiting.map((m) => {
           const next = upcoming(m, now);
           return next
-            ? `- ${displayTitle(m.title)}: episode ${next.episode} airs ${formatAirTime(next.airingAt, now, timeZone)}.`
-            : `- ${displayTitle(m.title)}: still airing, no date announced for the next episode.`;
+            ? `- ${title(m)}: episode ${next.episode} airs ${formatAirTime(next.airingAt, now, timeZone)}.`
+            : `- ${title(m)}: still airing, no date announced for the next episode.`;
         }),
       ].join("\n"),
     );
@@ -189,20 +190,20 @@ export function formatReport(r: Report, now: number, timeZone: string): string {
     sections.push(
       [
         "Airing, but AniList doesn't say how many episodes are out:",
-        ...r.unknown.map((m) => `- ${displayTitle(m.title)}: you're on episode ${m.mediaListEntry!.progress}.`),
+        ...r.unknown.map((m) => `- ${title(m)}: you're on episode ${m.mediaListEntry!.progress}.`),
       ].join("\n"),
     );
   }
   const readySequels = r.nextSeasons.filter((s) => AIRED_STATUSES.has(s.next.status ?? ""));
   const comingSequels = r.nextSeasons.filter((s) => !AIRED_STATUSES.has(s.next.status ?? ""));
   if (readySequels.length) {
-    sections.push(["Next seasons of shows you finished:", ...readySequels.map(sequelLine)].join("\n"));
+    sections.push(["Next seasons of shows you finished:", ...readySequels.map((s) => sequelLine(s, language))].join("\n"));
   }
   if (r.onHold.length) {
-    sections.push(["On hold, with episodes left:", ...r.onHold.map((b) => behindLine(b, now, timeZone))].join("\n"));
+    sections.push(["On hold, with episodes left:", ...r.onHold.map((b) => behindLine(b, now, timeZone, language))].join("\n"));
   }
   if (comingSequels.length) {
-    sections.push(["Announced sequels:", ...comingSequels.map(sequelLine)].join("\n"));
+    sections.push(["Announced sequels:", ...comingSequels.map((s) => sequelLine(s, language))].join("\n"));
   }
   return sections.length ? sections.join("\n\n") : "Nothing new: you're caught up on everything you're watching.";
 }
@@ -214,14 +215,15 @@ export function formatShow(
   listStatus: Map<number, ListStatus>,
   now: number,
   timeZone: string,
+  language: TitleLanguage,
 ): string {
   const entry = m.mediaListEntry;
   const aired = airedEpisodes(m, now);
-  const lines = [`${displayTitle(m.title)} [${m.id}]`];
+  const lines = [`${displayTitle(m.title, language)} [${m.id}]`];
   for (const edge of m.relations?.edges ?? []) {
     const status = listStatus.get(edge.node.id);
     if (edge.relationType === "PREQUEL" && status && SERIES_FORMATS.has(edge.node.format ?? "")) {
-      lines.push(`Comes after: [${edge.node.id}] ${edgeTitle(edge.node)}, ${statusLabel(status).toLowerCase()} on your list.`);
+      lines.push(`Comes after: [${edge.node.id}] ${edgeTitle(edge.node, language)}, ${statusLabel(status).toLowerCase()} on your list.`);
     }
   }
   const total = m.episodes ? ` of ${m.episodes}` : "";
@@ -237,6 +239,6 @@ export function formatShow(
   }
   const next = upcoming(m, now);
   if (next) lines.push(`Next: episode ${next.episode} airs ${formatAirTime(next.airingAt, now, timeZone)}.`);
-  for (const s of sequels) lines.push(`Comes next: ${sequelDetail(s)}`);
+  for (const s of sequels) lines.push(`Comes next: ${sequelDetail(s, language)}`);
   return lines.join("\n");
 }

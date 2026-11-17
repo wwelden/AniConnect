@@ -84,8 +84,8 @@ describe("whats_next tool", () => {
     expect(sections[0]).toContain(
       "- ONE PIECE: 80 episodes to watch (on 1100 of 1180 aired). Episode 1181 airs Sun, Jan 3 at 2:16 PM (in 47 days).",
     );
-    expect(sections[0]!.split("\n")[2]).toContain("DAN DA DAN (Dandadan): 5 episodes to watch (on 7 of 12 aired).");
-    expect(sections[1]).toContain("Kusuriya no Hitorigoto 3rd Season): episode 8 airs Fri, Nov 20 at 2:00 PM (in 3 days).");
+    expect(sections[0]!.split("\n")[2]).toContain("- DAN DA DAN: 5 episodes to watch (on 7 of 12 aired).");
+    expect(sections[1]).toContain("- The Apothecary Diaries Season 3: episode 8 airs Fri, Nov 20 at 2:00 PM (in 3 days).");
     // Sequels of finished shows that haven't been started; planned ones say so.
     expect(sections[2]).toContain("[182255] Frieren: Beyond Journey’s End Season 2");
     expect(sections[2]).toContain("not on your list");
@@ -93,7 +93,7 @@ describe("whats_next tool", () => {
     // Sequels already started aren't suggested; dropped shows aren't "on hold".
     expect(r.text).not.toContain("After JUJUTSU KAISEN");
     expect(r.text).not.toContain("VINLAND");
-    expect(sections[3]).toContain("Attack on Titan Final Season (Shingeki no Kyojin: The Final Season): 6 episodes to watch");
+    expect(sections[3]).toContain("- Attack on Titan Final Season: 6 episodes to watch");
     expect(sections[4]).toContain("Bocchi the Rock! 2nd Season (not out yet)");
     expect(r.requests).toBeLessThanOrEqual(3);
   });
@@ -109,14 +109,14 @@ describe("whats_next tool", () => {
 
   test("a finished show is described with its next season", async () => {
     const r = await call({ anime: "frieren", timeZone: "UTC" });
-    expect(r.text).toContain("(Sousou no Frieren) [154587]");
+    expect(r.text).toContain("\nFrieren: Beyond Journey’s End [154587]\n");
     expect(r.text).toContain("You: Completed, watched 28.");
-    expect(r.text).toContain("Comes next: [182255] Frieren: Beyond Journey’s End Season 2 (Sousou no Frieren 2nd Season) (10 episodes, 2026), not on your list.");
+    expect(r.text).toContain("Comes next: [182255] Frieren: Beyond Journey’s End Season 2 (10 episodes, 2026), not on your list.");
   });
 
   test("a sequel by ID says which season before it is on the list", async () => {
     const r = await call({ anime: 182255, timeZone: "UTC" });
-    expect(r.text).toContain("Comes after: [154587] Frieren: Beyond Journey’s End (Sousou no Frieren), completed on your list.");
+    expect(r.text).toContain("Comes after: [154587] Frieren: Beyond Journey’s End, completed on your list.");
     expect(r.text).toContain("Not on your list.");
   });
 
@@ -168,7 +168,7 @@ describe("buildReport edge cases", () => {
 
   test("a show airing with no schedule is reported as unknown, not caught up", () => {
     const m = { ...base, id: 1, episodes: null, status: "RELEASING", nextAiringEpisode: null, mediaListEntry: entry("CURRENT", 0) } as Media;
-    const text = formatReport(buildReport([m], [], NOW), NOW, "UTC");
+    const text = formatReport(buildReport([m], [], NOW), NOW, "UTC", "ENGLISH");
     expect(text).toBe("Airing, but AniList doesn't say how many episodes are out:\n- Show: you're on episode 0.");
   });
 
@@ -178,7 +178,7 @@ describe("buildReport edge cases", () => {
       ...base, id: 1, episodes: 12, status: "RELEASING",
       nextAiringEpisode: { episode: 4, airingAt: NOW / 1000 - 3600 }, mediaListEntry: entry("CURRENT", 4),
     } as Media;
-    const text = formatReport(buildReport([m], [], NOW), NOW, "UTC");
+    const text = formatReport(buildReport([m], [], NOW), NOW, "UTC", "ENGLISH");
     expect(text).toBe("Caught up, waiting for new episodes:\n- Show: still airing, no date announced for the next episode.");
   });
 

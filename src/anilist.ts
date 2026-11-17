@@ -17,6 +17,15 @@ export type ScoreFormat =
   | "POINT_5"
   | "POINT_3";
 
+/** AniList's title language setting (Settings > Anime & Manga > Title language). */
+export type TitleLanguage =
+  | "ROMAJI"
+  | "ENGLISH"
+  | "NATIVE"
+  | "ROMAJI_STYLISED"
+  | "ENGLISH_STYLISED"
+  | "NATIVE_STYLISED";
+
 export interface FuzzyDate {
   year: number | null;
   month: number | null;
@@ -76,6 +85,8 @@ export interface Viewer {
   id: number;
   name: string;
   scoreFormat: ScoreFormat;
+  /** The language the user reads titles in on AniList. */
+  titleLanguage: TitleLanguage;
 }
 
 export class AniListError extends Error {}
@@ -174,12 +185,19 @@ export class AniListClient {
   async getViewer(): Promise<Viewer> {
     if (this.viewer) return this.viewer;
     const data = await this.request<{
-      Viewer: { id: number; name: string; mediaListOptions: { scoreFormat: ScoreFormat } };
-    }>(`query { Viewer { id name mediaListOptions { scoreFormat } } }`);
+      Viewer: {
+        id: number;
+        name: string;
+        mediaListOptions: { scoreFormat: ScoreFormat };
+        options: { titleLanguage: TitleLanguage | null } | null;
+      };
+    }>(`query { Viewer { id name mediaListOptions { scoreFormat } options { titleLanguage } } }`);
     this.viewer = {
       id: data.Viewer.id,
       name: data.Viewer.name,
       scoreFormat: data.Viewer.mediaListOptions.scoreFormat,
+      // AniList's own default for new accounts.
+      titleLanguage: data.Viewer.options?.titleLanguage ?? "ROMAJI",
     };
     return this.viewer;
   }

@@ -19,7 +19,7 @@ beforeEach(() => {
 });
 
 async function resolve(query: string, intent: Intent) {
-  return resolveAnime(query, intent, clientSource(client));
+  return resolveAnime(query, intent, clientSource(client), "ENGLISH");
 }
 
 /** [query, intent, expected romaji title | "ambiguous" | "none"] */
@@ -144,7 +144,7 @@ describe("latest and next seasons", () => {
       ...base,
       search: async (q: string) => [...(await base.search(q)), ...(q.includes("new game") ? [newGame] : [])],
     };
-    const r = await resolveAnime("new game season", "add", source);
+    const r = await resolveAnime("new game season", "add", source, "ENGLISH");
     expect(r.kind === "match" && r.media.id).toBe(9001);
   });
 

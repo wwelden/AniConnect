@@ -1,9 +1,38 @@
 import { describe, expect, test } from "bun:test";
-import { formatScore, matchesTitle, planProgress, toRawScore } from "../src/logic";
+import { bothTitles, displayTitle, formatScore, matchesTitle, planProgress, toRawScore } from "../src/logic";
 
 const today = { year: 2026, month: 11, day: 16 };
 const unset = { year: null, month: null, day: null };
 const earlier = { year: 2025, month: 3, day: 1 };
+
+describe("displayTitle", () => {
+  const title = { romaji: "Shingeki no Kyojin", english: "Attack on Titan", native: "進撃の巨人" };
+
+  test("prints one title, in the user's language", () => {
+    expect(displayTitle(title, "ENGLISH")).toBe("Attack on Titan");
+    expect(displayTitle(title, "ROMAJI")).toBe("Shingeki no Kyojin");
+    expect(displayTitle(title, "NATIVE")).toBe("進撃の巨人");
+    expect(displayTitle(title, "ENGLISH_STYLISED")).toBe("Attack on Titan");
+    expect(displayTitle(title, "ROMAJI_STYLISED")).toBe("Shingeki no Kyojin");
+    expect(displayTitle(title, "NATIVE_STYLISED")).toBe("進撃の巨人");
+  });
+
+  test("falls back when AniList has no title in that language", () => {
+    expect(displayTitle({ ...title, english: null }, "ENGLISH")).toBe("Shingeki no Kyojin");
+    expect(displayTitle({ ...title, native: null }, "NATIVE")).toBe("Shingeki no Kyojin");
+    expect(displayTitle({ romaji: null, english: "Attack on Titan", native: null }, "ROMAJI")).toBe("Attack on Titan");
+    expect(displayTitle({ romaji: null, english: null, native: "進撃の巨人" }, "ENGLISH")).toBe("進撃の巨人");
+    expect(displayTitle({ romaji: null, english: null, native: null }, "ROMAJI")).toBe("Untitled");
+  });
+
+  test("bothTitles adds the English or romaji name the user may also know", () => {
+    expect(bothTitles(title, "ENGLISH")).toBe("Attack on Titan (Shingeki no Kyojin)");
+    expect(bothTitles(title, "ROMAJI")).toBe("Shingeki no Kyojin (Attack on Titan)");
+    expect(bothTitles(title, "NATIVE")).toBe("進撃の巨人 (Attack on Titan)");
+    expect(bothTitles({ ...title, english: null }, "ENGLISH")).toBe("Shingeki no Kyojin");
+    expect(bothTitles({ romaji: "ONE PIECE", english: "ONE PIECE", native: null }, "ROMAJI")).toBe("ONE PIECE");
+  });
+});
 
 describe("matchesTitle", () => {
   const media = {
