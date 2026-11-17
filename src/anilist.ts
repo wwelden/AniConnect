@@ -257,7 +257,13 @@ export class AniListClient {
   async request<T>(query: string, variables: Record<string, unknown> = {}): Promise<T> {
     const signal = AbortSignal.timeout(this.requestTimeoutMs);
     const timedOut = () =>
-      new AniListError(`AniList didn't respond within ${this.requestTimeoutMs / 1000} seconds; try again.`);
+      new AniListError(
+        `AniList didn't respond within ${this.requestTimeoutMs / 1000} seconds` +
+          // A write may have been saved even though the answer never came.
+          (/^\s*mutation/.test(query)
+            ? ", so the change may or may not have been saved; check the list before trying again."
+            : "; try again."),
+      );
     let res: Response;
     try {
       res = await this.fetchFn(ANILIST_ENDPOINT, {

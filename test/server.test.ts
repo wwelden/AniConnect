@@ -330,6 +330,12 @@ describe("tools", () => {
     fake.stalls = (q) => q.includes("MediaListCollection");
     expect(await failure(anilist.getMyList())).toBe(first);
 
+    // A write that times out may still have been saved, so it isn't simply "try again".
+    fake.stalls = (q) => q.trimStart().startsWith("mutation");
+    expect(await failure(anilist.request("mutation { DeleteMediaListEntry(id: 1) { deleted } }"))).toBe(
+      "AniList didn't respond within 0.05 seconds, so the change may or may not have been saved; check the list before trying again.",
+    );
+
     // Once AniList answers again, the next calls start fresh requests instead of reusing the failed ones.
     fake.stalls = () => false;
     expect((await anilist.getViewer()).name).toBe("tester");
