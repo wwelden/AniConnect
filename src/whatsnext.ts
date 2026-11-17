@@ -106,6 +106,7 @@ export interface NextSeason {
   planned: boolean;
   /** A movie that tells the same story as `next` (AniList calls them ALTERNATIVE versions). */
   sameStoryAs?: RelationEdge["node"];
+  sameStoryPlanned?: boolean;
 }
 
 const isMovie = (node: RelationEdge["node"]) => node.format === "MOVIE";
@@ -169,10 +170,16 @@ export function nextSeasons(finished: Media[], listStatus: Map<number, ListStatu
     for (const edge of edges) {
       if (recaps.has(edge.node.id) || edges.some((series) => sameStory(edge, series))) continue;
       const movie = edges.find((e) => sameStory(e, edge))?.node;
-      if (started(edge.node.id) || (movie && started(movie.id))) continue;
+      // Any version the user has started (as AniList links them) counts.
+      if (started(edge.node.id) || [...(versions.get(edge.node.id) ?? [])].some(started)) continue;
       if (out.has(edge.node.id)) continue;
-      const planned = listStatus.get(edge.node.id) === "PLANNING";
-      out.set(edge.node.id, { after: m, next: edge.node, planned, ...(movie ? { sameStoryAs: movie } : {}) });
+      const planned = (id: number) => listStatus.get(id) === "PLANNING";
+      out.set(edge.node.id, {
+        after: m,
+        next: edge.node,
+        planned: planned(edge.node.id),
+        ...(movie ? { sameStoryAs: movie, sameStoryPlanned: planned(movie.id) } : {}),
+      });
     }
   }
   return [...out.values()];
@@ -240,7 +247,7 @@ function sequelDetail(s: NextSeason, language: TitleLanguage): string {
     ? `${movie ? "movie" : s.next.episodes ? `${s.next.episodes} episodes` : "airing now"}${year ? `, ${year}` : ""}`
     : `${movie ? "movie, " : ""}not out yet${year ? `, expected ${year}` : ""}`;
   const where = s.planned ? "on your plan-to-watch list" : "not on your list";
-  const same = s.sameStoryAs ? ` Same story as the movie [${s.sameStoryAs.id}] ${edgeTitle(s.sameStoryAs, language)}; watch either.` : "";
+  const same = s.sameStoryAs ? ` Same story as the movie [${s.sameStoryAs.id}] ${edgeTitle(s.sameStoryAs, language)}${s.sameStoryPlanned ? " (on your plan-to-watch list)" : ""}; watch either.` : "";
   return `[${s.next.id}] ${edgeTitle(s.next, language)} (${availability}), ${where}.${same}`;
 }
 

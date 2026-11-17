@@ -180,6 +180,17 @@ describe("whats_next tool", () => {
     expect(r.text).toContain("[142329] Demon Slayer: Kimetsu no Yaiba Entertainment District Arc");
   });
 
+  test("a planned movie version of the next season says it's planned", async () => {
+    fake.entries.clear();
+    fake.seed([
+      { anime: "Kimetsu no Yaiba", status: "COMPLETED" },
+      { anime: "Kimetsu no Yaiba: Mugen Ressha-hen", status: "PLANNING" },
+    ]);
+    const r = await call({ timeZone: "UTC" });
+    expect(r.text).toContain("Mugen Train Arc (7 episodes, 2021), not on your list.");
+    expect(r.text).toContain("The Movie: Mugen Train (on your plan-to-watch list); watch either.");
+  });
+
   test("a movie sequel that isn't the same story is listed on its own", async () => {
     fake.entries.clear();
     fake.seed([{ anime: "Tensei Shitara Slime Datta Ken 3rd Season", status: "COMPLETED" }]);
@@ -253,6 +264,20 @@ describe("buildReport edge cases", () => {
     } as Media;
     const text = formatReport(buildReport([m], [], NOW), NOW, "UTC", "ENGLISH");
     expect(text).toBe("Caught up, waiting for new episodes:\n- Show: still airing, no date announced for the next episode.");
+  });
+
+  test("a sequel isn't next when the user finished another version of it", () => {
+    // Show 1's only sequel is series 2; movie 3, finished, is the same story as 2.
+    const show = {
+      ...base, id: 1, episodes: 12, status: "FINISHED", nextAiringEpisode: null, mediaListEntry: entry("COMPLETED", 12),
+      relations: { edges: [{ relationType: "SEQUEL", node: { id: 2, type: "ANIME", format: "TV", status: "FINISHED" } }] },
+    } as Media;
+    const movie = {
+      ...show, id: 3, format: "MOVIE", episodes: 1,
+      relations: { edges: [{ relationType: "ALTERNATIVE", node: { id: 2, type: "ANIME", format: "TV", status: "FINISHED" } }] },
+    } as Media;
+    expect(nextSeasons([show], new Map([[1, "COMPLETED"]])).map((s) => s.next.id)).toEqual([2]);
+    expect(nextSeasons([show, movie], new Map<number, ListStatus>([[1, "COMPLETED"], [3, "COMPLETED"]]))).toEqual([]);
   });
 
   test("cancelled sequels aren't suggested", () => {
