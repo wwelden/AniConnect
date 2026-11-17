@@ -189,6 +189,17 @@ describe("whats_next tool", () => {
     expect(r.text).not.toContain("Same story");
   });
 
+  test("a recap movie isn't next, even when another recap lists it as a sequel", async () => {
+    fake.entries.clear();
+    fake.seed([
+      { anime: "Bocchi the Rock!", status: "COMPLETED" },
+      { anime: "Bocchi the Rock! Re:", status: "COMPLETED" },
+    ]);
+    const r = await call({ timeZone: "UTC" });
+    expect(r.text).not.toContain("[171099]");
+    expect(r.text).toContain("Bocchi the Rock! 2nd Season");
+  });
+
   test("a movie already started isn't next; a planned one says so", async () => {
     fake.entries.clear();
     fake.seed([

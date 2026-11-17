@@ -146,8 +146,11 @@ export function moviesBesideSeries(finished: Media[]): number[] {
  */
 export function nextSeasons(finished: Media[], listStatus: Map<number, ListStatus>, movies: Media[] = []): NextSeason[] {
   const versions = new Map<number, Set<number>>();
+  // Recap movies can be each other's SEQUEL (Bocchi the Rock! Re: and Re:Re:); the show they recap lists them as SUMMARY.
+  const recaps = new Set<number>();
   for (const m of [...finished, ...movies]) {
     for (const e of m.relations?.edges ?? []) {
+      if (e.relationType === "SUMMARY") recaps.add(e.node.id);
       if (e.relationType !== "ALTERNATIVE") continue;
       for (const [a, b] of [[m.id, e.node.id], [e.node.id, m.id]] as const) {
         versions.set(a, (versions.get(a) ?? new Set()).add(b));
@@ -164,7 +167,7 @@ export function nextSeasons(finished: Media[], listStatus: Map<number, ListStatu
     const sameStory = (movie: RelationEdge, series: RelationEdge) =>
       isMovie(movie.node) && !isMovie(series.node) && Boolean(versions.get(movie.node.id)?.has(series.node.id));
     for (const edge of edges) {
-      if (edges.some((series) => sameStory(edge, series))) continue;
+      if (recaps.has(edge.node.id) || edges.some((series) => sameStory(edge, series))) continue;
       const movie = edges.find((e) => sameStory(e, edge))?.node;
       if (started(edge.node.id) || (movie && started(movie.id))) continue;
       if (out.has(edge.node.id)) continue;
