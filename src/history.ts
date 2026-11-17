@@ -77,8 +77,10 @@ function monthNumber(word: string): number {
  * Days as [first, last] (both inclusive), from one phrase that names a single span.
  * A month or day named without a year is the latest one not in the future or, at the end
  * of a range, the first one on or after the range's start (`after`): "Dec 20 to Jan 5".
+ * At the start of a range whose end names a year (`before`), it's in the end's year, or the
+ * year before when its month comes later: "Dec 20 to Jan 5, 2025" starts in 2024.
  */
-function span(text: string, today: Day, after?: Day): [Day, Day] | null {
+function span(text: string, today: Day, after?: Day, before?: Day): [Day, Day] | null {
   const t = text.trim();
   let m: RegExpMatchArray | null;
   if (t === "today") return [today, today];
@@ -128,10 +130,11 @@ function span(text: string, today: Day, after?: Day): [Day, Day] | null {
     const month = monthNumber(m[1]!);
     if (month === 0) return null;
     const day = m[2] ? Number(m[2]) : null;
-    let year = m[3] ? Number(m[3]) : (after ?? today).year;
+    const limit = before ?? today;
+    let year = m[3] ? Number(m[3]) : (after ?? limit).year;
     if (!m[3] && after) {
       if (month < after.month || (month === after.month && day !== null && day < after.day)) year += 1;
-    } else if (!m[3] && (month > today.month || (month === today.month && day !== null && day > today.day))) {
+    } else if (!m[3] && (month > limit.month || (!before && month === limit.month && day !== null && day > limit.day))) {
       year -= 1;
     }
     if (day !== null) {
@@ -174,8 +177,11 @@ export function parsePeriod(period: string, now: number, timeZone: string): Rang
   if (whole) return checked({ start: startOf(whole[0], timeZone), end: end(whole[1]) });
   const between = text.match(/^(?:between )?(.+?)(?: to | until | through | and | - | – |\.\.)(.+)$/);
   if (between) {
-    const a = span(between[1]!, today);
-    const b = a && span(between[2]!, today, a[0]);
+    const [from, to] = [between[1]!, between[2]!];
+    // A year written once, at the end, covers the start too: "March 1 to March 15, 2025".
+    const yearAtEnd = /\d{4}/.test(to) && !/\d{4}/.test(from) ? span(to, today) : null;
+    const a = span(from, today, undefined, yearAtEnd?.[1]);
+    const b = yearAtEnd ?? (a && span(to, today, a[0]));
     if (a && b) return checked({ start: startOf(a[0], timeZone), end: end(b[1]) });
   }
   throw new Error(
