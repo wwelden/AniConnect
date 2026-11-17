@@ -176,6 +176,11 @@ export function planUpdate(
   today: FuzzyDate = todayFuzzy(),
 ): EntryPlan {
   let plan: EntryPlan = change.progress !== undefined ? planProgress(media, entry, change.progress, today) : {};
+  if (change.status && change.status !== "COMPLETED" && plan.status === "COMPLETED") {
+    // The last episode would complete it, but the user named another status: no finish date or rewatch count.
+    delete plan.completedAt;
+    delete plan.repeat;
+  }
   if (change.status) {
     const status = plan.status ?? entry?.status;
     const afterProgress: PriorEntry | null = status

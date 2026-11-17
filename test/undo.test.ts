@@ -5,11 +5,14 @@ import { AniListClient } from "../src/anilist";
 import { createServer } from "../src/server";
 import { JOURNAL_LIMIT, Journal } from "../src/undo";
 import { PERSONA } from "./fixtures/persona";
-import { FakeAniList, findMedia, type StoredEntry } from "./support/fake-anilist";
+import { catalog, FakeAniList, findMedia, type StoredEntry } from "./support/fake-anilist";
 
 const NOW = Date.UTC(2026, 10, 17, 12);
 const DANDADAN = 171018;
 const FRIEREN = 154587;
+
+/** Scores the persona starts with, raw. */
+const PERSONA_SCORES = new Map(PERSONA.map((e) => [findMedia(e.anime).id, Math.round((e.score ?? 0) * 10)]));
 
 let fake: FakeAniList;
 let client: Client;
@@ -152,6 +155,26 @@ describe("undo (R3.1)", () => {
     const queries = fake.calls.slice(before).map((c) => c.query);
     expect(queries.filter((q) => q.includes("id_in"))).toHaveLength(1);
     expect(queries.filter((q) => /^\s*mutation/.test(q))).toHaveLength(2);
+  });
+  test("a call that changed one show twice is undone newest first", async () => {
+    await call("update_shows", { updates: [{ anime: "dandadan", score: 6 }, { anime: "dandadan", score: 8 }] });
+    expect(fake.entries.get(DANDADAN)!.scoreRaw).toBe(80);
+    const r = await call("undo");
+    expect(r.text).not.toContain("changed since");
+    expect(fake.entries.get(DANDADAN)!.scoreRaw).toBe(0);
+  });
+
+  test("reads the shows 50 at a time, AniList's page size", async () => {
+    const ids = catalog.slice(0, 60).map((m) => m.id);
+    for (let i = 0; i < 60; i += 10) {
+      await call("update_shows", { updates: ids.slice(i, i + 10).map((id) => ({ anime: id, score: 5 })) });
+    }
+    const before = fake.calls.length;
+    const r = await call("undo", { count: 6 });
+    expect(r.text).not.toContain("changed since");
+    const reads = fake.calls.slice(before).filter((c) => c.query.includes("id_in"));
+    expect(reads.map((c) => c.variables.ids.length)).toEqual([50, 10]);
+    for (const id of ids) expect(fake.entries.get(id)?.scoreRaw ?? 0).toBe(PERSONA_SCORES.get(id) ?? 0);
   });
 });
 

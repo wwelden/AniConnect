@@ -1,4 +1,4 @@
-import type { AniListClient, FuzzyDate, ListEntry, ListStatus, Media, MediaTitle, Viewer } from "./anilist";
+import type { AniListClient, FuzzyDate, ListEntry, ListStatus, MediaTitle, Viewer } from "./anilist";
 import { describeEntry, displayTitle } from "./logic";
 
 /** Everything AniConnect can change on an entry, so undoing a change restores it exactly (R3.1). */
@@ -103,19 +103,21 @@ export async function undoGroups(
   let pending = groups.map((g) => ({ ...g, changes: [...g.changes] }));
   try {
     const ids = [...new Set(groups.flatMap((g) => g.changes.map((c) => c.mediaId)))];
-    // One request for the current state of every show involved.
-    const current = new Map<number, ListEntry | null>(
-      (await client.getMany(ids)).map((m: Media) => [m.id, m.mediaListEntry]),
-    );
+    // The current state of every show involved: one request per 50, AniList's page size.
+    const current = new Map<number, ListEntry | null>();
+    for (let i = 0; i < ids.length; i += 50) {
+      for (const m of await client.getMany(ids.slice(i, i + 50))) current.set(m.id, m.mediaListEntry);
+    }
     while (pending.length) {
       const group = pending[0]!;
-      const change = group.changes[0];
+      // Newest first within a group too: one update_shows call can change a show twice.
+      const change = group.changes.at(-1);
       if (!change) {
         pending = pending.slice(1);
         continue;
       }
       lines.push(await undoOne(client, change, current, viewer));
-      group.changes.shift();
+      group.changes.pop();
     }
   } catch (err) {
     journal.putBack(pending.filter((g) => g.changes.length));

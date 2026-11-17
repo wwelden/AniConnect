@@ -721,7 +721,6 @@ export function titledWithNumber(m: Media, digits: string): boolean {
   return names(m).some((name) => name === digits || name.startsWith(`${digits} `));
 }
 
-/** Candidates keep a second title: the user may know the show by either name. */
 /** A candidate as the user would tell it apart: "Attack on Titan (Shingeki no Kyojin) (TV, 2013), on your list: completed". */
 export function candidateLabel(m: Media, language: TitleLanguage): string {
   const meta = [m.format, m.seasonYear].filter(Boolean).join(", ");
@@ -729,6 +728,7 @@ export function candidateLabel(m: Media, language: TitleLanguage): string {
   return `${bothTitles(m.title, language)}${meta ? ` (${meta})` : ""}, ${entry}`;
 }
 
+/** Candidates keep a second title: the user may know the show by either name. */
 export function describeCandidates(candidates: Media[], language: TitleLanguage): string {
   return candidates.map((m) => `[${m.id}] ${candidateLabel(m, language)}`).join("\n");
 }

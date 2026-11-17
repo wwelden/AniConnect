@@ -833,6 +833,8 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       const readAt = saves;
       const viewer = await client.getViewer();
       const source = memo(clientSource(client));
+      // In the order they were saved, so undo can take them back newest first.
+      const changes: EntryChange[] = [];
       const results = await Promise.all(
         updates.map(async (u): Promise<{ line: string; change?: EntryChange }> => {
           const label = typeof u.anime === "number" ? `ID ${u.anime}` : `"${u.anime}"`;
@@ -849,13 +851,16 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
             }
             const intent: Intent = counts ? "progress" : u.status || dated || noted ? "status" : "rate";
             const resolved = await find(u.anime, intent, source, false);
-            return await inTurn(resolved.media.id, readAt, (stale) => saveUpdate(viewer, resolved, stale, u));
+            return await inTurn(resolved.media.id, readAt, async (stale) => {
+              const result = await saveUpdate(viewer, resolved, stale, u);
+              changes.push(result.change);
+              return result;
+            });
           } catch (err) {
             return { line: `Not changed: ${label}: ${(err as Error).message.replace(/^Nothing was changed\. /, "")}` };
           }
         }),
       );
-      const changes = results.flatMap((r) => (r.change ? [r.change] : []));
       journal.record("update_shows", changes);
       const body = results.map((r) => r.line).join("\n");
       if (changes.length === 0) return { ...text(body), isError: true };
@@ -864,6 +869,8 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
     }),
   );
 
+  /** Shows whose removal dialog closed without an answer, so the assistant may confirm in chat instead. */
+  const unansweredRemovals = new Set<number>();
   const removeTool = server.registerTool(
     "remove_from_list",
     {
@@ -885,7 +892,8 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       const title = displayTitle(media.title, viewer.titleLanguage);
       const entry = media.mediaListEntry;
       if (!entry) return text(`${title} isn't on your list.`);
-      if (canAsk() && !confirmed) {
+      // `confirmed` only stands in for a dialog that closed without an answer for this show.
+      if (canAsk() && !(confirmed && unansweredRemovals.has(media.id))) {
         // The description told the assistant not to ask, so no answer means no.
         const answer = await ask({
           message: `Remove ${title} from your AniList list? ${describeEntry(media, entry, viewer).replace(/^\[\d+\] /, "")}. Its progress, score, dates and notes go with it.`,
@@ -896,6 +904,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
           },
         });
         if (!answer || answer.action === "cancel") {
+          unansweredRemovals.add(media.id);
           return text(
             `${note}Not removed: the confirmation dialog closed without an answer (some clients can't show it). Ask the user in the chat whether to remove ${title}; if they say yes, call again with confirmed: true.`,
           );
@@ -905,6 +914,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
         }
       }
       const deleted = await client.deleteEntry(entry.id);
+      unansweredRemovals.delete(media.id);
       if (deleted) journal.record("remove_from_list", [change(media, entry, null)]);
       return text(`${note}${deleted ? `Removed ${title} from your list.` : `AniList did not delete ${title}.`}`);
     }),

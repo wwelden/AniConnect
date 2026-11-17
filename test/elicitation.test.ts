@@ -172,6 +172,14 @@ describe("confirming removals (R2.7)", () => {
   });
 });
 
+test("confirmed: true doesn't skip the dialog unless one closed without an answer", async () => {
+  answer = () => ({ action: "decline" });
+  const r = await call("remove_from_list", { anime: "dandadan", confirmed: true });
+  expect(forms).toHaveLength(1);
+  expect(r.text).toContain("chose to keep");
+  expect(fake.entries.has(DANDADAN)).toBe(true);
+});
+
 describe("clients without forms", () => {
   beforeEach(() => connect({}));
 

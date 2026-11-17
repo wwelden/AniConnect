@@ -266,6 +266,13 @@ describe("planUpdate (R2.6)", () => {
     });
   });
 
+  test("the last episode with another status named doesn't complete it", () => {
+    const watching = { status: "CURRENT" as const, progress: 10, startedAt: earlier, completedAt: unset };
+    expect(planUpdate(show, watching, { progress: 12, status: "PAUSED" }, today)).toEqual({ progress: 12, status: "PAUSED" });
+    const rewatching = { status: "REPEATING" as const, progress: 10, startedAt: earlier, completedAt: earlier, repeat: 1 };
+    expect(planUpdate(show, rewatching, { progress: 12, status: "REPEATING" }, today)).toEqual({ progress: 12, status: "REPEATING" });
+  });
+
   test("nothing to plan when only a score changes", () => {
     expect(planUpdate(show, planned, {}, today)).toEqual({});
   });
