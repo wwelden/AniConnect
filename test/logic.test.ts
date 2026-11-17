@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { bothTitles, displayTitle, formatScore, matchesTitle, planProgress, toRawScore } from "../src/logic";
+import { bothTitles, describePlanDates, displayTitle, formatScore, matchesTitle, planProgress, planStatus, toRawScore } from "../src/logic";
 
 const today = { year: 2026, month: 11, day: 16 };
 const unset = { year: null, month: null, day: null };
@@ -90,11 +90,45 @@ describe("planProgress", () => {
     });
   });
 
-  test("finishing a rewatch keeps the first completion date", () => {
+  test("finishing a rewatch keeps the first completion date and counts the rewatch", () => {
     expect(planProgress({ episodes: 12 }, { status: "REPEATING", startedAt: earlier, completedAt: earlier }, 12, today)).toEqual({
       progress: 12,
       status: "COMPLETED",
+      repeat: 1,
     });
+    expect(
+      planProgress({ episodes: 12 }, { status: "REPEATING", startedAt: earlier, completedAt: earlier, repeat: 2 }, 12, today),
+    ).toMatchObject({ repeat: 3 });
+  });
+
+  test("completing never overwrites a finish date that is already set", () => {
+    expect(planProgress({ episodes: 12 }, { status: "CURRENT", startedAt: earlier, completedAt: earlier }, 12, today)).toEqual({
+      progress: 12,
+      status: "COMPLETED",
+    });
+  });
+
+  test("going below the last episode of a completed show moves it back to watching, keeping its dates", () => {
+    expect(planProgress({ episodes: 28 }, { status: "COMPLETED", startedAt: earlier, completedAt: earlier }, 5, today)).toEqual({
+      progress: 5,
+      status: "CURRENT",
+    });
+    // Even with no dates set: coming back from Completed isn't starting the show.
+    expect(planProgress({ episodes: 28 }, { status: "COMPLETED", startedAt: unset, completedAt: unset }, 5, today)).toEqual({
+      progress: 5,
+      status: "CURRENT",
+    });
+  });
+
+  test("a show marked completed without progress stays completed as episodes are counted", () => {
+    const entry = { status: "COMPLETED" as const, startedAt: earlier, completedAt: earlier, progress: 0 };
+    expect(planProgress({ episodes: 12 }, entry, 1, today)).toEqual({ progress: 1 });
+  });
+
+  test("a completed show with an unknown episode count goes back to watching only when progress goes down", () => {
+    const entry = { status: "COMPLETED" as const, startedAt: earlier, completedAt: earlier, progress: 50 };
+    expect(planProgress({ episodes: null }, entry, 40, today)).toEqual({ progress: 40, status: "CURRENT" });
+    expect(planProgress({ episodes: null }, entry, 50, today)).toEqual({ progress: 50 });
   });
 
   test("a rewatch in progress stays a rewatch", () => {
@@ -112,6 +146,65 @@ describe("planProgress", () => {
   test("rejects negative or fractional counts", () => {
     expect(() => planProgress({ episodes: 12 }, null, -1, today)).toThrow();
     expect(() => planProgress({ episodes: 12 }, null, 1.5, today)).toThrow();
+  });
+});
+
+describe("planStatus", () => {
+  test("completing fills in all episodes and both dates", () => {
+    expect(planStatus({ episodes: 25 }, { status: "PLANNING", startedAt: unset, completedAt: unset }, "COMPLETED", today)).toEqual({
+      status: "COMPLETED",
+      progress: 25,
+      startedAt: today,
+      completedAt: today,
+    });
+  });
+
+  test("starting to watch sets the start date, also for a show not on the list", () => {
+    expect(planStatus({ episodes: 12 }, null, "CURRENT", today)).toEqual({ status: "CURRENT", startedAt: today });
+  });
+
+  test("never overwrites dates that are already set", () => {
+    expect(planStatus({ episodes: 25 }, { status: "PAUSED", startedAt: earlier, completedAt: earlier }, "COMPLETED", today)).toEqual({
+      status: "COMPLETED",
+      progress: 25,
+    });
+  });
+
+  test("a partial date (month without a year) counts as set", () => {
+    const monthOnly = { year: null, month: 3, day: null };
+    expect(planStatus({ episodes: 25 }, { status: "CURRENT", startedAt: monthOnly, completedAt: monthOnly }, "COMPLETED", today)).toEqual({
+      status: "COMPLETED",
+      progress: 25,
+    });
+  });
+
+  test("planning, pausing and dropping set no dates", () => {
+    for (const status of ["PLANNING", "PAUSED", "DROPPED"] as const) {
+      expect(planStatus({ episodes: 12 }, { status: "CURRENT", startedAt: unset, completedAt: unset, progress: 3 }, status, today)).toEqual({ status });
+    }
+  });
+
+  test("starting a rewatch of a finished show resets progress and keeps the dates", () => {
+    const done = { status: "COMPLETED" as const, startedAt: earlier, completedAt: earlier, progress: 12 };
+    expect(planStatus({ episodes: 12 }, done, "REPEATING", today)).toEqual({ status: "REPEATING", progress: 0 });
+  });
+
+  test("a rewatch already under way keeps its progress", () => {
+    const rewatching = { status: "REPEATING" as const, startedAt: earlier, completedAt: earlier, progress: 4 };
+    expect(planStatus({ episodes: 12 }, rewatching, "REPEATING", today)).toEqual({ status: "REPEATING" });
+  });
+
+  test("finishing a rewatch by status counts it and keeps the finish date", () => {
+    const rewatching = { status: "REPEATING" as const, startedAt: earlier, completedAt: earlier, progress: 4, repeat: 1 };
+    expect(planStatus({ episodes: 12 }, rewatching, "COMPLETED", today)).toEqual({ status: "COMPLETED", progress: 12, repeat: 2 });
+  });
+
+  test("describes the dates it writes", () => {
+    expect(describePlanDates({ startedAt: today, completedAt: today })).toBe(
+      " Start date set to 2026-11-16, finish date set to 2026-11-16.",
+    );
+    expect(describePlanDates({ repeat: 1 })).toBe(" Rewatch count is now 1.");
+    expect(describePlanDates({ progress: 3 })).toBe("");
   });
 });
 

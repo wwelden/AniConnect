@@ -34,9 +34,9 @@ Status: **Done**, **In progress**, **Planned**, **Later**.
 | R0.4 | Change a show's status. | Done |
 | R0.5 | Rate a show out of 10; report the score in the user's own scoring format. | Done |
 | R0.6 | Mark the next episode(s) watched, or set an exact episode count. | Done |
-| R0.7 | Episode changes keep status and dates in sync: watching moves planned/paused/dropped to watching and sets the start date; the last episode completes the show and sets the finish date; shows with an unknown episode count never auto-complete. "Today" is the date in the user's AniList time zone (the server's when AniList has none). | Done |
+| R0.7 | Episode and status changes keep status and dates in sync, whichever tool makes them: watching moves planned/paused/dropped to watching and sets the start date; the last episode (or setting Completed) completes the show and sets the finish date; going below the last episode of a completed show moves it back to watching; shows with an unknown episode count never auto-complete. Dates already set are never overwritten. Progress past the aired episodes is saved, and the result says how many have aired. "Today" is the date in the user's AniList time zone (the server's when AniList has none). | Done |
 | R0.8 | Remove a show from the list. | Done |
-| R0.9 | Finishing a rewatch increments AniList's rewatch count. | Planned |
+| R0.9 | Starting a rewatch resets progress to 0; finishing it increments AniList's rewatch count and keeps the original finish date. | Done |
 | R0.10 | Set or correct start and finish dates ("I actually finished it last March"). | Planned |
 | R0.11 | Read and write private notes on an entry. | Planned |
 | R0.12 | "I'm caught up" in one call: set progress to the latest aired episode, never lowering it; when AniList has no airing schedule, change nothing and ask for a number. | Done (`set_progress` with `"latest"`) |
@@ -45,7 +45,7 @@ Status: **Done**, **In progress**, **Planned**, **Later**.
 
 ### R1: Name and season resolution
 
-Every tool that targets a show accepts a title (or an ID) and picks the right AniList entry itself.
+Every tool that targets a show accepts a title (or an ID) and picks the right AniList entry itself. A number is always an ID; a string of digits is a title when a show is titled that way ("86"), otherwise an ID.
 
 | ID | Requirement | Status |
 |---|---|---|
@@ -53,7 +53,7 @@ Every tool that targets a show accepts a title (or an ID) and picks the right An
 | R1.2 | Tolerate small typos ("frieran"). | Done (resolver tests) |
 | R1.3 | Prefer shows already on the user's list over the rest of AniList. | Done (resolver tests) |
 | R1.4 | Season-aware: with no season given, episode updates go to the season the user is currently watching (not season 1). | Done (resolver tests) |
-| R1.5 | Understand season phrasing: "season 2", "S2", "2nd season", "second season", "part 2", and map it to the right entry even when AniList's title doesn't contain the number. | Done (resolver tests) |
+| R1.5 | Understand season phrasing: "season 2", "S2", "2nd season", "second season", "part 2" (with or without a season: "final season part 2"), and map it to the right entry even when AniList's title doesn't contain the number. | Done (resolver tests) |
 | R1.6 | Intent-aware defaults: episode updates prefer in-progress entries; ratings prefer completed ones; adding prefers the first season. | Done (resolver tests) |
 | R1.7 | When the request is truly ambiguous, change nothing and return the short list of candidates so the assistant can ask. Never guess between equally likely shows. | Done (resolver tests) |
 | R1.8 | Prefer TV seasons over movies, OVAs and specials unless the request names one. | Done (resolver tests) |
@@ -96,7 +96,7 @@ Every tool that targets a show accepts a title (or an ID) and picks the right An
 
 | ID | Requirement | Status |
 |---|---|---|
-| R5.1 | Handle AniList's rate limit (about 90 requests/minute) by reporting the wait, never retry-looping. | Done |
+| R5.1 | Handle AniList's rate limit (30 requests/minute, per the live API's `x-ratelimit-limit`) by reporting the wait, never retry-looping. | Done |
 | R5.2 | Stay within a few AniList requests per tool call. | Done (1–2 typical while the list is cached (R5.4), 3–4 when it is fetched. Season lookups walk the sequel chain through the search results, which carry relations, and fetch any seasons search missed two per request: "the new season of my hero academia" takes list, search and write, down from 9) |
 | R5.3 | Work with large lists (1,000+ entries). | Planned |
 | R5.4 | Cache the user's list briefly and refresh it after writes, to cut AniList requests (needed once hosted, where the rate limit is shared per IP). | Done: the list is reused for 60 seconds; our own writes and deletes patch it, so a read after a write is never stale; changes made elsewhere show up once it expires |
@@ -107,7 +107,7 @@ Every tool that targets a show accepts a title (or an ID) and picks the right An
 | ID | Requirement | Status |
 |---|---|---|
 | R6.1 | A fixture of real AniList data for franchises that are hard to resolve (many seasons, split cours, movies, sequels with unrelated titles). | Done (197 entries, 25 franchises, one adult title) |
-| R6.2 | Deterministic resolver tests: request text + user list → expected entry or "ambiguous". Run in `bun test`. | Done (65 cases) |
+| R6.2 | Deterministic resolver tests: request text + user list → expected entry or "ambiguous". Run in `bun test`. | Done (69 cases) |
 | R6.3 | End-to-end evals with a real model: natural-language request → tool calls → final list state, scored on correctness and number of calls. | Done. 2026-11-17, 36 cases: 36/36 correct on Opus 5.5 and Sonnet 5.5, 1.14 and 1.11 tool calls per request, $0.68 and $0.35 per run. Haiku 5.5, two runs on 2026-11-17: 34/36 and 36/36 correct, 1.17 and 1.06 tool calls per request, $0.02 per run. Its misses were its own: it searched first and rated the wrong Kaguya-sama season by ID, and it listed the Attack on Titan candidates without asking a question. Earlier Haiku runs found that "finished the season" requests logged one episode or took two calls; the progress tools now point those to `set_status` COMPLETED |
 | R6.4 | Run the same evals against competing servers for a side-by-side score. | Later |
 

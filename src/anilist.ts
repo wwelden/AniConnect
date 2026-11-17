@@ -50,6 +50,8 @@ export interface ListEntry {
   displayScore: number;
   startedAt: FuzzyDate;
   completedAt: FuzzyDate;
+  /** How many times the user has rewatched it. */
+  repeat?: number;
 }
 
 export interface Media {
@@ -213,13 +215,14 @@ const ENTRY_FIELDS = `
   displayScore: score
   startedAt { year month day }
   completedAt { year month day }
+  repeat
 `;
 
 /** How long account settings (such as the 18+ content setting) are trusted before being read again. */
 const VIEWER_TTL_MS = 5 * 60_000;
 
 export class AniListClient {
-  private viewer: Viewer | null = null;
+  private viewer: Promise<Viewer> | null = null;
   private viewerAt = 0;
   /** When the token expires (ms), read from the JWT; null if it can't be decoded. */
   readonly tokenExpiresAt: number | null;
@@ -256,7 +259,7 @@ export class AniListClient {
     if (res.status === 429) {
       const retry = res.headers.get("Retry-After");
       throw new AniListError(
-        `AniList rate limit hit (about 90 requests/minute).${retry ? ` Try again in ${retry} seconds.` : ""}`,
+        `AniList rate limit hit (30 requests a minute).${retry ? ` Try again in ${retry} seconds.` : ""}`,
       );
     }
 
@@ -294,26 +297,36 @@ export class AniListClient {
     return body.data;
   }
 
-  async getViewer(): Promise<Viewer> {
+  /**
+   * Re-read every few minutes (settings can change), and cached as a promise so calls
+   * that start together share one request.
+   */
+  getViewer(): Promise<Viewer> {
     if (this.viewer && this.now() - this.viewerAt < VIEWER_TTL_MS) return this.viewer;
-    const data = await this.request<{
+    this.viewerAt = this.now();
+    const pending: Promise<Viewer> = this.request<{
       Viewer: {
         id: number;
         name: string;
         mediaListOptions: { scoreFormat: ScoreFormat };
         options: { titleLanguage: TitleLanguage | null; timezone: string | null; displayAdultContent: boolean | null } | null;
       };
-    }>(`query { Viewer { id name mediaListOptions { scoreFormat } options { titleLanguage timezone displayAdultContent } } }`);
-    this.viewer = {
-      id: data.Viewer.id,
-      name: data.Viewer.name,
-      scoreFormat: data.Viewer.mediaListOptions.scoreFormat,
-      // AniList's own default for new accounts.
-      titleLanguage: data.Viewer.options?.titleLanguage ?? "ROMAJI",
-      timeZone: parseTimeZone(data.Viewer.options?.timezone),
-      displayAdultContent: data.Viewer.options?.displayAdultContent ?? false,
-    };
-    this.viewerAt = this.now();
+    }>(`query { Viewer { id name mediaListOptions { scoreFormat } options { titleLanguage timezone displayAdultContent } } }`).then(
+      (data) => ({
+        id: data.Viewer.id,
+        name: data.Viewer.name,
+        scoreFormat: data.Viewer.mediaListOptions.scoreFormat,
+        // AniList's own default for new accounts.
+        titleLanguage: data.Viewer.options?.titleLanguage ?? "ROMAJI",
+        timeZone: parseTimeZone(data.Viewer.options?.timezone),
+        displayAdultContent: data.Viewer.options?.displayAdultContent ?? false,
+      }),
+      (err) => {
+        if (this.viewer === pending) this.viewer = null; // Let the next call try again.
+        throw err;
+      },
+    );
+    this.viewer = pending;
     return this.viewer;
   }
 
@@ -571,15 +584,16 @@ export class AniListClient {
     scoreRaw?: number;
     startedAt?: FuzzyDate;
     completedAt?: FuzzyDate;
+    repeat?: number;
   }): Promise<ListItem> {
     const save = this.request<{ SaveMediaListEntry: ListItem }>(
       `mutation (
         $mediaId: Int, $status: MediaListStatus, $progress: Int, $scoreRaw: Int,
-        $startedAt: FuzzyDateInput, $completedAt: FuzzyDateInput
+        $startedAt: FuzzyDateInput, $completedAt: FuzzyDateInput, $repeat: Int
       ) {
         SaveMediaListEntry(
           mediaId: $mediaId, status: $status, progress: $progress, scoreRaw: $scoreRaw,
-          startedAt: $startedAt, completedAt: $completedAt
+          startedAt: $startedAt, completedAt: $completedAt, repeat: $repeat
         ) {
           ${ENTRY_FIELDS}
           media { ${MEDIA_FIELDS} }

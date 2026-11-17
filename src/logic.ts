@@ -59,25 +59,57 @@ export function todayFuzzy(now = new Date(), timeZone?: string): FuzzyDate {
   return { year: get("year"), month: get("month"), day: get("day") };
 }
 
+/** Any part counts: AniList lets users enter a month or day without a year, and that's still theirs. */
 function isSet(date: FuzzyDate | undefined | null): boolean {
-  return Boolean(date?.year);
+  return Boolean(date?.year || date?.month || date?.day);
 }
 
-export interface ProgressPlan {
-  progress: number;
+/** What to save on an entry; fields left out are not changed. */
+export interface EntryPlan {
+  progress?: number;
   status?: ListStatus;
   startedAt?: FuzzyDate;
   completedAt?: FuzzyDate;
+  /** AniList's rewatch count. */
+  repeat?: number;
+}
+
+export interface ProgressPlan extends EntryPlan {
+  progress: number;
+}
+
+/** The parts of a list entry the planners read. */
+export type PriorEntry = Pick<ListEntry, "status" | "startedAt" | "completedAt"> &
+  Partial<Pick<ListEntry, "progress" | "repeat">>;
+
+/**
+ * Dates and rewatch count for a move to `next`, shared by every tool that changes status
+ * (R0.7, R0.9). Only empty dates are filled in, never overwritten (R3.2).
+ */
+function transition(entry: PriorEntry | null, next: ListStatus, today: FuzzyDate): EntryPlan {
+  const plan: EntryPlan = {};
+  const prev = entry?.status;
+  if (next === prev) return plan;
+  // Coming back from Completed or a rewatch isn't starting the show.
+  const starting = prev !== "COMPLETED" && prev !== "REPEATING";
+  if ((next === "CURRENT" || next === "COMPLETED") && starting && !isSet(entry?.startedAt)) plan.startedAt = today;
+  if (next === "COMPLETED") {
+    // A rewatch finishing keeps the original completion date (it's already set) and counts the rewatch.
+    if (!isSet(entry?.completedAt)) plan.completedAt = today;
+    if (prev === "REPEATING") plan.repeat = (entry?.repeat ?? 0) + 1;
+  }
+  return plan;
 }
 
 /**
  * Works out what to save when the user's episode count changes:
- * reaching the last episode completes the show, and watching an episode of
- * something planned, paused or dropped moves it to watching.
+ * reaching the last episode completes the show, watching an episode of
+ * something planned, paused or dropped moves it to watching, and going back
+ * below the last episode of a completed show moves it back to watching.
  */
 export function planProgress(
   media: Pick<Media, "episodes">,
-  entry: Pick<ListEntry, "status" | "startedAt" | "completedAt"> | null,
+  entry: PriorEntry | null,
   progress: number,
   today: FuzzyDate = todayFuzzy(),
 ): ProgressPlan {
@@ -88,24 +120,62 @@ export function planProgress(
     throw new Error(`This show only has ${media.episodes} episodes (got ${progress}).`);
   }
 
-  const plan: ProgressPlan = { progress };
   const current = entry?.status;
   const finished = media.episodes != null && media.episodes > 0 && progress === media.episodes;
+  // Lowered, not just below the full count: a show marked completed at 0 episodes stays completed.
+  const lowered =
+    entry?.progress != null ? progress < entry.progress : media.episodes != null && progress < media.episodes;
 
+  let next: ListStatus | undefined;
   if (finished && current !== "COMPLETED") {
-    plan.status = "COMPLETED";
-    // A rewatch finishing keeps the original completion date.
-    if (current !== "REPEATING" || !isSet(entry?.completedAt)) plan.completedAt = today;
-    if (!isSet(entry?.startedAt)) plan.startedAt = today;
+    next = "COMPLETED";
   } else if (
     progress > 0 &&
     !finished &&
     (current === undefined || current === "PLANNING" || current === "PAUSED" || current === "DROPPED")
   ) {
-    plan.status = "CURRENT";
-    if (!isSet(entry?.startedAt)) plan.startedAt = today;
+    next = "CURRENT";
+  } else if (current === "COMPLETED" && !finished && lowered) {
+    next = "CURRENT";
+  }
+  return next ? { progress, status: next, ...transition(entry, next, today) } : { progress };
+}
+
+/**
+ * Works out what to save when the user sets a status directly: the same date rules as
+ * episode changes, all episodes for Completed, and episode 0 when a rewatch starts.
+ */
+export function planStatus(
+  media: Pick<Media, "episodes">,
+  entry: PriorEntry | null,
+  status: ListStatus,
+  today: FuzzyDate = todayFuzzy(),
+): EntryPlan {
+  const plan: EntryPlan = { status, ...transition(entry, status, today) };
+  if (status === "COMPLETED" && media.episodes) plan.progress = media.episodes;
+  if (status === "REPEATING" && entry && entry.status !== "REPEATING") {
+    const watchedAll =
+      entry.status === "COMPLETED" || (media.episodes != null && (entry.progress ?? 0) >= media.episodes);
+    if (watchedAll && entry.progress !== 0) plan.progress = 0;
   }
   return plan;
+}
+
+export function formatDate(d: FuzzyDate): string {
+  const pad = (n: number | null) => String(n ?? 0).padStart(2, "0");
+  return d.month ? `${d.year}-${pad(d.month)}${d.day ? `-${pad(d.day)}` : ""}` : String(d.year);
+}
+
+/** The side effects of a plan worth telling the user about (R2.3): dates written, rewatch count. */
+export function describePlanDates(plan: EntryPlan): string {
+  const parts = [
+    plan.startedAt && `start date set to ${formatDate(plan.startedAt)}`,
+    plan.completedAt && `finish date set to ${formatDate(plan.completedAt)}`,
+    plan.repeat !== undefined && `rewatch count is now ${plan.repeat}`,
+  ].filter(Boolean) as string[];
+  if (parts.length === 0) return "";
+  const sentence = parts.join(", ");
+  return ` ${sentence[0]!.toUpperCase()}${sentence.slice(1)}.`;
 }
 
 /** Converts a 0–10 score (half points and decimals allowed) to AniList's raw 0–100 score. */

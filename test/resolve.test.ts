@@ -100,6 +100,12 @@ describe("seasons by name, number and part (R1.5)", () => {
     ["attack on titan season 3 part 2", "rate", "Shingeki no Kyojin Season 3 Part 2"],
     ["attack on titan season 4", "progress", "Shingeki no Kyojin: The Final Season"],
     ["aot s4 part 2", "add", "Shingeki no Kyojin: The Final Season Part 2"],
+    // A part with no season number: the title has none, and its synonyms tag it season 4.
+    ["attack on titan final season part 2", "status", "Shingeki no Kyojin: The Final Season Part 2"],
+    ["attack on titan final season part 2", "add", "Shingeki no Kyojin: The Final Season Part 2"],
+    // Season 3 Part 2 and The Final Season Part 2 both fit: the list decides, else ask.
+    ["attack on titan part 2", "rate", "Shingeki no Kyojin Season 3 Part 2"],
+    ["attack on titan part 2", "add", "ambiguous"],
     ["mob psycho 100 season 2", "rate", "Mob Psycho 100 II"],
     ["frieren season 2", "add", "Sousou no Frieren 2nd Season"],
     ["kaguya sama season 2", "rate", "Kaguya-sama wa Kokurasetai?: Tensaitachi no Renai Zunousen"],

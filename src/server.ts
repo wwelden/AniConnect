@@ -1,25 +1,44 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import pkg from "../package.json" with { type: "json" };
 import { AniListClient, LIST_STATUSES, SEASONS, type BrowseFilters, type LinkOptions, type ListStatus, type Media, type TitleLanguage, type Viewer } from "./anilist";
 import {
   describeEntry,
+  describePlanDates,
   displayTitle,
   formatScore,
   matchesTitle,
   planProgress,
+  planStatus,
   statusLabel,
   todayFuzzy,
   toRawScore,
 } from "./logic";
-import { describeCandidates, memo, resolveAnime, type AnimeSource, type Intent } from "./resolve";
+import {
+  describeCandidates,
+  memo,
+  resolveAnime,
+  titledWithNumber,
+  type AnimeSource,
+  type Intent,
+} from "./resolve";
 import { formatHistory, parsePeriod } from "./history";
 import { tokenWatch } from "./token";
-import { buildReport, caughtUpProgress, checkTimeZone, formatReport, formatShow, moviesBesideSeries, nextSeasons } from "./whatsnext";
+import {
+  airedEpisodes,
+  buildReport,
+  caughtUpProgress,
+  checkTimeZone,
+  formatReport,
+  formatShow,
+  moviesBesideSeries,
+  nextSeasons,
+} from "./whatsnext";
 
 const anime = z
   .union([z.string().min(1), z.number().int().positive()])
   .describe(
-    'The show: any title, abbreviation or season ("jjk", "spy x family season 2", "the new Frieren season"), or an AniList ID.',
+    'The show: any title, abbreviation or season ("jjk", "spy x family season 2", "the new Frieren season"), or an AniList ID as a number.',
   );
 
 const status = z
@@ -110,17 +129,34 @@ async function target(
   changes = true,
 ): Promise<{ media: Media; note: string }> {
   const prefix = changes ? "Nothing was changed. " : "";
-  if (typeof input === "number" || /^\d+$/.test(input.trim())) {
-    return { media: await client.getAnime(Number(input)), note: "" };
-  }
+  if (typeof input === "number") return { media: await client.getAnime(input), note: "" };
   const { titleLanguage } = await client.getViewer();
-  const r = await resolveAnime(input, intent, source, titleLanguage);
+  let r = await resolveAnime(input, intent, source, titleLanguage);
+  const digits = input.trim();
+  if (/^\d+$/.test(digits)) {
+    // All digits: a title that is (or starts with) that number, like "86", wins; otherwise
+    // it's an AniList ID passed as a string. "Mob Psycho 100" doesn't make "100" a title.
+    if (r.kind === "ambiguous") {
+      const titled = r.candidates.filter((m) => titledWithNumber(m, digits));
+      if (titled.length === 1) r = { kind: "match", media: titled[0]!, why: `it's the show titled "${digits}"` };
+      else if (titled.length > 1) r = { kind: "ambiguous", candidates: titled, why: `"${digits}" is the title of ${titled.length} shows.` };
+      else r = { kind: "none", why: "" };
+    }
+    if (r.kind === "match" && !titledWithNumber(r.media, digits)) r = { kind: "none", why: "" };
+    if (r.kind === "none") return { media: await client.getAnime(Number(digits)), note: "" };
+    if (r.kind === "match") {
+      return {
+        media: r.media,
+        note: `Matched "${input}" to ${displayTitle(r.media.title, titleLanguage)} by title: ${r.why}. To mean AniList ID ${digits}, pass it as a number.\n`,
+      };
+    }
+  }
   if (r.kind === "match") {
     return { media: r.media, note: `Matched "${input}" to ${displayTitle(r.media.title, titleLanguage)}: ${r.why}.\n` };
   }
   if (r.kind === "ambiguous") {
     throw new Error(
-      `${prefix}${r.why} Ask the user which one they mean, then call again with its ID:\n${describeCandidates(r.candidates, titleLanguage)}`,
+      `${prefix}${r.why} Ask the user which one they mean, then call again with its ID as a number:\n${describeCandidates(r.candidates, titleLanguage)}`,
     );
   }
   // The user may turn the setting on after reading this, so read it again next time.
@@ -189,7 +225,9 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
   const now = options.now ?? Date.now;
   const safe = safeFor(client, now);
   client.now = now;
-  const server = new McpServer({ name: "aniconnect", version: "0.3.0" }, { instructions: INSTRUCTIONS });
+  // The user's date in their AniList time zone; without one, the server's local date.
+  const today = (viewer: Viewer) => todayFuzzy(new Date(now()), viewer.timeZone ?? undefined);
+  const server = new McpServer({ name: "aniconnect", version: pkg.version }, { instructions: INSTRUCTIONS });
 
   server.registerTool(
     "search_anime",
@@ -409,12 +447,11 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
           `${note}Already on your list, unchanged: ${describeEntry(media, media.mediaListEntry, viewer)}`,
         );
       }
-      const saved = await client.saveEntry({
-        mediaId: media.id,
-        status,
-        ...(status === "COMPLETED" && media.episodes ? { progress: media.episodes } : {}),
-      });
-      return text(`${note}Added: ${describeEntry(saved.media, saved, viewer)}`);
+      const plan = planStatus(media, null, status, today(viewer));
+      const saved = await client.saveEntry({ mediaId: media.id, ...plan });
+      return text(
+        `${note}Added: ${describeEntry(saved.media, saved, viewer)}${describePlanDates(plan)}`,
+      );
     }),
   );
 
@@ -429,15 +466,13 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
     },
     safe(async ({ anime, status }) => {
       const [viewer, { media, note }] = await Promise.all([client.getViewer(), target(client, anime, "status")]);
-      const markCompleted = status === "COMPLETED" && media.episodes;
-      const saved = await client.saveEntry({
-        mediaId: media.id,
-        status,
-        ...(markCompleted ? { progress: media.episodes! } : {}),
-      });
-      const before = media.mediaListEntry ? statusLabel(media.mediaListEntry.status) : "not on list";
+      const entry = media.mediaListEntry;
+      const plan = planStatus(media, entry, status, today(viewer));
+      const saved = await client.saveEntry({ mediaId: media.id, ...plan });
+      const before = entry ? statusLabel(entry.status) : "not on list";
+      const reset = plan.progress === 0 && entry ? ` Episode count reset from ${entry.progress} to 0 for the rewatch.` : "";
       return text(
-        `${note}${before} -> ${statusLabel(status as ListStatus)}: ${describeEntry(saved.media, saved, viewer)}`,
+        `${note}${before} -> ${statusLabel(status as ListStatus)}: ${describeEntry(saved.media, saved, viewer)}${reset}${describePlanDates(plan)}`,
       );
     }),
   );
@@ -474,13 +509,21 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
     const before = entry?.progress ?? 0;
     const step = next(before, media, viewer.titleLanguage);
     const { episodes, note: stepNote } = typeof step === "number" ? { episodes: step, note: "" } : step;
-    // Without an AniList zone, the server's local date (as before).
-    const today = todayFuzzy(new Date(now()), viewer.timeZone ?? undefined);
-    const plan = planProgress(media, entry, episodes, today);
+    const plan = planProgress(media, entry, episodes, today(viewer));
     const saved = await client.saveEntry({ mediaId: media.id, ...plan });
-    const statusNote = plan.status ? ` Status is now ${statusLabel(plan.status)}.` : "";
+    const was = entry ? ` (was ${statusLabel(entry.status)})` : "";
+    const statusNote = plan.status ? ` Status is now ${statusLabel(plan.status)}${was}.` : "";
+    // Saved anyway: AniList's schedule can lag, and some people watch early releases.
+    // A show that hasn't premiered has aired nothing, even before AniList lists a schedule.
+    const aired = airedEpisodes(media, now()) ?? (media.status === "NOT_YET_RELEASED" ? 0 : null);
+    const airedNote =
+      aired == null || saved.progress <= aired
+        ? ""
+        : aired === 0
+          ? " Note: AniList says it hasn't started airing yet."
+          : ` Note: AniList says only ${aired} episode${aired === 1 ? " has" : "s have"} aired so far.`;
     return text(
-      `${note}${displayTitle(saved.media.title, viewer.titleLanguage)}: episode ${before} -> ${saved.progress}.${statusNote}${stepNote}\n${describeEntry(saved.media, saved, viewer)}`,
+      `${note}${displayTitle(saved.media.title, viewer.titleLanguage)}: episode ${before} -> ${saved.progress}.${statusNote}${stepNote}${describePlanDates(plan)}${airedNote}\n${describeEntry(saved.media, saved, viewer)}`,
     );
   };
 

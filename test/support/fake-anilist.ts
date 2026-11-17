@@ -29,6 +29,7 @@ export interface StoredEntry {
   scoreRaw: number;
   startedAt: { year: number | null; month: number | null; day: number | null };
   completedAt: { year: number | null; month: number | null; day: number | null };
+  repeat?: number;
 }
 
 export interface SeedEntry {
@@ -233,6 +234,7 @@ export class FakeAniList {
       displayScore: displayScore(e.scoreRaw, this.scoreFormat),
       startedAt: e.startedAt,
       completedAt: e.completedAt,
+      repeat: e.repeat ?? 0,
     };
   }
 
@@ -369,7 +371,7 @@ export class FakeAniList {
       return json({ MediaListCollection: { lists: [{ entries }, { entries: entries.slice(0, 1) }] } });
     }
     if (query.includes("SaveMediaListEntry")) {
-      const { mediaId, scoreRaw, status, progress, startedAt, completedAt } = variables;
+      const { mediaId, scoreRaw, status, progress, startedAt, completedAt, repeat } = variables;
       if (!catalog.some((c) => c.id === mediaId)) {
         return new Response(
           JSON.stringify({ errors: [{ message: "validation", validation: { mediaId: ["The selected media id is invalid."] } }] }),
@@ -393,6 +395,7 @@ export class FakeAniList {
         ...(scoreRaw !== undefined && { scoreRaw }),
         ...(startedAt !== undefined && { startedAt }),
         ...(completedAt !== undefined && { completedAt }),
+        ...(repeat !== undefined && { repeat }),
       };
       this.entries.set(mediaId, updated);
       this.recordActivity(before, updated);

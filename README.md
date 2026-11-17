@@ -23,7 +23,7 @@ Every tool that changes your list takes the show the way you'd say it: "jjk", "t
 
 Project goals and requirements: [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md).
 
-Episode tracking keeps your status in sync: watching an episode of something planned, paused or dropped moves it to watching and sets the start date, and finishing the last episode marks it completed with today's date. Shows that are still airing and have no known episode count never auto-complete.
+Episode tracking keeps your status in sync: watching an episode of something planned, paused or dropped moves it to watching and sets the start date, finishing the last episode marks it completed with today's date, and setting a completed show back to an earlier episode moves it back to watching. Changing the status directly follows the same date rules. Dates that are already set are never overwritten. Shows that are still airing and have no known episode count never auto-complete. Starting a rewatch resets the episode count to 0; finishing it keeps the original finish date and adds one to AniList's rewatch count. Progress past the episodes that have aired is saved, with a note saying how many have aired.
 
 ## Setup
 
@@ -77,7 +77,7 @@ Then try: *"Add Frieren to my plan-to-watch list"*, *"What am I currently watchi
 
 ## Notes
 
-- AniList allows about 90 requests a minute. If you hit the limit, the tool says how long to wait instead of retrying.
+- AniList allows 30 requests a minute. If you hit the limit, the tool says how long to wait instead of retrying.
 - Titles come back in the language you picked on AniList (Settings, Anime & Manga, Title Language): English, romaji or native. You can still name shows in any language. When a name could mean more than one show, the choices also list a second title.
 - A tool call usually makes 1–4 AniList requests, including season lookups such as "the new season of My Hero Academia".
 - AniConnect reuses your list for up to a minute between tool calls, so a burst of requests doesn't refetch it each time. Its own changes show up immediately; changes you make on anilist.co (or through another app) can take up to a minute to appear.
