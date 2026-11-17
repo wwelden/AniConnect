@@ -138,10 +138,28 @@ function answer(pending: string, action: string, cookie?: string) {
   });
 }
 
+/** The browser approves AniConnect and is sent on to AniList: the state AniList carries, and the browser's cookie. */
+async function toAniList(authorizationUrl: URL | string) {
+  const { pending, cookie } = await consent(authorizationUrl);
+  const res = await answer(pending, "approve", cookie);
+  expect(res.status).toBe(302);
+  const at = new URL(res.headers.get("Location")!);
+  return { state: at.searchParams.get("state")!, cookie: res.headers.get("Set-Cookie")!.split(";")[0]!, pending };
+}
+
+/** AniList sending the browser back to AniConnect. */
+function fromAniList(state: string, params: Record<string, string>, cookie?: string) {
+  return fetch(`${base}/oauth/callback?${new URLSearchParams({ state, ...params })}`, {
+    redirect: "manual",
+    headers: cookie ? { Cookie: cookie } : {},
+  });
+}
+
 /** The browser: approves AniConnect, goes on to AniList, "approves" with `anilistCode`, and comes back. */
 async function approve(authorizationUrl: URL | string, anilistCode: string | null): Promise<URL> {
   const { pending, cookie } = await consent(authorizationUrl);
   const toAniList = await answer(pending, "approve", cookie);
+  const signInCookie = toAniList.headers.get("Set-Cookie")!.split(";")[0]!;
   expect(toAniList.status).toBe(302);
   const atAniList = new URL(toAniList.headers.get("Location")!);
   expect(`${atAniList.origin}${atAniList.pathname}`).toBe(ANILIST_AUTHORIZE);
@@ -152,7 +170,7 @@ async function approve(authorizationUrl: URL | string, anilistCode: string | nul
   back.searchParams.set("state", atAniList.searchParams.get("state")!);
   if (anilistCode) back.searchParams.set("code", anilistCode);
   else back.searchParams.set("error", "access_denied");
-  const toClient = await fetch(back, { redirect: "manual" });
+  const toClient = await fetch(back, { redirect: "manual", headers: { Cookie: signInCookie } });
   expect(toClient.status).toBe(302);
   return new URL(toClient.headers.get("Location")!);
 }
@@ -326,6 +344,29 @@ describe("authorization checks", () => {
 
     const forged = await fetch(`${base}/authorize?client_id=made-up&response_type=code`, { redirect: "manual" });
     expect(forged.status).toBe(400);
+  });
+
+  test("AniList's return works once, only in the browser that approved, and only after approval", async () => {
+    const { body } = await register({ redirect_uris: ["https://evil.example/cb"] });
+    const url = `${base}/authorize?${new URLSearchParams({
+      client_id: body.client_id!,
+      response_type: "code",
+      code_challenge: "x",
+      code_challenge_method: "S256",
+    })}`;
+    const { state, cookie, pending } = await toAniList(url);
+    expect(cookie).toMatch(/^aniconnect_signin_/);
+    // Someone takes the consent page's state, or an approved one, and sends another person to AniList with it.
+    expect((await fromAniList(pending, { code: "code-alice" })).status).toBe(400);
+    expect((await fromAniList(state, { code: "code-alice" })).status).toBe(403);
+    expect((await fromAniList(state, { code: "code-alice" }, "aniconnect_signin_other=1")).status).toBe(403);
+    expect(exchanges).toEqual([]);
+    // The browser that approved comes back once.
+    const ok = await fromAniList(state, { code: "code-alice" }, cookie);
+    expect(new URL(ok.headers.get("Location")!).origin).toBe("https://evil.example");
+    expect(ok.headers.get("Set-Cookie")).toContain("Max-Age=0");
+    expect((await fromAniList(state, { code: "code-alice" }, cookie)).status).toBe(400);
+    expect(exchanges.length).toBe(1);
   });
 
   test("a bad request gets an error page, never a redirect to the registered URI", async () => {

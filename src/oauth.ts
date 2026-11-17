@@ -109,7 +109,10 @@ interface Pending {
   s?: string;
   /** PKCE code challenge (S256). */
   cc: string;
-  /** Names the consent cookie, which proves the approval came from the consent page itself. */
+  /**
+   * Names the browser's cookie: on the consent page, the one that proves the approval came from
+   * the page itself; in the state sent to AniList, the one that proves it's the same browser.
+   */
   x?: string;
   exp: number;
 }
@@ -224,7 +227,7 @@ export class OAuthServer {
   /** The MCP endpoint, which access tokens are for. */
   readonly resource: string;
   readonly callbackUrl: string;
-  /** Codes already swapped for a token, until they expire. */
+  /** Codes already swapped for a token, and sign-ins already finished, until they expire. */
   private used = new Map<string, number>();
 
   private constructor(
@@ -248,6 +251,11 @@ export class OAuthServer {
       options.fetch ?? ((input, init) => fetch(input, init)),
       options.now ?? Date.now,
     );
+  }
+
+  /** The cookie flag for an https server. */
+  private get secure(): string {
+    return this.origin.startsWith("https:") ? "; Secure" : "";
   }
 
   get resourceMetadataUrl(): string {
@@ -374,13 +382,12 @@ export class OAuthServer {
       x: consent,
       exp: this.now() + PENDING_MS,
     };
-    const secure = this.origin.startsWith("https:") ? "; Secure" : "";
     return new Response(consentPage(client.n, redirectUri, await this.sealer.seal("pending", pending)), {
       headers: {
         "Content-Type": "text/html; charset=utf-8",
         "Cache-Control": "no-store",
         // The cookie only comes back on a same-site request, so another site can't post the form for the user.
-        "Set-Cookie": `aniconnect_consent=${consent}; Path=/authorize; Max-Age=${PENDING_MS / 1000}; HttpOnly; SameSite=Strict${secure}`,
+        "Set-Cookie": `aniconnect_consent=${consent}; Path=/authorize; Max-Age=${PENDING_MS / 1000}; HttpOnly; SameSite=Strict${this.secure}`,
         "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'",
         "X-Frame-Options": "DENY",
       },
@@ -402,22 +409,42 @@ export class OAuthServer {
         withParams(pending.r, { error: "access_denied", error_description: "The user didn't approve the app.", state: pending.s }),
       );
     }
-    return redirect(
+    // The state AniList carries is a new kind, made only here, and it works only in the browser
+    // that approved: a consent-page state sent to someone else, or an approved one copied from
+    // another browser, gets nowhere. The cookie is Lax so it comes back on AniList's redirect.
+    const signIn = crypto.randomUUID();
+    const res = redirect(
       withParams(ANILIST_AUTHORIZE, {
         client_id: this.config.anilistClientId,
         redirect_uri: this.callbackUrl,
         response_type: "code",
-        state: sealed,
+        state: await this.sealer.seal("signin", { ...pending, x: signIn } satisfies Pending),
       }),
     );
+    res.headers.append(
+      "Set-Cookie",
+      `aniconnect_signin_${signIn}=1; Path=/oauth/callback; Max-Age=${PENDING_MS / 1000}; HttpOnly; SameSite=Lax${this.secure}`,
+    );
+    return res;
   }
 
   /** AniList sends the user back here: swap its code for their token, and send them back to the client. */
   async callback(req: Request): Promise<Response> {
     const q = new URL(req.url).searchParams;
-    const pending = await this.sealer.open<Pending>("pending", q.get("state"), this.now());
-    if (!pending) return page("this sign-in has expired or isn't valid. Start again from your MCP client.");
-    const back = (params: Record<string, string>) => redirect(withParams(pending.r, { ...params, state: pending.s }));
+    const pending = await this.sealer.open<Pending>("signin", q.get("state"), this.now());
+    if (!pending?.x) return page("this sign-in has expired or isn't valid. Start again from your MCP client.");
+    const cookie = `aniconnect_signin_${pending.x}`;
+    if (!(req.headers.get("Cookie") ?? "").split(/;\s*/).some((c) => c.startsWith(`${cookie}=`))) {
+      return page("this sign-in was started in another browser. Start again from your MCP client.", 403);
+    }
+    this.forgetExpired();
+    if (this.used.has(pending.x)) return page("this sign-in has already been used. Start again from your MCP client.");
+    this.used.set(pending.x, pending.exp);
+    const back = (params: Record<string, string>) => {
+      const res = redirect(withParams(pending.r, { ...params, state: pending.s }));
+      res.headers.append("Set-Cookie", `${cookie}=; Path=/oauth/callback; Max-Age=0; HttpOnly; SameSite=Lax${this.secure}`);
+      return res;
+    };
 
     const code = q.get("code");
     if (!code) {

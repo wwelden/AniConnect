@@ -141,13 +141,14 @@ export async function createHttpApp(config: OAuthConfig, options: HttpOptions = 
     }
 
     const user = account(key, token);
-    const open = [...sessions].filter(([, s]) => s.account === key).sort(([, a], [, b]) => a.lastUsed - b.lastUsed);
-    for (const [id] of open.slice(0, Math.max(0, open.length - MAX_SESSIONS + 1))) await close(id);
     const server = createServer(user.client, { now, user: user.user });
     const transport: WebStandardStreamableHTTPServerTransport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: () => crypto.randomUUID(),
       onsessioninitialized: (id) => {
         sessions.set(id, { transport, server, account: key, lastUsed: now() });
+        // Counted when the session joins, with no wait in between, so parallel requests can't all slip under the cap.
+        const open = [...sessions].filter(([, s]) => s.account === key).sort(([, a], [, b]) => a.lastUsed - b.lastUsed);
+        for (const [old] of open.slice(0, Math.max(0, open.length - MAX_SESSIONS))) void close(old);
       },
       onsessionclosed: (id) => {
         sessions.delete(id);
