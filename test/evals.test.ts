@@ -1,7 +1,7 @@
 /** Checks the eval cases and grader themselves, without running a model. */
 import { describe, expect, test } from "bun:test";
 import { CASES, type Change } from "../evals/cases";
-import { diff, gradeCase } from "../evals/grade";
+import { diff, gradeCase, mentions } from "../evals/grade";
 import { PERSONA } from "./fixtures/persona";
 import { FakeAniList, findMedia } from "./support/fake-anilist";
 
@@ -56,6 +56,12 @@ describe("eval cases", () => {
     const reply = "You're watching DAN DA DAN, ONE PIECE and JUJUTSU KAISEN Season 2.";
     expect(gradeCase(c, applyChanges([]), reply)).toBeNull();
     expect(gradeCase(c, applyChanges([]), "You're watching ONE PIECE.")).not.toBeNull();
+  });
+
+  test("mentions start at a word boundary", () => {
+    expect(mentions("It's on your Plan to Watch list", "plan")).toBe(true);
+    expect(mentions("You're planning to watch it", "plan")).toBe(true);
+    expect(mentions("Here's an explanation", "plan")).toBe(false);
   });
 
   test("an unexpected extra change fails", () => {

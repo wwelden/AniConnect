@@ -3,7 +3,7 @@
  * -> the AniList entry it should resolve to, or "ambiguous".
  */
 import { beforeEach, describe, expect, test } from "bun:test";
-import { AniListClient } from "../src/anilist";
+import { AniListClient, type Media } from "../src/anilist";
 import { parseQuery, resolveAnime, type Intent } from "../src/resolve";
 import { clientSource } from "../src/server";
 import { PERSONA } from "./fixtures/persona";
@@ -49,7 +49,7 @@ describe("parseQuery", () => {
     ["chainsaw man movie", "chainsaw man", { movie: true }],
     ["the new Frieren season", "the frieren", { latest: true }],
     ["spy x family latest season", "spy x family", { latest: true }],
-    ["next season of oshi no ko", "of oshi no ko", {}],
+    ["next season of oshi no ko", "of oshi no ko", { next: true }],
     ["New Game!", "new game", {}],
     ["Re:Zero 2nd cour", "re zero", { part: 2 }],
   ])("%s", (raw, exact, hint) => {
@@ -121,7 +121,36 @@ describe("latest and next seasons", () => {
     // Season 4 (2027) hasn't aired; season 3 (2025) is the latest.
     ["latest season of spy x family", "add", "SPY×FAMILY Season 3"],
     ["next season of frieren", "progress", "Sousou no Frieren 2nd Season"],
+    // Next = after the furthest season started: S1 and its Part 2 are done, Season 2 is planned.
+    ["next season of spy x family", "add", "SPY×FAMILY Season 2"],
+    ["the next dandadan season", "progress", "Dandadan 2nd Season"],
+    ["next season of bocchi the rock", "add", "Bocchi the Rock! 2nd Season"],
+    // Latest walks the whole sequel chain, past split cours, and skips unaired entries.
+    ["latest season of attack on titan", "rate", "Shingeki no Kyojin: The Final Season Part 2"],
+    ["the new apothecary diaries season", "add", "Kusuriya no Hitorigoto 3rd Season"],
   ]);
+
+  test("a title containing \"new\" is read literally first", async () => {
+    const base = clientSource(client);
+    const newGame = {
+      ...findMedia("Dandadan"),
+      id: 9001,
+      title: { romaji: "New Game!", english: "New Game!", native: null },
+      synonyms: [],
+      mediaListEntry: null,
+    } as unknown as Media;
+    const source = {
+      ...base,
+      search: async (q: string) => [...(await base.search(q)), ...(q.includes("new game") ? [newGame] : [])],
+    };
+    const r = await resolveAnime("new game season", "add", source);
+    expect(r.kind === "match" && r.media.id).toBe(9001);
+  });
+
+  test("removing never searches beyond the list", async () => {
+    await resolve("spy x family season 2", "remove");
+    expect(fake.calls.some((c) => c.query.includes("search:"))).toBe(false);
+  });
 });
 
 describe("intent-aware defaults (R1.6, R1.8)", () => {

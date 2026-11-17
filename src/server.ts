@@ -15,7 +15,7 @@ import { describeCandidates, resolveAnime, type AnimeSource, type Intent } from 
 const anime = z
   .union([z.string().min(1), z.number().int().positive()])
   .describe(
-    'The show, as the user said it: any title, abbreviation or season ("jjk", "spy x family season 2", "Frieren"), or an AniList ID. No need to search first.',
+    'The show: any title, abbreviation or season ("jjk", "spy x family season 2", "the new Frieren season"), or an AniList ID.',
   );
 
 const status = z
@@ -26,7 +26,7 @@ const status = z
 
 /** Appended to every tool that changes the list (requirement R2.2: one call per request). */
 const BY_NAME =
-  " Pass the show the way the user said it (\"jjk\", \"spy x family season 2\"): this tool works out the right AniList entry and season from the user's list, so don't search first. If the name is ambiguous, nothing changes and the candidates come back to ask about.";
+  " Pass the show as the user named it; this tool picks the right entry and season from their list, so don't search first. If the name is ambiguous, nothing changes and the candidates come back to ask about.";
 
 type ToolResult = { content: { type: "text"; text: string }[]; isError?: boolean };
 

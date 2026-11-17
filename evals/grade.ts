@@ -1,13 +1,18 @@
 /** Grades an eval run by comparing list state before and after. */
 import { normalize } from "../src/logic";
 import { findMedia, type StoredEntry } from "../test/support/fake-anilist";
-
-/** "DAN DA DAN" mentions "Dandadan"; "ONE PIECE" mentions "One Piece". */
-function mentions(reply: string, name: string): boolean {
-  const squash = (t: string) => normalize(t).replace(/ /g, "");
-  return squash(reply).includes(squash(name));
-}
 import type { Change, EvalCase, Outcome } from "./cases";
+
+/**
+ * Whether the reply mentions a name, starting at a word boundary and ignoring spacing
+ * and case: "DAN DA DAN" mentions "Dandadan", "Plan to watch" and "planning" mention
+ * "plan", but "explanation" doesn't.
+ */
+export function mentions(reply: string, name: string): boolean {
+  const target = normalize(name).replace(/ /g, "");
+  const words = normalize(reply).split(" ");
+  return words.some((_, i) => words.slice(i).join("").startsWith(target));
+}
 
 export type Changes = Map<number, { before?: StoredEntry; after?: StoredEntry }>;
 
