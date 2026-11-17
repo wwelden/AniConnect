@@ -56,6 +56,7 @@ describe("parsePeriod", () => {
     // The end of a range isn't pushed back a year just because it's later this month.
     expect(range("nov 10 to nov 20")).toEqual(["2026-11-10T00:00:00.000Z", "2026-11-21T00:00:00.000Z"]);
     expect(range("dec 20 to jan 5")).toEqual(["2025-12-20T00:00:00.000Z", "2026-01-06T00:00:00.000Z"]);
+    expect(range("December 20 to December 25")).toEqual(["2025-12-20T00:00:00.000Z", "2025-12-26T00:00:00.000Z"]);
     expect(parsePeriod("all time", NOW, "UTC").start).toBe(0);
   });
 
@@ -65,6 +66,12 @@ describe("parsePeriod", () => {
     // March starts in EST (UTC-5) and ends in EDT (UTC-4).
     expect(range("March", "America/New_York")).toEqual(["2026-03-01T05:00:00.000Z", "2026-04-01T04:00:00.000Z"]);
     expect(range("today", "Asia/Tokyo")).toEqual(["2026-11-16T15:00:00.000Z", "2026-11-17T15:00:00.000Z"]);
+    // Chile moves its clocks from midnight to 1 AM on Sep 6, 2026: that day starts at 1 AM.
+    expect(range("today", "America/Santiago", Date.parse("2026-09-06T12:00:00Z"))).toEqual([
+      "2026-09-06T04:00:00.000Z",
+      "2026-09-07T03:00:00.000Z",
+    ]);
+    expect(range("yesterday", "America/Santiago", Date.parse("2026-09-06T12:00:00Z"))[1]).toBe("2026-09-06T04:00:00.000Z");
   });
 
   test("rejects what it can't read, with examples", () => {

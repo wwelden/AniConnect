@@ -49,7 +49,11 @@ function startOf(d: Day, timeZone: string): number {
   const utc = Date.UTC(d.year, d.month - 1, d.day);
   // Two passes settle the offset when midnight is near a daylight-saving change.
   const first = utc - zoneOffset(utc, timeZone);
-  return utc - zoneOffset(first, timeZone);
+  const start = utc - zoneOffset(first, timeZone);
+  // Where clocks jump forward at midnight (America/Santiago), midnight doesn't exist and
+  // `start` lands on the day before; the day starts when the clocks jump.
+  const got = dayOf(start, timeZone);
+  return got.day === d.day && got.month === d.month ? start : utc - zoneOffset(start, timeZone);
 }
 
 export interface Range {
@@ -71,10 +75,10 @@ function monthNumber(word: string): number {
 
 /**
  * Days as [first, last] (both inclusive), from one phrase that names a single span.
- * A month or day named without a year is the latest one not in the future, unless
- * `pastOnly` is false (the end of a range: "Nov 10 to Nov 20").
+ * A month or day named without a year is the latest one not in the future or, at the end
+ * of a range, the first one on or after the range's start (`after`): "Dec 20 to Jan 5".
  */
-function span(text: string, today: Day, pastOnly = true): [Day, Day] | null {
+function span(text: string, today: Day, after?: Day): [Day, Day] | null {
   const t = text.trim();
   let m: RegExpMatchArray | null;
   if (t === "today") return [today, today];
@@ -123,10 +127,13 @@ function span(text: string, today: Day, pastOnly = true): [Day, Day] | null {
   if ((m = t.match(/^([a-z]{3,9})\.?(?: (\d{1,2}))?,? ?(\d{4})?$/))) {
     const month = monthNumber(m[1]!);
     if (month === 0) return null;
-    // Without a year, the most recent such month (or day) that isn't in the future.
-    let year = m[3] ? Number(m[3]) : today.year;
     const day = m[2] ? Number(m[2]) : null;
-    if (pastOnly && !m[3] && (month > today.month || (month === today.month && day !== null && day > today.day))) year -= 1;
+    let year = m[3] ? Number(m[3]) : (after ?? today).year;
+    if (!m[3] && after) {
+      if (month < after.month || (month === after.month && day !== null && day < after.day)) year += 1;
+    } else if (!m[3] && (month > today.month || (month === today.month && day !== null && day > today.day))) {
+      year -= 1;
+    }
     if (day !== null) {
       const d = { year, month, day };
       const check = shift(d, {});
@@ -168,7 +175,7 @@ export function parsePeriod(period: string, now: number, timeZone: string): Rang
   const between = text.match(/^(?:between )?(.+?)(?: to | until | through | and | - | – |\.\.)(.+)$/);
   if (between) {
     const a = span(between[1]!, today);
-    const b = span(between[2]!, today, false);
+    const b = a && span(between[2]!, today, a[0]);
     if (a && b) return checked({ start: startOf(a[0], timeZone), end: end(b[1]) });
   }
   throw new Error(
