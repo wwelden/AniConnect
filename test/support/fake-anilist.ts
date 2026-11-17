@@ -123,6 +123,8 @@ export class FakeAniList {
   clock: () => number = () => Date.now();
   /** The account's 18+ content setting (AniList's default is off). */
   displayAdultContent = false;
+  /** Requests this returns true for never get an answer, like a stalled connection; they end only when aborted. */
+  stalls: (query: string) => boolean = () => false;
 
   constructor(
     public scoreFormat: ScoreFormat = "POINT_10_DECIMAL",
@@ -314,6 +316,11 @@ export class FakeAniList {
       variables?: Record<string, any>;
     };
     this.calls.push({ query, variables });
+    if (this.stalls(query)) {
+      return new Promise((_, reject) => {
+        init.signal?.addEventListener("abort", () => reject(init.signal!.reason), { once: true });
+      });
+    }
     if (this.rateLimited) {
       return new Response(JSON.stringify({ errors: [{ message: "Too Many Requests." }] }), {
         status: 429,

@@ -316,6 +316,32 @@ describe("tools", () => {
     expect((await anilist.getViewer()).name).toBe("tester");
   });
 
+  test("a stalled request times out and isn't cached", async () => {
+    const anilist = new AniListClient("t", fake.fetch);
+    anilist.requestTimeoutMs = 50;
+    const failure = (p: Promise<unknown>) => p.then(() => "loaded", (e: Error) => e.message);
+
+    // Calls that start while the viewer is stuck share the request, and all give up together.
+    fake.stalls = (q) => q.includes("Viewer");
+    const [first, second] = await Promise.all([failure(anilist.getViewer()), failure(anilist.getMyList())]);
+    expect(first).toBe("AniList didn't respond within 0.05 seconds; try again.");
+    expect(second).toBe(first);
+
+    fake.stalls = (q) => q.includes("MediaListCollection");
+    expect(await failure(anilist.getMyList())).toBe(first);
+
+    // A write that times out may still have been saved, so it isn't simply "try again".
+    fake.stalls = (q) => q.trimStart().startsWith("mutation");
+    expect(await failure(anilist.request("mutation { DeleteMediaListEntry(id: 1) { deleted } }"))).toBe(
+      "AniList didn't respond within 0.05 seconds, so the change may or may not have been saved; check the list before trying again.",
+    );
+
+    // Once AniList answers again, the next calls start fresh requests instead of reusing the failed ones.
+    fake.stalls = () => false;
+    expect((await anilist.getViewer()).name).toBe("tester");
+    expect(await anilist.getMyList()).toEqual([]);
+  });
+
   test("the first tool call fetches the viewer once", async () => {
     await call("add_to_list", { anime: "frieren" });
     expect(fake.calls.filter((c) => c.query.includes("Viewer")).length).toBe(1);

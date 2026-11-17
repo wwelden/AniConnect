@@ -169,6 +169,13 @@ export type ListItem = ListEntry & { media: Media };
 export const LIST_TTL_MS = 60_000;
 
 /**
+ * How long one AniList request may take before it is abandoned. Without a limit a stalled
+ * connection hangs for Bun's built-in 5 minutes, and the cached viewer and list promises
+ * make every other tool call wait on it too.
+ */
+export const REQUEST_TIMEOUT_MS = 15_000;
+
+/**
  * Reads AniList's time zone setting, documented as an offset ("-05:00", "+05:30"), into a
  * zone `Intl` accepts: a canonical "+HH:MM" offset, or an IANA name if that's what is stored.
  * Returns null for an empty or unreadable value, so callers fall back to the server's zone.
@@ -237,6 +244,8 @@ export class AniListClient {
   private writes = new Set<{ mediaId: number | null; overlapped: boolean }>();
   /** Clock for the list cache; createServer sets it so tests control expiry. */
   now: () => number = Date.now;
+  /** How long one request may take; tests shorten it. */
+  requestTimeoutMs = REQUEST_TIMEOUT_MS;
 
   constructor(
     private readonly token: string,
@@ -246,6 +255,15 @@ export class AniListClient {
   }
 
   async request<T>(query: string, variables: Record<string, unknown> = {}): Promise<T> {
+    const signal = AbortSignal.timeout(this.requestTimeoutMs);
+    const timedOut = () =>
+      new AniListError(
+        `AniList didn't respond within ${this.requestTimeoutMs / 1000} seconds` +
+          // A write may have been saved even though the answer never came.
+          (/^\s*mutation/.test(query)
+            ? ", so the change may or may not have been saved; check the list before trying again."
+            : "; try again."),
+      );
     let res: Response;
     try {
       res = await this.fetchFn(ANILIST_ENDPOINT, {
@@ -256,8 +274,10 @@ export class AniListClient {
           Authorization: `Bearer ${this.token}`,
         },
         body: JSON.stringify({ query, variables }),
+        signal,
       });
     } catch (err) {
+      if (signal.aborted) throw timedOut();
       throw new AniListError(`Could not reach AniList: ${(err as Error).message}`);
     }
 
@@ -275,6 +295,8 @@ export class AniListClient {
     try {
       body = (await res.json()) as typeof body;
     } catch {
+      // The signal also covers reading the body, so a stall there ends up here.
+      if (signal.aborted) throw timedOut();
       throw new AniListError(`AniList returned HTTP ${res.status} with a non-JSON body.`);
     }
 
