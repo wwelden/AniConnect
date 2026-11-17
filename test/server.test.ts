@@ -469,4 +469,18 @@ describe("list cache (R5.4)", () => {
     expect(list.find((e) => e.media.id === 171018)!.progress).toBe(8);
     expect(list.find((e) => e.media.id === 21)!.score).toBe(9);
   });
+
+  test("a write that answers after the list was refetched drops the cache", async () => {
+    const { client, release } = heldClient();
+    await client.getMyList();
+    const save = client.saveEntry({ mediaId: 171018, progress: 8 });
+    await Bun.sleep(0);
+    fake.entries.get(171018)!.progress = 9; // another app, after our write landed
+    clock += LIST_TTL_MS;
+    await client.getMyList();
+    release();
+    await save;
+    const dandadan = (await client.getMyList()).find((e) => e.media.id === 171018)!;
+    expect(dandadan.progress).toBe(9);
+  });
 });

@@ -351,9 +351,9 @@ export class AniListClient {
 
   /**
    * Applies one of our own writes to the cached list, after it finishes loading if it is
-   * still in flight. A failed write may or may not have landed, and overlapping writes to
-   * the same show can answer out of order (an older entry overwriting a newer one), so both
-   * drop the cache.
+   * still in flight. A failed write may or may not have landed, overlapping writes to the
+   * same show can answer out of order, and a list refetched mid-write may be newer than the
+   * write's answer, so all of these drop the cache instead.
    */
   private async patchList<T>(
     mediaId: number | null,
@@ -361,6 +361,7 @@ export class AniListClient {
     patch: (entries: Map<number, ListItem>, result: T) => void,
   ): Promise<T> {
     const self = { mediaId, overlapped: false };
+    const startList = this.list;
     for (const other of this.writes) {
       if (other.mediaId === null || mediaId === null || other.mediaId === mediaId) {
         other.overlapped = self.overlapped = true;
@@ -376,7 +377,8 @@ export class AniListClient {
     } finally {
       this.writes.delete(self);
     }
-    if (self.overlapped) this.list = null;
+    // A list fetched while the write was in flight may already hold something newer.
+    if (self.overlapped || this.list !== startList) this.list = null;
     else if (this.list) {
       const list = this.list;
       list.entries = list.entries.then((entries) => {
