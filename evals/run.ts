@@ -16,7 +16,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
-import { PERSONA } from "../test/fixtures/persona";
+import { HISTORY, PERSONA } from "../test/fixtures/persona";
 import { FakeAniList } from "../test/support/fake-anilist";
 import { CASES, type EvalCase } from "./cases";
 import { diff, gradeCase } from "./grade";
@@ -50,7 +50,7 @@ interface RunResult {
 }
 
 function seedState() {
-  const fake = new FakeAniList("POINT_10_DECIMAL", "tester").seed(PERSONA);
+  const fake = new FakeAniList("POINT_10_DECIMAL", "tester").seed(PERSONA).seedActivity(HISTORY);
   return { scoreFormat: fake.scoreFormat, viewerName: fake.viewerName, ...fake.exportState() };
 }
 

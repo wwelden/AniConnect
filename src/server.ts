@@ -12,6 +12,7 @@ import {
   toRawScore,
 } from "./logic";
 import { describeCandidates, memo, resolveAnime, type AnimeSource, type Intent } from "./resolve";
+import { formatHistory, parsePeriod } from "./history";
 import { tokenWatch } from "./token";
 import { buildReport, caughtUpProgress, checkTimeZone, formatReport, formatShow, moviesBesideSeries, nextSeasons } from "./whatsnext";
 
@@ -240,7 +241,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
     {
       title: "Search my list",
       description:
-        "Answer questions about the user's own AniList anime list (what they're watching, whether something is on it). Filter by title words and/or list status; leave query empty to list everything in a status.",
+        "Answer questions about the user's own AniList anime list as it is now (what they're watching, whether something is on it); for when things happened, use watch_history. Filter by title words and/or list status; leave query empty to list everything in a status.",
       inputSchema: {
         query: z.string().optional().describe("Words that must all appear in the title"),
         status: status.optional(),
@@ -310,6 +311,52 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       // Usually no request: only shows with both a series and a movie sequel need one.
       const sequels = nextSeasons(withRelations, listStatus, await client.getMany(moviesBesideSeries(withRelations)));
       return text(formatReport(buildReport(list, sequels, at), at, zone, titleLanguage));
+    }),
+  );
+
+  server.registerTool(
+    "watch_history",
+    {
+      title: "Watch history",
+      description:
+        "What the user watched and when, from their AniList activity feed: episodes logged, shows finished, started, dropped or put on hold, newest first, in a time range (\"what did I watch this week?\", \"what did I finish last month?\"). Pass `anime` for one show's history (\"when did I finish Frieren?\").",
+      inputSchema: {
+        period: z
+          .string()
+          .optional()
+          .describe(
+            'Time range in the user\'s words or as dates: "today", "this week", "last week", "last month", "March", "March 2025", "last 30 days", "since June", "2026-03-01 to 2026-03-15", "all time". Weeks start on Monday. Defaults to the last 7 days, or all time when `anime` is given.',
+          ),
+        anime: anime.optional(),
+        timeZone: z
+          .string()
+          .optional()
+          .describe('IANA time zone for dates and times, e.g. "America/New_York". Defaults to the user\'s AniList time zone.'),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: true },
+    },
+    safe(async ({ period, anime, timeZone }) => {
+      const zone = checkTimeZone(timeZone ?? userZone(await client.getViewer()));
+      const at = now();
+      const range = parsePeriod(period ?? (anime === undefined ? "last 7 days" : "all time"), at, zone);
+      // Only shows on the list have history, so resolve against the list alone ("remove" never
+      // searches the rest of AniList): one request (R5.2).
+      const show = anime === undefined ? undefined : await target(client, anime, "remove", undefined, false);
+      const { titleLanguage } = await client.getViewer(); // cached: getMyActivity needs it too
+      const { activities, hasNextPage } = await client.getMyActivity({
+        from: range.start > 0 ? Math.floor(range.start / 1000) : undefined,
+        to: Math.ceil(range.end / 1000),
+        mediaId: show?.media.id,
+      });
+      const body = formatHistory(activities, {
+        range,
+        now: at,
+        timeZone: zone,
+        show: show && displayTitle(show.media.title, titleLanguage),
+        truncated: hasNextPage,
+        language: titleLanguage,
+      });
+      return text(`${show?.note ?? ""}${body}`);
     }),
   );
 

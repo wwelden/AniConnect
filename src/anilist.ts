@@ -123,6 +123,18 @@ export interface BrowseFilters {
   sort: "SEARCH_MATCH" | "POPULARITY_DESC" | "SCORE_DESC" | "START_DATE_DESC";
 }
 
+/** One list update from the user's activity feed. */
+export interface ListActivity {
+  id: number;
+  /** AniList's phrase: "watched episode", "completed", "plans to watch", "paused watching", ... */
+  status: string | null;
+  /** An episode ("7") or, when AniList merged consecutive updates, a range ("3 - 5"). */
+  progress: string | null;
+  /** Unix seconds. */
+  createdAt: number;
+  media: { id: number; title: MediaTitle } | null;
+}
+
 export interface Viewer {
   id: number;
   name: string;
@@ -490,6 +502,47 @@ export class AniListClient {
       });
     }
     return result;
+  }
+
+  /**
+   * The user's own anime list activity, newest first: one page of at most 50.
+   * `from` and `to` are Unix seconds (from inclusive, to exclusive).
+   */
+  async getMyActivity(options: {
+    from?: number;
+    to?: number;
+    mediaId?: number;
+  }): Promise<{ activities: ListActivity[]; hasNextPage: boolean }> {
+    const viewer = await this.getViewer();
+    const data = await this.request<{
+      Page: { pageInfo: { hasNextPage: boolean }; activities: (ListActivity | Record<string, never>)[] };
+    }>(
+      `query ($userId: Int, $mediaId: Int, $from: Int, $to: Int) {
+        Page(perPage: 50) {
+          pageInfo { hasNextPage }
+          activities(
+            userId: $userId, mediaId: $mediaId, type: ANIME_LIST, sort: ID_DESC,
+            createdAt_greater: $from, createdAt_lesser: $to
+          ) {
+            ... on ListActivity {
+              id status progress createdAt
+              media { id title { romaji english native } }
+            }
+          }
+        }
+      }`,
+      {
+        userId: viewer.id,
+        mediaId: options.mediaId,
+        // AniList's bounds are exclusive on both ends.
+        from: options.from !== undefined ? options.from - 1 : undefined,
+        to: options.to,
+      },
+    );
+    return {
+      activities: data.Page.activities.filter((a): a is ListActivity => "id" in a),
+      hasNextPage: data.Page.pageInfo.hasNextPage,
+    };
   }
 
   async saveEntry(input: {
