@@ -14,6 +14,7 @@
    "Наруто"
   ],
   "episodes": 220,
+  "duration": 23,
   "format": "TV",
   "status": "FINISHED",
   "season": "FALL",
@@ -138,6 +139,7 @@
    "Ван-Пис"
   ],
   "episodes": null,
+  "duration": 24,
   "format": "TV",
   "status": "RELEASING",
   "season": "FALL",
@@ -636,6 +638,7 @@
    "Стальной Алхимик"
   ],
   "episodes": 51,
+  "duration": 25,
   "format": "TV",
   "status": "FINISHED",
   "season": "FALL",
@@ -711,6 +714,7 @@
    "القناص"
   ],
   "episodes": 62,
+  "duration": 23,
   "format": "TV",
   "status": "FINISHED",
   "season": "FALL",
@@ -770,6 +774,7 @@
    "HxH"
   ],
   "episodes": 8,
+  "duration": 24,
   "format": "OVA",
   "status": "FINISHED",
   "season": "WINTER",
@@ -830,6 +835,7 @@
    "ハンターｘハンター: Greed Island"
   ],
   "episodes": 8,
+  "duration": 22,
   "format": "OVA",
   "status": "FINISHED",
   "season": "WINTER",
@@ -891,6 +897,7 @@
    "HxH"
   ],
   "episodes": 14,
+  "duration": 24,
   "format": "OVA",
   "status": "FINISHED",
   "season": "SPRING",
@@ -947,6 +954,7 @@
    "FMA Movie"
   ],
   "episodes": 1,
+  "duration": 105,
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "SUMMER",
@@ -994,6 +1002,7 @@
    "Naruto Movie 01: La primavera nel Paese della neve"
   ],
   "episodes": 1,
+  "duration": 90,
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "SUMMER",
@@ -1047,6 +1056,7 @@
    "ONE PIECE Jump Super Anime Tour '98"
   ],
   "episodes": 1,
+  "duration": 28,
   "format": "OVA",
   "status": "FINISHED",
   "season": "SUMMER",
@@ -1101,6 +1111,7 @@
    "Misión: ¡Proteger la aldea de la cascada!"
   ],
   "episodes": 1,
+  "duration": 40,
   "format": "SPECIAL",
   "status": "FINISHED",
   "season": "WINTER",
@@ -1147,6 +1158,7 @@
    "Naruto: Find the Four-Leaf Red Clover!"
   ],
   "episodes": 1,
+  "duration": 17,
   "format": "SPECIAL",
   "status": "FINISHED",
   "season": "SPRING",
@@ -1187,6 +1199,7 @@
    "Kodomo-hen"
   ],
   "episodes": 3,
+  "duration": 8,
   "format": "OVA",
   "status": "FINISHED",
   "season": "SPRING",
@@ -1237,6 +1250,7 @@
    "Naruto Movie 02: La leggenda della pietra di Gelel"
   ],
   "episodes": 1,
+  "duration": 97,
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "SUMMER",
@@ -1282,6 +1296,7 @@
    "Naruto: Finally a Clash!! Jounin vs. Genin!"
   ],
   "episodes": 1,
+  "duration": 27,
   "format": "OVA",
   "status": "FINISHED",
   "season": "WINTER",
@@ -1323,6 +1338,7 @@
    "One Piece Special: Luffy Falls! Adventure in the Navel of the Sea"
   ],
   "episodes": 1,
+  "duration": 49,
   "format": "SPECIAL",
   "status": "FINISHED",
   "season": "FALL",
@@ -1362,6 +1378,7 @@
    "Vua Hải Tặc: Vươn ra đại dương! Giấc mơ to lớn của bố!"
   ],
   "episodes": 1,
+  "duration": 46,
   "format": "SPECIAL",
   "status": "FINISHED",
   "season": "SPRING",
@@ -1406,6 +1423,7 @@
    "ONE PIECE TVスペシャル3 守れ! 最後の大舞台"
   ],
   "episodes": 1,
+  "duration": 45,
   "format": "SPECIAL",
   "status": "FINISHED",
   "season": "WINTER",
@@ -1449,6 +1467,7 @@
    "Наруто: Ураганные хроники"
   ],
   "episodes": 500,
+  "duration": 23,
   "format": "TV",
   "status": "FINISHED",
   "season": "WINTER",
@@ -1626,6 +1645,7 @@
    "One Piece: Le avventure del detective Cappello di Paglia"
   ],
   "episodes": 1,
+  "duration": 44,
   "format": "SPECIAL",
   "status": "FINISHED",
   "season": "FALL",
@@ -1667,6 +1687,7 @@
    "Naruto Movie 03: I guardiani del Regno della Luna Crescente"
   ],
   "episodes": 1,
+  "duration": 94,
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "SUMMER",
@@ -1712,6 +1733,7 @@
    "Konoha no Sato no Daiun Douaki"
   ],
   "episodes": 1,
+  "duration": 11,
   "format": "SPECIAL",
   "status": "FINISHED",
   "season": "SUMMER",
@@ -1749,6 +1771,7 @@
    "One Piece: Dream Soccer King!"
   ],
   "episodes": 1,
+  "duration": 5,
   "format": "SPECIAL",
   "status": "FINISHED",
   "season": "SPRING",
@@ -1797,6 +1820,7 @@
    "Naruto Shippuden Movie 01: L'esercito fantasma"
   ],
   "episodes": 1,
+  "duration": 94,
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "SUMMER",
@@ -1841,6 +1865,7 @@
    "One Piece: Take Aim! The Pirate Baseball King"
   ],
   "episodes": 1,
+  "duration": 5,
   "format": "SPECIAL",
   "status": "FINISHED",
   "season": "SPRING",
@@ -1882,6 +1907,7 @@
    "Naruto Shippuden Movie 02: Il maestro e il discepolo"
   ],
   "episodes": 1,
+  "duration": 92,
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "SUMMER",
@@ -1929,6 +1955,7 @@
    "Monogatari"
   ],
   "episodes": 15,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "SUMMER",
@@ -2025,6 +2052,7 @@
    "Стальной алхимик: Братство"
   ],
   "episodes": 64,
+  "duration": 25,
   "format": "TV",
   "status": "FINISHED",
   "season": "SPRING",
@@ -2103,6 +2131,7 @@
    "Naruto Shippuden O Filme: Herdeiros da Vontade do Fogo"
   ],
   "episodes": 1,
+  "duration": 95,
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "SUMMER",
@@ -2150,6 +2179,7 @@
    "Simple People"
   ],
   "episodes": 4,
+  "duration": 15,
   "format": "OVA",
   "status": "FINISHED",
   "season": "SUMMER",
@@ -2194,6 +2224,7 @@
    "Naruto's 10th Anniversary"
   ],
   "episodes": 1,
+  "duration": 27,
   "format": "SPECIAL",
   "status": "FINISHED",
   "season": "FALL",
@@ -2236,6 +2267,7 @@
    "Fullmetal Alchemist – Święta Gwiazda Milos"
   ],
   "episodes": 1,
+  "duration": 110,
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "SUMMER",
@@ -2290,6 +2322,7 @@
    "Врата;Штейна"
   ],
   "episodes": 24,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "SPRING",
@@ -2404,6 +2437,7 @@
    "Wound Tale 1: Iron Blood"
   ],
   "episodes": 1,
+  "duration": 64,
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "WINTER",
@@ -2457,6 +2491,7 @@
    "HUNTER×HUNTER Jump Super Anime Tour '98"
   ],
   "episodes": 1,
+  "duration": 25,
   "format": "OVA",
   "status": "FINISHED",
   "season": null,
@@ -2504,6 +2539,7 @@
    "and the Three Wishes Dattebayo!!"
   ],
   "episodes": 1,
+  "duration": 15,
   "format": "SPECIAL",
   "status": "FINISHED",
   "season": "SUMMER",
@@ -2550,6 +2586,7 @@
    "Poriomanía del egoismo"
   ],
   "episodes": 1,
+  "duration": 25,
   "format": "OVA",
   "status": "FINISHED",
   "season": "WINTER",
@@ -2607,6 +2644,7 @@
    "Мисливець X Мисливець"
   ],
   "episodes": 148,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "FALL",
@@ -2698,6 +2736,7 @@
   },
   "synonyms": [],
   "episodes": 1,
+  "duration": 90,
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "SPRING",
@@ -2751,6 +2790,7 @@
    "ปกรณัมของเทียม"
   ],
   "episodes": 11,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "WINTER",
@@ -2821,6 +2861,7 @@
   },
   "synonyms": [],
   "episodes": 1,
+  "duration": 12,
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "FALL",
@@ -2861,6 +2902,7 @@
    "Hunter x Hunter: Fantasma Vermelho"
   ],
   "episodes": 1,
+  "duration": 97,
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "WINTER",
@@ -2910,6 +2952,7 @@
   },
   "synonyms": [],
   "episodes": 4,
+  "duration": 27,
   "format": "TV",
   "status": "FINISHED",
   "season": "FALL",
@@ -2959,6 +3002,7 @@
   },
   "synonyms": [],
   "episodes": 1,
+  "duration": 102,
   "format": "SPECIAL",
   "status": "FINISHED",
   "season": "FALL",
@@ -3005,6 +3049,7 @@
    "ワンピース フィルム ゼット グロリアス アイランド"
   ],
   "episodes": 2,
+  "duration": 5,
   "format": "SPECIAL",
   "status": "FINISHED",
   "season": "FALL",
@@ -3063,6 +3108,7 @@
    "Đại Chiến Titan"
   ],
   "episodes": 25,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "SPRING",
@@ -3174,6 +3220,7 @@
    "Koimonogatari"
   ],
   "episodes": 26,
+  "duration": 26,
   "format": "TV",
   "status": "FINISHED",
   "season": "SUMMER",
@@ -3270,6 +3317,7 @@
    "Атака титанов OVA"
   ],
   "episodes": 3,
+  "duration": 25,
   "format": "OVA",
   "status": "FINISHED",
   "season": "FALL",
@@ -3316,6 +3364,7 @@
    "Hunter x Hunter: A Última Missão"
   ],
   "episodes": 1,
+  "duration": 98,
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "FALL",
@@ -3364,6 +3413,7 @@
    "ไฮคิว!! คู่ตบฟ้าประทาน"
   ],
   "episodes": 25,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "SPRING",
@@ -3444,6 +3494,7 @@
    "Attack on Titan: O Arco e Flecha Escarlate"
   ],
   "episodes": 1,
+  "duration": 118,
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "FALL",
@@ -3495,6 +3546,7 @@
    "Attack on Titan: Asas da Liberdade"
   ],
   "episodes": 1,
+  "duration": 120,
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "SPRING",
@@ -3564,6 +3616,7 @@
    "Атака титанов: Выбор без сожалений"
   ],
   "episodes": 2,
+  "duration": 28,
   "format": "OVA",
   "status": "FINISHED",
   "season": "WINTER",
@@ -3608,6 +3661,7 @@
    "One Piece Special 15th Anniversary"
   ],
   "episodes": 1,
+  "duration": 107,
   "format": "SPECIAL",
   "status": "FINISHED",
   "season": "SUMMER",
@@ -3649,6 +3703,7 @@
    "Haikyu!!: Lev ist hier!"
   ],
   "episodes": 1,
+  "duration": 25,
   "format": "OVA",
   "status": "FINISHED",
   "season": "FALL",
@@ -3686,6 +3741,7 @@
    "Steins;Gate: The Sagacious Wisdom of Cognitive Computing"
   ],
   "episodes": 4,
+  "duration": 4,
   "format": "ONA",
   "status": "FINISHED",
   "season": "FALL",
@@ -3730,6 +3786,7 @@
    "Possession Tale"
   ],
   "episodes": 4,
+  "duration": 23,
   "format": "TV",
   "status": "FINISHED",
   "season": "FALL",
@@ -3802,6 +3859,7 @@
    "Атака титанов 2"
   ],
   "episodes": 12,
+  "duration": 25,
   "format": "TV",
   "status": "FINISHED",
   "season": "SPRING",
@@ -3874,6 +3932,7 @@
    "ไฮคิว!! คู่ตบฟ้าประทาน ภาค 2"
   ],
   "episodes": 25,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "FALL",
@@ -3947,6 +4006,7 @@
    "命运石之门0"
   ],
   "episodes": 23,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "SPRING",
@@ -4005,6 +4065,7 @@
    "End Tale"
   ],
   "episodes": 12,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "FALL",
@@ -4058,6 +4119,7 @@
    " Haikyu‼ OAD: VS Failing Marks "
   ],
   "episodes": 1,
+  "duration": 22,
   "format": "SPECIAL",
   "status": "FINISHED",
   "season": "FALL",
@@ -4102,6 +4164,7 @@
    "Re:Zero – Bắt đầu lại ở thế giới khác"
   ],
   "episodes": 25,
+  "duration": 25,
   "format": "TV",
   "status": "FINISHED",
   "season": "SPRING",
@@ -4223,6 +4286,7 @@
    "Wound Tale 2: Hot Blood"
   ],
   "episodes": 1,
+  "duration": 68,
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "SUMMER",
@@ -4281,6 +4345,7 @@
    "Wound Tale 3: Cold Blood"
   ],
   "episodes": 1,
+  "duration": 82,
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "WINTER",
@@ -4351,6 +4416,7 @@
    "Học Viện Anh Hùng"
   ],
   "episodes": 13,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "SPRING",
@@ -4409,6 +4475,7 @@
    "One Piece - Aventura en Nebulandia"
   ],
   "episodes": 1,
+  "duration": 116,
   "format": "SPECIAL",
   "status": "FINISHED",
   "season": "FALL",
@@ -4448,6 +4515,7 @@
    "Моб Психо 100"
   ],
   "episodes": 12,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "SUMMER",
@@ -4513,6 +4581,7 @@
    "Calendar Tale"
   ],
   "episodes": 12,
+  "duration": 14,
   "format": "ONA",
   "status": "FINISHED",
   "season": "WINTER",
@@ -4578,6 +4647,7 @@
    "Steins;Gate: Episode 23 (β)"
   ],
   "episodes": 1,
+  "duration": 24,
   "format": "OVA",
   "status": "FINISHED",
   "season": "FALL",
@@ -4631,6 +4701,7 @@
    "ไฮคิว!! คู่ตบฟ้าประทาน ภาค 3"
   ],
   "episodes": 10,
+  "duration": 25,
   "format": "TV",
   "status": "FINISHED",
   "season": "FALL",
@@ -4697,6 +4768,7 @@
    "End Tale"
   ],
   "episodes": 7,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "SUMMER",
@@ -4746,6 +4818,7 @@
   },
   "synonyms": [],
   "episodes": 1,
+  "duration": 104,
   "format": "SPECIAL",
   "status": "FINISHED",
   "season": "SUMMER",
@@ -4805,6 +4878,7 @@
    "Моя геройская академия 2"
   ],
   "episodes": 25,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "SPRING",
@@ -4865,6 +4939,7 @@
    "My Hero Academia: Save! Rescue Training"
   ],
   "episodes": 1,
+  "duration": 27,
   "format": "OVA",
   "status": "FINISHED",
   "season": "SPRING",
@@ -4910,6 +4985,7 @@
    "Атака титанов 3"
   ],
   "episodes": 12,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "SUMMER",
@@ -4995,6 +5071,7 @@
    "Атака титанов: Потерянные девушки"
   ],
   "episodes": 3,
+  "duration": 25,
   "format": "OVA",
   "status": "FINISHED",
   "season": "FALL",
@@ -5061,6 +5138,7 @@
    "Re:Zero — жизнь с нуля в другом мире OVA. Ледяные узы"
   ],
   "episodes": 2,
+  "duration": 68,
   "format": "OVA",
   "status": "FINISHED",
   "season": "FALL",
@@ -5111,6 +5189,7 @@
    "Моя геройская академия 3"
   ],
   "episodes": 25,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "SPRING",
@@ -5171,6 +5250,7 @@
    "Attack on Titan: O Rugido do Despertar"
   ],
   "episodes": 1,
+  "duration": 120,
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "WINTER",
@@ -5224,6 +5304,7 @@
    "มายฮีโร่ อคาเดเมีย กำเนิดใหม่ 2 วีรบุรุษ"
   ],
   "episodes": 1,
+  "duration": 96,
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "SUMMER",
@@ -5282,6 +5363,7 @@
    "Continued End Tale"
   ],
   "episodes": 6,
+  "duration": 26,
   "format": "OVA",
   "status": "FINISHED",
   "season": "WINTER",
@@ -5351,6 +5433,7 @@
    "Odrodzony jako galareta"
   ],
   "episodes": 24,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "FALL",
@@ -5453,6 +5536,7 @@
    "Моб Психо 100 II"
   ],
   "episodes": 13,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "WINTER",
@@ -5514,6 +5598,7 @@
    "Сага о Винланде"
   ],
   "episodes": 24,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "SUMMER",
@@ -5576,6 +5661,7 @@
    "Cuộc Chiến Tỏ Tình"
   ],
   "episodes": 12,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "WINTER",
@@ -5643,6 +5729,7 @@
    "Клинок, рассекающий демонов"
   ],
   "episodes": 26,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "SPRING",
@@ -5713,6 +5800,7 @@
   },
   "synonyms": [],
   "episodes": 6,
+  "duration": 7,
   "format": "SPECIAL",
   "status": "FINISHED",
   "season": "FALL",
@@ -5751,6 +5839,7 @@
    "San Valentín de polimorfismo de cristal: Intermedio agridulce"
   ],
   "episodes": 1,
+  "duration": 24,
   "format": "OVA",
   "status": "FINISHED",
   "season": "WINTER",
@@ -5801,6 +5890,7 @@
    "Моя геройская академия 4"
   ],
   "episodes": 25,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "FALL",
@@ -5866,6 +5956,7 @@
    "Madogatari"
   ],
   "episodes": 1,
+  "duration": 4,
   "format": "OVA",
   "status": "FINISHED",
   "season": null,
@@ -5912,6 +6003,7 @@
    "حمله به تایتان فصل 3"
   ],
   "episodes": 10,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "SPRING",
@@ -5977,6 +6069,7 @@
    "All Might: Rising The Animation"
   ],
   "episodes": 2,
+  "duration": 5,
   "format": "OVA",
   "status": "FINISHED",
   "season": "WINTER",
@@ -6026,6 +6119,7 @@
    "Moi, quand je me réincarne en Slime OAD"
   ],
   "episodes": 5,
+  "duration": 24,
   "format": "OVA",
   "status": "FINISHED",
   "season": "SUMMER",
@@ -6073,6 +6167,7 @@
    "排球少年!! 第四季"
   ],
   "episodes": 13,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "WINTER",
@@ -6127,6 +6222,7 @@
    "Thất nghiệp chuyển sinh"
   ],
   "episodes": 11,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "WINTER",
@@ -6184,6 +6280,7 @@
    "О моём перерождении в слизь 2"
   ],
   "episodes": 12,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "WINTER",
@@ -6245,6 +6342,7 @@
    "มายฮีโร่ อคาเดเมีย เดอะมูฟวี่: วีรบุรุษกู้โลก"
   ],
   "episodes": 1,
+  "duration": 104,
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "FALL",
@@ -6315,6 +6413,7 @@
    "Re:Zero — жизнь с нуля в другом мире. Второй сезон"
   ],
   "episodes": 13,
+  "duration": 26,
   "format": "TV",
   "status": "FINISHED",
   "season": "SUMMER",
@@ -6380,6 +6479,7 @@
    "Mob Psycho 100: The First Spirits and Such Field Trip - A Journey that Mends the Heart and Heals the Soul."
   ],
   "episodes": 1,
+  "duration": 24,
   "format": "OVA",
   "status": "FINISHED",
   "season": "SUMMER",
@@ -6432,6 +6532,7 @@
    "Атака Титанов: Финал"
   ],
   "episodes": 16,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "WINTER",
@@ -6494,6 +6595,7 @@
    "ไฮคิว คู่ตบฟ้าประทาน Riku vs Kuu OVA"
   ],
   "episodes": 2,
+  "duration": 23,
   "format": "OVA",
   "status": "FINISHED",
   "season": "WINTER",
@@ -6556,6 +6658,7 @@
    "Клинок, Рассекающий Демонов: Бесконечный Поезд"
   ],
   "episodes": 1,
+  "duration": 117,
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "FALL",
@@ -6621,6 +6724,7 @@
    "Kaguya-sama: Cuộc Chiến Tỏ Tình (Phần 2)"
   ],
   "episodes": 12,
+  "duration": 25,
   "format": "TV",
   "status": "FINISHED",
   "season": "SPRING",
@@ -6687,6 +6791,7 @@
    "Chú Thuật Hồi Chiến"
   ],
   "episodes": 24,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "FALL",
@@ -6747,6 +6852,7 @@
    "排球少年!! 第四季"
   ],
   "episodes": 12,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "FALL",
@@ -6803,6 +6909,7 @@
    "転スラ 2"
   ],
   "episodes": 12,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "SUMMER",
@@ -6881,6 +6988,7 @@
    "Моя геройская академия 5"
   ],
   "episodes": 25,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "SPRING",
@@ -6958,6 +7066,7 @@
    "Re:Zero — жизнь с нуля в другом мире. Второй сезон"
   ],
   "episodes": 12,
+  "duration": 30,
   "format": "TV",
   "status": "FINISHED",
   "season": "WINTER",
@@ -7021,6 +7130,7 @@
   },
   "synonyms": [],
   "episodes": 2,
+  "duration": 24,
   "format": "ONA",
   "status": "FINISHED",
   "season": "SUMMER",
@@ -7067,6 +7177,7 @@
    "Nona Kaguya Ingin Ditembak: Ultra Romantic"
   ],
   "episodes": 13,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "SPRING",
@@ -7126,6 +7237,7 @@
    "Kaguya-sama wa Kokurasetai: Tensai-tachi no Renai Zunousen OVA"
   ],
   "episodes": 1,
+  "duration": 24,
   "format": "OVA",
   "status": "FINISHED",
   "season": "SPRING",
@@ -7180,6 +7292,7 @@
    "มาย ฮีโร่ อาคาเดเมีย : รวมพลฮีโร่กู้วิกฤตโลก"
   ],
   "episodes": 1,
+  "duration": 104,
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "SUMMER",
@@ -7240,6 +7353,7 @@
    "My Hero Academia: Heroes Rising Picture Drama"
   ],
   "episodes": 1,
+  "duration": 10,
   "format": "SPECIAL",
   "status": "FINISHED",
   "season": "SUMMER",
@@ -7282,6 +7396,7 @@
    "Thợ Săn Quỷ"
   ],
   "episodes": 12,
+  "duration": 25,
   "format": "TV",
   "status": "FINISHED",
   "season": "FALL",
@@ -7369,6 +7484,7 @@
    "เกิดชาตินี้พี่ต้องเทพ พาร์ท 2"
   ],
   "episodes": 12,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "FALL",
@@ -7441,6 +7557,7 @@
    "Клинок, Рассекающий Демонов: Бесконечный Поезд"
   ],
   "episodes": 7,
+  "duration": 23,
   "format": "TV",
   "status": "FINISHED",
   "season": "FALL",
@@ -7505,6 +7622,7 @@
    "BTR"
   ],
   "episodes": 12,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "FALL",
@@ -7577,6 +7695,7 @@
    "My Hero Academia: Training of the Dead"
   ],
   "episodes": 1,
+  "duration": 25,
   "format": "OVA",
   "status": "FINISHED",
   "season": "SPRING",
@@ -7619,6 +7738,7 @@
    "Магическая битва 0"
   ],
   "episodes": 1,
+  "duration": 105,
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "FALL",
@@ -7673,6 +7793,7 @@
    "Атака титанов: Финал. Часть 2"
   ],
   "episodes": 12,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "WINTER",
@@ -7724,6 +7845,7 @@
    "Сага о Винланде 2"
   ],
   "episodes": 24,
+  "duration": 26,
   "format": "TV",
   "status": "FINISHED",
   "season": "WINTER",
@@ -7788,6 +7910,7 @@
    "Моя геройская академия 6"
   ],
   "episodes": 25,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "FALL",
@@ -7855,6 +7978,7 @@
    "Моб Психо 100 III"
   ],
   "episodes": 12,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "FALL",
@@ -7911,6 +8035,7 @@
    "Gia Đình Điệp Viên"
   ],
   "episodes": 12,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "SPRING",
@@ -7958,6 +8083,7 @@
    "Mushoku Tensei: Isekai Ittara Honki Dasu Part 2 Special"
   ],
   "episodes": 1,
+  "duration": 24,
   "format": "SPECIAL",
   "status": "FINISHED",
   "season": "WINTER",
@@ -8014,6 +8140,7 @@
    "Клинок, Рассекающий Демонов: Квартал Красных Фонарей"
   ],
   "episodes": 11,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "WINTER",
@@ -8075,6 +8202,7 @@
    "スパイファミリー 2クール"
   ],
   "episodes": 13,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "FALL",
@@ -8127,6 +8255,7 @@
    "Bakemonogatari Special PV"
   ],
   "episodes": 1,
+  "duration": 3,
   "format": "SPECIAL",
   "status": "FINISHED",
   "season": null,
@@ -8179,6 +8308,7 @@
    "Jujutsu Kaisen: Shibuya Incident"
   ],
   "episodes": 23,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "SUMMER",
@@ -8248,6 +8378,7 @@
    "Miecz zabójcy demonów – Kimetsu no Yaiba: Wioska płatnerzy"
   ],
   "episodes": 11,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "SPRING",
@@ -8303,6 +8434,7 @@
    "无职转生～到了异世界就拿出真本事～第2季"
   ],
   "episodes": 13,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "SUMMER",
@@ -8370,6 +8502,7 @@
    "Moi, quand je me réincarne en Slime"
   ],
   "episodes": 2,
+  "duration": 3,
   "format": "ONA",
   "status": "FINISHED",
   "season": "WINTER",
@@ -8416,6 +8549,7 @@
    "AoT 4"
   ],
   "episodes": 1,
+  "duration": 61,
   "format": "SPECIAL",
   "status": "FINISHED",
   "season": "WINTER",
@@ -8478,6 +8612,7 @@
    "[OSHI NO KO]"
   ],
   "episodes": 11,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "SPRING",
@@ -8538,6 +8673,7 @@
    "Госпожа Кагуя: в любви как на войне. Бесконечный первый поцелуй"
   ],
   "episodes": 4,
+  "duration": 25,
   "format": "TV",
   "status": "FINISHED",
   "season": "SPRING",
@@ -8594,6 +8730,7 @@
    "HAIKYU!! La Guerre des Poubelles"
   ],
   "episodes": 1,
+  "duration": 85,
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "WINTER",
@@ -8666,6 +8803,7 @@
    "Frieren: Tras finalizar el viaje"
   ],
   "episodes": 28,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "FALL",
@@ -8741,6 +8879,7 @@
    "転スラ 3"
   ],
   "episodes": 24,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "SPRING",
@@ -8810,6 +8949,7 @@
    "Spy x Family – Sezon 2"
   ],
   "episodes": 12,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "FALL",
@@ -8870,6 +9010,7 @@
    "SPY x FAMILY CÓDIGO: Branco"
   ],
   "episodes": 1,
+  "duration": 110,
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "FALL",
@@ -8928,6 +9069,7 @@
    "Dược sư tự sự"
   ],
   "episodes": 24,
+  "duration": 23,
   "format": "TV",
   "status": "FINISHED",
   "season": "FALL",
@@ -8995,6 +9137,7 @@
    "เกิดใหม่ทั้งทีก็เป็นสไลม์ไปซะแล้ว ฝันแห่งโคลีอัส"
   ],
   "episodes": 3,
+  "duration": 24,
   "format": "OVA",
   "status": "FINISHED",
   "season": "FALL",
@@ -9040,6 +9183,7 @@
    "ヴィンランド・サガ SEASON2 第6.5話 \"Drowning in the Shadow\""
   ],
   "episodes": 1,
+  "duration": 3,
   "format": "ONA",
   "status": "FINISHED",
   "season": "WINTER",
@@ -9082,6 +9226,7 @@
    "AoT 4"
   ],
   "episodes": 1,
+  "duration": 85,
   "format": "SPECIAL",
   "status": "FINISHED",
   "season": "FALL",
@@ -9126,6 +9271,7 @@
    "Re:ZERO – Жизнь с нуля в альтернативном мире 3"
   ],
   "episodes": 16,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "FALL",
@@ -9192,6 +9338,7 @@
    "ヴィンランド・サガ SEASON2 第18.5話 \"Same old story\""
   ],
   "episodes": 1,
+  "duration": 2,
   "format": "ONA",
   "status": "FINISHED",
   "season": "SPRING",
@@ -9232,6 +9379,7 @@
    "BOCCHI THE ROCK! THEATER COMPILATION"
   ],
   "episodes": 1,
+  "duration": 92,
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "SPRING",
@@ -9288,6 +9436,7 @@
   },
   "synonyms": [],
   "episodes": 1,
+  "duration": 10,
   "format": "ONA",
   "status": "FINISHED",
   "season": "FALL",
@@ -9335,6 +9484,7 @@
    "Клинок, рассекающий демонов: Тренировка столпов"
   ],
   "episodes": 8,
+  "duration": 30,
   "format": "TV",
   "status": "FINISHED",
   "season": "SPRING",
@@ -9388,6 +9538,7 @@
    "【OSHI NO KO】Season 2"
   ],
   "episodes": 13,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "SUMMER",
@@ -9444,6 +9595,7 @@
    "无职转生～到了异世界就拿出真本事～第2季"
   ],
   "episodes": 12,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "SPRING",
@@ -9507,6 +9659,7 @@
    "Frieren: Beyond Journey's End: Magic of ??"
   ],
   "episodes": 12,
+  "duration": 1,
   "format": "ONA",
   "status": "FINISHED",
   "season": "FALL",
@@ -9553,6 +9706,7 @@
    "薬屋のひとりごと ミニアニメ"
   ],
   "episodes": 24,
+  "duration": 2,
   "format": "ONA",
   "status": "FINISHED",
   "season": "FALL",
@@ -9600,6 +9754,7 @@
    "Дандадан"
   ],
   "episodes": 12,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "FALL",
@@ -9654,6 +9809,7 @@
    "BOCCHI THE ROCK! THEATER COMPILATION"
   ],
   "episodes": 1,
+  "duration": 77,
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "SUMMER",
@@ -9718,6 +9874,7 @@
    "Людина Бензопила: Арка Резе"
   ],
   "episodes": 1,
+  "duration": 100,
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "SUMMER",
@@ -9779,6 +9936,7 @@
    "มหาเวทย์ผนึกมาร จรดลล้างบาง พาร์ต 1"
   ],
   "episodes": 12,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "WINTER",
@@ -9838,6 +9996,7 @@
    "Haikyuu!! VS The Little Giant"
   ],
   "episodes": 1,
+  "duration": null,
   "format": "MOVIE",
   "status": "NOT_YET_RELEASED",
   "season": null,
@@ -9894,6 +10053,7 @@
    "Dược sư tự sự"
   ],
   "episodes": 24,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "WINTER",
@@ -9963,6 +10123,7 @@
    "間諜家家酒 Season 3"
   ],
   "episodes": 13,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "FALL",
@@ -10016,6 +10177,7 @@
    "Клинок, Рассекающий Демонов: Бесконечный Замок"
   ],
   "episodes": 1,
+  "duration": 155,
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "SUMMER",
@@ -10069,6 +10231,7 @@
    "เกิดชาตินี้พี่ต้องเทพ ซีซั่น 3"
   ],
   "episodes": 14,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "SUMMER",
@@ -10132,6 +10295,7 @@
    "Moi, quand je me réincarne en Slime Saison 4"
   ],
   "episodes": 24,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "SPRING",
@@ -10193,6 +10357,7 @@
    "Odrodzony jako galareta. Film: Łzy Morza Lazurowego"
   ],
   "episodes": 1,
+  "duration": 104,
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "WINTER",
@@ -10252,6 +10417,7 @@
    "장송의 프리렌 2기"
   ],
   "episodes": 10,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "WINTER",
@@ -10311,6 +10477,7 @@
    "【OSHI NO KO】Season 3"
   ],
   "episodes": 11,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "WINTER",
@@ -10369,6 +10536,7 @@
    "Dan Da Dan: Evil Eye"
   ],
   "episodes": 12,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "SUMMER",
@@ -10422,6 +10590,7 @@
    "薬屋のひとりごと 第2期 ミニアニメ"
   ],
   "episodes": 24,
+  "duration": 2,
   "format": "ONA",
   "status": "FINISHED",
   "season": "WINTER",
@@ -10480,6 +10649,7 @@
    "BTR2"
   ],
   "episodes": null,
+  "duration": null,
   "format": "TV",
   "status": "NOT_YET_RELEASED",
   "season": null,
@@ -10531,6 +10701,7 @@
    "Haikyuu!!: Where Monsters Go"
   ],
   "episodes": null,
+  "duration": null,
   "format": "SPECIAL",
   "status": "NOT_YET_RELEASED",
   "season": null,
@@ -10576,6 +10747,7 @@
    "Re:ZERO – Жизнь с нуля в альтернативном мире 4"
   ],
   "episodes": 19,
+  "duration": 24,
   "format": "TV",
   "status": "FINISHED",
   "season": "SPRING",
@@ -10638,6 +10810,7 @@
    "Frieren: Beyond Journey's End: Magic of ??"
   ],
   "episodes": 6,
+  "duration": 1,
   "format": "ONA",
   "status": "FINISHED",
   "season": "SPRING",
@@ -10690,6 +10863,7 @@
    "JUJUTSU KAISEN - Inventário Oculto / Morte Prematura - O Filme"
   ],
   "episodes": 1,
+  "duration": 111,
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "SPRING",
@@ -10748,6 +10922,7 @@
    "Kaguya-sama: Love Is War - The Grown-Up Staircase"
   ],
   "episodes": 2,
+  "duration": 26,
   "format": "SPECIAL",
   "status": "FINISHED",
   "season": "FALL",
@@ -10797,6 +10972,7 @@
   },
   "synonyms": [],
   "episodes": 1,
+  "duration": null,
   "format": "MOVIE",
   "status": "NOT_YET_RELEASED",
   "season": null,
@@ -10846,6 +11022,7 @@
   },
   "synonyms": [],
   "episodes": 1,
+  "duration": null,
   "format": "MOVIE",
   "status": "NOT_YET_RELEASED",
   "season": null,
@@ -10888,6 +11065,7 @@
   },
   "synonyms": [],
   "episodes": 12,
+  "duration": 24,
   "format": "TV",
   "status": "RELEASING",
   "season": "FALL",
@@ -10975,6 +11153,7 @@
   },
   "synonyms": [],
   "episodes": 5,
+  "duration": 1,
   "format": "ONA",
   "status": "FINISHED",
   "season": "SUMMER",
@@ -11019,6 +11198,7 @@
    "DAN DA DAN Season 3"
   ],
   "episodes": null,
+  "duration": null,
   "format": "TV",
   "status": "NOT_YET_RELEASED",
   "season": null,
@@ -11064,6 +11244,7 @@
    "The Apothecary Diaries Season 3 Cour 2"
   ],
   "episodes": 12,
+  "duration": null,
   "format": "TV",
   "status": "NOT_YET_RELEASED",
   "season": "SPRING",
@@ -11108,6 +11289,7 @@
    "The Apothecary Diaries Movie"
   ],
   "episodes": 1,
+  "duration": null,
   "format": "MOVIE",
   "status": "NOT_YET_RELEASED",
   "season": "FALL",
@@ -11149,6 +11331,7 @@
    "JUJUTSU KAISEN: Execution"
   ],
   "episodes": 1,
+  "duration": 88,
   "format": "MOVIE",
   "status": "FINISHED",
   "season": "FALL",
@@ -11208,6 +11391,7 @@
    "Chainsaw Man: Assassins Arc"
   ],
   "episodes": null,
+  "duration": null,
   "format": null,
   "status": "NOT_YET_RELEASED",
   "season": null,
@@ -11252,6 +11436,7 @@
    "Kaguya-sama: Love is War - Final Chapter"
   ],
   "episodes": 1,
+  "duration": null,
   "format": "MOVIE",
   "status": "NOT_YET_RELEASED",
   "season": null,
@@ -11298,6 +11483,7 @@
    "Sousou no Frieren: Marumaru no Mahou"
   ],
   "episodes": 6,
+  "duration": 1,
   "format": "ONA",
   "status": "FINISHED",
   "season": "WINTER",
@@ -11344,6 +11530,7 @@
    "【OSHI NO KO】Season 4"
   ],
   "episodes": null,
+  "duration": null,
   "format": "TV",
   "status": "NOT_YET_RELEASED",
   "season": null,
@@ -11390,6 +11577,7 @@
    "JUJUTSU KAISEN Season 4: The Culling Game Part 2"
   ],
   "episodes": null,
+  "duration": null,
   "format": null,
   "status": "NOT_YET_RELEASED",
   "season": null,
@@ -11436,6 +11624,7 @@
    "Sousou no Frieren 3rd Season [Ougonkyou-hen]"
   ],
   "episodes": null,
+  "duration": null,
   "format": "TV",
   "status": "NOT_YET_RELEASED",
   "season": "FALL",
@@ -11478,6 +11667,7 @@
   },
   "synonyms": [],
   "episodes": 1,
+  "duration": 2,
   "format": "SPECIAL",
   "status": "FINISHED",
   "season": "SUMMER",
@@ -11522,6 +11712,7 @@
    "Tensura 4 Part 3"
   ],
   "episodes": null,
+  "duration": null,
   "format": "TV",
   "status": "NOT_YET_RELEASED",
   "season": "SUMMER",
@@ -11566,6 +11757,7 @@
    "Mushoku Tensei: Jobless Reincarnation Season 3 Part 2"
   ],
   "episodes": null,
+  "duration": null,
   "format": "TV",
   "status": "NOT_YET_RELEASED",
   "season": null,
@@ -11613,6 +11805,7 @@
    "The Apothecary Diaries: Maomao's Monologue Season 3"
   ],
   "episodes": null,
+  "duration": 2,
   "format": "ONA",
   "status": "RELEASING",
   "season": "FALL",
@@ -11661,6 +11854,7 @@
    "Bocchi the Rock! Movie"
   ],
   "episodes": 1,
+  "duration": null,
   "format": "MOVIE",
   "status": "NOT_YET_RELEASED",
   "season": null,
@@ -11713,6 +11907,7 @@
    "スパイファミリー 4"
   ],
   "episodes": null,
+  "duration": null,
   "format": "TV",
   "status": "NOT_YET_RELEASED",
   "season": null,
@@ -11757,6 +11952,7 @@
    "Re:ZERO -Starting Life in Another World- Season 5"
   ],
   "episodes": null,
+  "duration": null,
   "format": "TV",
   "status": "NOT_YET_RELEASED",
   "season": null,

@@ -125,6 +125,8 @@ export const CASES: EvalCase[] = [
     expect: { readOnly: true, tools: ["whats_next"], mentions: ["One Piece"] } },
   { id: "next-air-date", prompt: "When does the next episode of The Apothecary Diaries come out?", idealCalls: 1,
     expect: { readOnly: true, tools: ["whats_next"], mentions: ["episode 8"] } },
+  { id: "next-tonight", prompt: "I have about two hours tonight. Which show can I catch up on?", idealCalls: 1,
+    expect: { readOnly: true, tools: ["whats_next"], mentions: ["Dandadan"] } },
   { id: "next-behind", prompt: "How far behind am I on One Piece?", idealCalls: 1,
     expect: { readOnly: true, mentions: ["80"] } },
   { id: "next-more-frieren", prompt: "I finished Frieren, is there more?", idealCalls: 1,

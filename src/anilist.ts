@@ -57,6 +57,8 @@ export interface Media {
   title: MediaTitle;
   synonyms: string[];
   episodes: number | null;
+  /** Minutes per episode. */
+  duration: number | null;
   format: string | null;
   status: string | null;
   seasonYear: number | null;
@@ -110,6 +112,7 @@ const MEDIA_FIELDS = `
   title { romaji english native }
   synonyms
   episodes
+  duration
   format
   status
   seasonYear

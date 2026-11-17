@@ -232,11 +232,28 @@ export function buildReport(list: Media[], sequels: NextSeason[], now: number): 
   return { newEpisodes, waiting, unknown, onHold, nextSeasons: sequels };
 }
 
+/**
+ * ", about 2 hours" for `episodes` episodes of `duration` minutes each, or "" when the
+ * duration is unknown. Minutes (to the nearest 5) under an hour, then hours to the
+ * nearest half, and whole hours from 10 up.
+ */
+export function watchTime(episodes: number, duration: number | null): string {
+  if (!duration || episodes <= 0) return "";
+  const minutes = episodes * duration;
+  if (minutes < 5) return ", a few minutes";
+  const roundedMinutes = Math.round(minutes / 5) * 5;
+  if (roundedMinutes < 60) return `, about ${roundedMinutes} minutes`;
+  const half = Math.round(minutes / 30) / 2;
+  const hours = half >= 10 ? Math.round(minutes / 60) : half;
+  return `, about ${hours} hour${hours === 1 ? "" : "s"}`;
+}
+
 function behindLine(b: Behind, now: number, timeZone: string, language: TitleLanguage): string {
   const n = b.aired - b.progress;
   const next = upcoming(b.media, now);
   const airing = next ? ` Episode ${next.episode} airs ${formatAirTime(next.airingAt, now, timeZone)}.` : "";
-  return `- ${displayTitle(b.media.title, language)}: ${n} episode${n === 1 ? "" : "s"} to watch (on ${b.progress} of ${b.aired} aired).${airing}`;
+  const time = watchTime(n, b.media.duration);
+  return `- ${displayTitle(b.media.title, language)}: ${n} episode${n === 1 ? "" : "s"} to watch${time} (on ${b.progress} of ${b.aired} aired).${airing}`;
 }
 
 function sequelDetail(s: NextSeason, language: TitleLanguage): string {
@@ -320,7 +337,7 @@ export function formatShow(
   if (entry) {
     const left = aired !== null ? aired - entry.progress : null;
     lines.push(
-      `You: ${statusLabel(entry.status)}, watched ${entry.progress}${left && left > 0 ? `, ${left} aired episode${left === 1 ? "" : "s"} to go` : ""}.`,
+      `You: ${statusLabel(entry.status)}, watched ${entry.progress}${left && left > 0 ? `, ${left} aired episode${left === 1 ? "" : "s"} to go${watchTime(left, m.duration)}` : ""}.`,
     );
   } else {
     lines.push("Not on your list.");
