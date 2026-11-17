@@ -19,6 +19,30 @@ export function airedEpisodes(m: Pick<Media, "status" | "episodes" | "nextAiring
   return null;
 }
 
+/**
+ * Progress for "I'm caught up": every aired episode, never lower than where the user is
+ * (AniList's schedule can lag). Throws, so nothing is saved, when AniList doesn't know
+ * how many episodes are out: the assistant should ask for a number rather than guess.
+ */
+export function caughtUpProgress(
+  m: Pick<Media, "status" | "episodes" | "nextAiringEpisode" | "title">,
+  progress: number,
+  now: number,
+  language: TitleLanguage,
+): { episodes: number; note: string } {
+  const aired = airedEpisodes(m, now);
+  if (aired === null) {
+    throw new Error(
+      `Nothing was changed. AniList has no airing schedule for ${displayTitle(m.title, language)}, so it doesn't say how many episodes are out. Ask the user which episode they're on, then call again with that number.`,
+    );
+  }
+  if (aired < progress) {
+    return { episodes: progress, note: ` AniList says only ${aired} episode${aired === 1 ? " has" : "s have"} aired, so progress stays at ${progress}.` };
+  }
+  const of = m.episodes ? ` of ${m.episodes}` : "";
+  return { episodes: aired, note: m.status === "FINISHED" ? " That's every episode." : ` Latest aired episode: ${aired}${of}.` };
+}
+
 /** The next episode, if its air time is still ahead (AniList can lag after an episode airs). */
 export function upcoming(m: Pick<Media, "nextAiringEpisode">, now: number): Media["nextAiringEpisode"] {
   const next = m.nextAiringEpisode;
