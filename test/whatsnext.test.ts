@@ -178,7 +178,7 @@ describe("whats_next tool", () => {
     const season = await call({ anime: "the new frieren season", timeZone: "UTC" });
     expect(season.text).toContain("[182255]");
     expect(season.text).toContain("Stream on (availability varies by region):");
-    expect(season.requests).toBe(3); // the viewer is cached by now: one fewer than a first call
+    expect(season.requests).toBe(2); // the viewer and list are cached by now: search, then getRelated
   });
 
   test("the full report doesn't fetch streaming links", async () => {
