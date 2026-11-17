@@ -25,6 +25,70 @@ beforeEach(async () => {
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
 });
 
+describe("title language", () => {
+  test("the viewer query asks for the title language", async () => {
+    await call("search_my_list", {});
+    expect(fake.calls.find((c) => c.query.includes("Viewer"))!.query).toContain("options { titleLanguage }");
+  });
+
+  test("results print the English title alone for English readers", async () => {
+    fake.seed(PERSONA);
+    const r = await call("mark_episodes_watched", { anime: "jjk" });
+    expect(r.text).toBe(
+      'Matched "jjk" to JUJUTSU KAISEN Season 2: you\'re watching it.\n' +
+        "JUJUTSU KAISEN Season 2: episode 3 -> 4.\n" +
+        "[145064] JUJUTSU KAISEN Season 2 (TV, 2023): Watching, 4/23 episodes, unrated",
+    );
+  });
+
+  test("results print the romaji title alone for romaji readers, and English names still match", async () => {
+    fake.titleLanguage = "ROMAJI";
+    fake.seed(PERSONA);
+    const r = await call("mark_episodes_watched", { anime: "jujutsu kaisen season 2" });
+    expect(r.text).toBe(
+      'Matched "jujutsu kaisen season 2" to Jujutsu Kaisen 2nd Season: it\'s season 2, going by its title.\n' +
+        "Jujutsu Kaisen 2nd Season: episode 3 -> 4.\n" +
+        "[145064] Jujutsu Kaisen 2nd Season (TV, 2023): Watching, 4/23 episodes, unrated",
+    );
+    const rated = await call("rate_anime", { anime: "attack on titan season 2", score: 8 });
+    expect(rated.text).toContain("Rated Shingeki no Kyojin Season 2:");
+    expect(rated.text).not.toContain("Attack on Titan Season 2");
+  });
+
+  test("native readers get native titles; romaji names still match", async () => {
+    fake.titleLanguage = "NATIVE";
+    fake.seed(PERSONA);
+    const r = await call("search_my_list", { query: "sousou no frieren" });
+    expect(r.text).toContain("[154587] 葬送のフリーレン (TV, 2023): Completed");
+    expect(r.text).not.toContain("Frieren: Beyond");
+  });
+
+  test("a show with no title in the user's language falls back to romaji", async () => {
+    const r = await call("add_to_list", { anime: 761 });
+    expect(r.text).toBe(
+      "Added: [761] NARUTO: Akaki Yotsuba no Clover wo Sagase (SPECIAL, 2003): Plan to watch, 0/1 episodes, unrated",
+    );
+  });
+
+  test("ambiguous candidates keep a second title, the preferred one first", async () => {
+    fake.titleLanguage = "ROMAJI";
+    fake.seed(PERSONA);
+    const r = await call("rate_anime", { anime: "attack on titan", score: 10 });
+    expect(r.isError).toBe(true);
+    expect(r.text).toContain("[16498] Shingeki no Kyojin (Attack on Titan) (TV, 2013), on your list: completed");
+  });
+
+  test("a missing title language setting defaults to romaji, AniList's default", async () => {
+    const fetchWithoutOptions = async (url: string, init: RequestInit) => {
+      const res = await fake.fetch(url, init);
+      const body = (await res.json()) as { data?: { Viewer?: { options: unknown } } };
+      if (body.data?.Viewer) body.data.Viewer.options = null;
+      return new Response(JSON.stringify(body), { status: res.status });
+    };
+    expect((await new AniListClient("t", fetchWithoutOptions).getViewer()).titleLanguage).toBe("ROMAJI");
+  });
+});
+
 describe("tools", () => {
   test("lists every tool", async () => {
     const { tools } = await client.listTools();
@@ -58,7 +122,7 @@ describe("tools", () => {
 
   test("search_anime finds shows and shows list state", async () => {
     const r = await call("search_anime", { query: "titan" });
-    expect(r.text).toContain("[16498] Attack on Titan (Shingeki no Kyojin)");
+    expect(r.text).toContain("[16498] Attack on Titan (TV, 2013): not on your list");
     expect(r.text).toContain("[20958] Attack on Titan Season 2");
     expect(r.text).toContain("not on your list");
   });
@@ -97,7 +161,7 @@ describe("tools", () => {
   test("rate_anime sends a raw score and reports it in the user's format", async () => {
     const r = await call("rate_anime", { anime: 16498, score: 8 });
     expect(fake.calls.at(-1)!.variables.scoreRaw).toBe(80);
-    expect(r.text).toBe("Rated Attack on Titan (Shingeki no Kyojin): 4 stars (of 5)");
+    expect(r.text).toBe("Rated Attack on Titan: 4 stars (of 5)");
     expect(fake.entries.get(16498)!.scoreRaw).toBe(80);
   });
 
@@ -153,7 +217,7 @@ describe("tools", () => {
     fake.seed(PERSONA);
     const r = await call("mark_episodes_watched", { anime: "jjk" });
     expect(r.isError).toBe(false);
-    expect(r.text).toContain('Matched "jjk" to JUJUTSU KAISEN Season 2 (Jujutsu Kaisen 2nd Season): you\'re watching it.');
+    expect(r.text).toContain('Matched "jjk" to JUJUTSU KAISEN Season 2: you\'re watching it.');
     expect(r.text).toContain("episode 3 -> 4");
     expect(fake.entries.get(145064)!.progress).toBe(4);
     expect(fake.entries.get(113415)!.progress).toBe(24);

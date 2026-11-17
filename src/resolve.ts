@@ -3,8 +3,8 @@
  * "frieran") into one AniList entry, or a short list of candidates when it is
  * genuinely ambiguous. See docs/REQUIREMENTS.md, R1.
  */
-import type { ListStatus, Media, RelationEdge } from "./anilist";
-import { displayTitle, normalize } from "./logic";
+import type { ListStatus, Media, RelationEdge, TitleLanguage } from "./anilist";
+import { bothTitles, displayTitle, normalize } from "./logic";
 
 /** What the caller wants to do with the show; it decides which season is most likely meant. */
 export type Intent = "progress" | "status" | "rate" | "add" | "remove" | "lookup";
@@ -332,13 +332,19 @@ export function memo(source: AnimeSource): AnimeSource {
   };
 }
 
-export async function resolveAnime(query: string, intent: Intent, source: AnimeSource): Promise<Resolution> {
+/** `language` is the user's title language, for titles quoted in `why`; matching ignores it. */
+export async function resolveAnime(
+  query: string,
+  intent: Intent,
+  source: AnimeSource,
+  language: TitleLanguage,
+): Promise<Resolution> {
   const src = memo(source);
   const q = parseQuery(query);
   if (q.literal && (await matchesStrongly(q.literal, intent, src))) {
-    return resolveParsed(query, q.literal, intent, src);
+    return resolveParsed(query, q.literal, intent, src, language);
   }
-  return resolveParsed(query, q, intent, src);
+  return resolveParsed(query, q, intent, src, language);
 }
 
 async function matchesStrongly(q: ParsedQuery, intent: Intent, source: AnimeSource): Promise<boolean> {
@@ -348,7 +354,13 @@ async function matchesStrongly(q: ParsedQuery, intent: Intent, source: AnimeSour
   return intent !== "remove" && strong(await source.search(q.words.join(" ")));
 }
 
-async function resolveParsed(query: string, q: ParsedQuery, intent: Intent, source: AnimeSource): Promise<Resolution> {
+async function resolveParsed(
+  query: string,
+  q: ParsedQuery,
+  intent: Intent,
+  source: AnimeSource,
+  language: TitleLanguage,
+): Promise<Resolution> {
   if (q.words.length === 0) return { kind: "none", why: `"${query}" doesn't name a show.` };
 
   const list = await source.listMedia();
@@ -382,7 +394,7 @@ async function resolveParsed(query: string, q: ParsedQuery, intent: Intent, sour
     return { kind: "none", why: `Couldn't find "${query}" ${where}.` };
   }
 
-  if (q.hint.latest || q.hint.next) return resolveRelative(query, q, pool, source);
+  if (q.hint.latest || q.hint.next) return resolveRelative(query, q, pool, source, language);
   if (q.hint.season !== undefined || q.hint.part !== undefined) {
     return resolveSeason(q, intent, pool, source);
   }
@@ -484,7 +496,13 @@ function rootsOf(pool: Scored[]): Scored[] {
  * "The new season" (the most recent one that has aired) and "the next season" (the one
  * after the furthest the user has started), found by walking the sequel chain from season 1.
  */
-async function resolveRelative(query: string, q: ParsedQuery, pool: Scored[], source: AnimeSource): Promise<Resolution> {
+async function resolveRelative(
+  query: string,
+  q: ParsedQuery,
+  pool: Scored[],
+  source: AnimeSource,
+  language: TitleLanguage,
+): Promise<Resolution> {
   const picked = pickRoot(pool, query);
   if (!("root" in picked)) return picked;
   const { root } = picked;
@@ -494,7 +512,7 @@ async function resolveRelative(query: string, q: ParsedQuery, pool: Scored[], so
   if (q.hint.latest) {
     const aired = chain.filter(hasAired).filter((m) => q.hint.part === undefined || (titlePart(m) ?? 1) === q.hint.part);
     const latest = aired.at(-1);
-    if (!latest) return { kind: "none", why: `No season of ${displayTitle(root.title)} has aired yet.` };
+    if (!latest) return { kind: "none", why: `No season of ${displayTitle(root.title, language)} has aired yet.` };
     return { kind: "match", media: latest, why: "it's the latest season that has aired" };
   }
 
@@ -506,9 +524,9 @@ async function resolveRelative(query: string, q: ParsedQuery, pool: Scored[], so
   const next = chain[anchor >= 0 ? anchor + 1 : 1];
   if (!next) {
     const after = anchor >= 0 ? chain[anchor]! : root;
-    return { kind: "none", why: `AniList doesn't list a season after ${displayTitle(after.title)} yet.` };
+    return { kind: "none", why: `AniList doesn't list a season after ${displayTitle(after.title, language)} yet.` };
   }
-  const why = anchor >= 0 ? `it's the season after ${displayTitle(chain[anchor]!.title)}` : "it's the sequel to the first season";
+  const why = anchor >= 0 ? `it's the season after ${displayTitle(chain[anchor]!.title, language)}` : "it's the sequel to the first season";
   return { kind: "match", media: next, why };
 }
 
@@ -602,12 +620,13 @@ async function resolveSeason(
   return { kind: "match", media: best.media, why };
 }
 
-export function describeCandidates(candidates: Media[]): string {
+/** Candidates keep a second title: the user may know the show by either name. */
+export function describeCandidates(candidates: Media[], language: TitleLanguage): string {
   return candidates
     .map((m) => {
       const meta = [m.format, m.seasonYear].filter(Boolean).join(", ");
       const entry = m.mediaListEntry ? `on your list: ${m.mediaListEntry.status.toLowerCase()}` : "not on your list";
-      return `[${m.id}] ${displayTitle(m.title)}${meta ? ` (${meta})` : ""}, ${entry}`;
+      return `[${m.id}] ${bothTitles(m.title, language)}${meta ? ` (${meta})` : ""}, ${entry}`;
     })
     .join("\n");
 }

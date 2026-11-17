@@ -3,7 +3,7 @@
  * backed by a snapshot of real AniList metadata (test/fixtures/media.json).
  * Used by the unit tests and by the eval harness.
  */
-import type { ListStatus, ScoreFormat } from "../../src/anilist";
+import type { ListStatus, ScoreFormat, TitleLanguage } from "../../src/anilist";
 import { normalize } from "../../src/logic";
 import catalogJson from "../fixtures/media.json";
 
@@ -62,6 +62,8 @@ export class FakeAniList {
   nextEntryId = 1000;
   calls: { query: string; variables: Record<string, any> }[] = [];
   rateLimited = false;
+  /** The viewer's AniList title language setting. */
+  titleLanguage: TitleLanguage = "ENGLISH";
 
   constructor(
     public scoreFormat: ScoreFormat = "POINT_10_DECIMAL",
@@ -172,7 +174,14 @@ export class FakeAniList {
     const json = (data: unknown) => new Response(JSON.stringify({ data }));
 
     if (query.includes("Viewer")) {
-      return json({ Viewer: { id: 1, name: this.viewerName, mediaListOptions: { scoreFormat: this.scoreFormat } } });
+      return json({
+        Viewer: {
+          id: 1,
+          name: this.viewerName,
+          mediaListOptions: { scoreFormat: this.scoreFormat },
+          options: { titleLanguage: this.titleLanguage },
+        },
+      });
     }
     if (query.includes("id_in")) {
       const ids: number[] = variables.ids ?? [];

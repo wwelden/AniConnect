@@ -67,13 +67,14 @@ async function target(
   if (typeof input === "number" || /^\d+$/.test(input.trim())) {
     return { media: await client.getAnime(Number(input)), note: "" };
   }
-  const r = await resolveAnime(input, intent, source);
+  const { titleLanguage } = await client.getViewer();
+  const r = await resolveAnime(input, intent, source, titleLanguage);
   if (r.kind === "match") {
-    return { media: r.media, note: `Matched "${input}" to ${displayTitle(r.media.title)}: ${r.why}.\n` };
+    return { media: r.media, note: `Matched "${input}" to ${displayTitle(r.media.title, titleLanguage)}: ${r.why}.\n` };
   }
   if (r.kind === "ambiguous") {
     throw new Error(
-      `${prefix}${r.why} Ask the user which one they mean, then call again with its ID:\n${describeCandidates(r.candidates)}`,
+      `${prefix}${r.why} Ask the user which one they mean, then call again with its ID:\n${describeCandidates(r.candidates, titleLanguage)}`,
     );
   }
   throw new Error(`${prefix}${r.why} Pass just the show's name, or try search_anime with a different spelling.`);
@@ -113,7 +114,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
         client.searchAnime(query, limit),
       ]);
       if (results.length === 0) return text(`No anime found for "${query}".`);
-      return text(results.map((m) => describeEntry(m, m.mediaListEntry, viewer.scoreFormat)).join("\n"));
+      return text(results.map((m) => describeEntry(m, m.mediaListEntry, viewer)).join("\n"));
     }),
   );
 
@@ -139,9 +140,10 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       if (entries.length === 0) {
         return text(`Nothing on ${viewer.name}'s list${filter ? ` matching ${filter}` : ""}.`);
       }
-      entries.sort((a, b) => displayTitle(a.media.title).localeCompare(displayTitle(b.media.title)));
+      const title = (e: (typeof entries)[number]) => displayTitle(e.media.title, viewer.titleLanguage);
+      entries.sort((a, b) => title(a).localeCompare(title(b)));
       const shown = entries.slice(0, limit);
-      const lines = shown.map((e) => describeEntry(e.media, e, viewer.scoreFormat));
+      const lines = shown.map((e) => describeEntry(e.media, e, viewer));
       const header = `${entries.length} match${entries.length === 1 ? "" : "es"} on ${viewer.name}'s list${filter ? ` for ${filter}` : ""}${entries.length > limit ? ` (showing ${limit})` : ""}:`;
       return text([header, ...lines].join("\n"));
     }),
@@ -167,6 +169,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       const at = now();
       const source = memo(clientSource(client));
       const list = await source.listMedia();
+      const { titleLanguage } = await client.getViewer(); // fetched with the list, so no extra request
       const listStatus = new Map(list.map((m) => [m.id, m.mediaListEntry!.status]));
 
       if (anime !== undefined) {
@@ -174,7 +177,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
         // show is described (with its next season) rather than a similarly named one.
         const { media, note } = await target(client, anime, "status", source, false);
         const show = media.relations ? media : ((await client.getMany([media.id]))[0] ?? media);
-        return text(`${note}${formatShow(show, nextSeasons([show], listStatus), listStatus, at, zone)}`);
+        return text(`${note}${formatShow(show, nextSeasons([show], listStatus), listStatus, at, zone, titleLanguage)}`);
       }
 
       const finished = list
@@ -182,7 +185,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
         .sort((a, b) => dateNum(b.mediaListEntry!.completedAt) - dateNum(a.mediaListEntry!.completedAt))
         .slice(0, SEQUEL_CHECK_LIMIT);
       const sequels = nextSeasons(await client.getMany(finished.map((m) => m.id)), listStatus);
-      return text(formatReport(buildReport(list, sequels, at), at, zone));
+      return text(formatReport(buildReport(list, sequels, at), at, zone, titleLanguage));
     }),
   );
 
@@ -199,7 +202,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       const [viewer, { media, note }] = await Promise.all([client.getViewer(), target(client, anime, "add")]);
       if (media.mediaListEntry) {
         return text(
-          `${note}Already on your list, unchanged: ${describeEntry(media, media.mediaListEntry, viewer.scoreFormat)}`,
+          `${note}Already on your list, unchanged: ${describeEntry(media, media.mediaListEntry, viewer)}`,
         );
       }
       const saved = await client.saveEntry({
@@ -207,7 +210,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
         status,
         ...(status === "COMPLETED" && media.episodes ? { progress: media.episodes } : {}),
       });
-      return text(`${note}Added: ${describeEntry(saved.media, saved, viewer.scoreFormat)}`);
+      return text(`${note}Added: ${describeEntry(saved.media, saved, viewer)}`);
     }),
   );
 
@@ -230,7 +233,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       });
       const before = media.mediaListEntry ? statusLabel(media.mediaListEntry.status) : "not on list";
       return text(
-        `${note}${before} -> ${statusLabel(status as ListStatus)}: ${describeEntry(saved.media, saved, viewer.scoreFormat)}`,
+        `${note}${before} -> ${statusLabel(status as ListStatus)}: ${describeEntry(saved.media, saved, viewer)}`,
       );
     }),
   );
@@ -252,7 +255,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       const [viewer, { media, note }] = await Promise.all([client.getViewer(), target(client, anime, "rate")]);
       const saved = await client.saveEntry({ mediaId: media.id, scoreRaw });
       return text(
-        `${note}Rated ${displayTitle(saved.media.title)}: ${formatScore(saved.displayScore, viewer.scoreFormat)}`,
+        `${note}Rated ${displayTitle(saved.media.title, viewer.titleLanguage)}: ${formatScore(saved.displayScore, viewer.scoreFormat)}`,
       );
     }),
   );
@@ -265,7 +268,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
     const saved = await client.saveEntry({ mediaId: media.id, ...plan });
     const statusNote = plan.status ? ` Status is now ${statusLabel(plan.status)}.` : "";
     return text(
-      `${note}${displayTitle(saved.media.title)}: episode ${before} -> ${saved.progress}.${statusNote}\n${describeEntry(saved.media, saved, viewer.scoreFormat)}`,
+      `${note}${displayTitle(saved.media.title, viewer.titleLanguage)}: episode ${before} -> ${saved.progress}.${statusNote}\n${describeEntry(saved.media, saved, viewer)}`,
     );
   };
 
@@ -310,13 +313,12 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
     },
     safe(async ({ anime }) => {
       const { media } = await target(client, anime, "remove");
-      if (!media.mediaListEntry) return text(`${displayTitle(media.title)} isn't on your list.`);
+      // Cached once fetched (resolving a name fetches it), so this is a request only on first use.
+      const viewer = await client.getViewer();
+      const title = displayTitle(media.title, viewer.titleLanguage);
+      if (!media.mediaListEntry) return text(`${title} isn't on your list.`);
       const deleted = await client.deleteEntry(media.mediaListEntry.id);
-      return text(
-        deleted
-          ? `Removed ${displayTitle(media.title)} from your list.`
-          : `AniList did not delete ${displayTitle(media.title)}.`,
-      );
+      return text(deleted ? `Removed ${title} from your list.` : `AniList did not delete ${title}.`);
     }),
   );
 

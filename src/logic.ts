@@ -1,4 +1,4 @@
-import type { FuzzyDate, ListEntry, ListStatus, Media, MediaTitle, ScoreFormat } from "./anilist";
+import type { FuzzyDate, ListEntry, ListStatus, Media, MediaTitle, ScoreFormat, TitleLanguage } from "./anilist";
 
 export function normalize(text: string): string {
   return text
@@ -22,9 +22,32 @@ export function matchesTitle(media: Pick<Media, "title" | "synonyms">, query: st
   return names.some((name) => words.every((w) => name.includes(w)));
 }
 
-export function displayTitle(title: MediaTitle): string {
-  const main = title.english ?? title.romaji ?? title.native ?? "Untitled";
-  return title.romaji && title.romaji !== main ? `${main} (${title.romaji})` : main;
+/** Which title to show for each language setting, then what to fall back to when AniList has none. */
+const TITLE_ORDER: Record<TitleLanguage, (keyof MediaTitle)[]> = {
+  ROMAJI: ["romaji", "english", "native"],
+  ROMAJI_STYLISED: ["romaji", "english", "native"],
+  ENGLISH: ["english", "romaji", "native"],
+  ENGLISH_STYLISED: ["english", "romaji", "native"],
+  NATIVE: ["native", "romaji", "english"],
+  NATIVE_STYLISED: ["native", "romaji", "english"],
+};
+
+/** One title, in the language the user reads titles in on AniList. */
+export function displayTitle(title: MediaTitle, language: TitleLanguage): string {
+  for (const key of TITLE_ORDER[language]) {
+    if (title[key]) return title[key];
+  }
+  return "Untitled";
+}
+
+/**
+ * The display title plus one other name the user may know the show by, for lists of
+ * candidates to choose between: "JUJUTSU KAISEN Season 2 (Jujutsu Kaisen 2nd Season)".
+ */
+export function bothTitles(title: MediaTitle, language: TitleLanguage): string {
+  const main = displayTitle(title, language);
+  const other = [title.english, title.romaji].find((t) => t && t !== main);
+  return other ? `${main} (${other})` : main;
 }
 
 export function todayFuzzy(now = new Date()): FuzzyDate {
@@ -117,11 +140,11 @@ export function statusLabel(status: ListStatus): string {
 export function describeEntry(
   media: Media,
   entry: Pick<ListEntry, "status" | "progress" | "displayScore"> | null,
-  scoreFormat: ScoreFormat,
+  viewer: { scoreFormat: ScoreFormat; titleLanguage: TitleLanguage },
 ): string {
   const episodes = media.episodes ?? "?";
   const meta = [media.format, media.seasonYear].filter(Boolean).join(", ");
-  const head = `[${media.id}] ${displayTitle(media.title)}${meta ? ` (${meta})` : ""}`;
+  const head = `[${media.id}] ${displayTitle(media.title, viewer.titleLanguage)}${meta ? ` (${meta})` : ""}`;
   if (!entry) return `${head}: not on your list, ${episodes} episodes`;
-  return `${head}: ${statusLabel(entry.status)}, ${entry.progress}/${episodes} episodes, ${formatScore(entry.displayScore, scoreFormat)}`;
+  return `${head}: ${statusLabel(entry.status)}, ${entry.progress}/${episodes} episodes, ${formatScore(entry.displayScore, viewer.scoreFormat)}`;
 }
