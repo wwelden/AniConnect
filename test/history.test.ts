@@ -148,6 +148,14 @@ describe("watch_history tool", () => {
     expect(r.text).not.toContain("ONE PIECE");
   });
 
+  test("a named season is found on the list without searching AniList", async () => {
+    const r = await call("watch_history", { anime: "jjk season 2", timeZone: "UTC" });
+    expect(r.text).toMatch(/JUJUTSU KAISEN Season 2[^\n]*: watched episode 3/);
+    // Viewer, the list, and one page of activity.
+    expect(fake.calls.length).toBe(3);
+    expect(fake.calls.some((c) => c.query.includes("search:"))).toBe(false);
+  });
+
   test("records new episodes, merging an episode logged soon after into one range", async () => {
     await call("mark_episodes_watched", { anime: "dandadan" });
     clock += 20 * 60_000;

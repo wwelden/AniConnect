@@ -339,7 +339,9 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       const zone = checkTimeZone(timeZone ?? userZone(await client.getViewer()));
       const at = now();
       const range = parsePeriod(period ?? (anime === undefined ? "last 7 days" : "all time"), at, zone);
-      const show = anime === undefined ? undefined : await target(client, anime, "status", undefined, false);
+      // Only shows on the list have history, so resolve against the list alone ("remove" never
+      // searches the rest of AniList): one request (R5.2).
+      const show = anime === undefined ? undefined : await target(client, anime, "remove", undefined, false);
       const { titleLanguage } = await client.getViewer(); // cached: getMyActivity needs it too
       const { activities, hasNextPage } = await client.getMyActivity({
         from: range.start > 0 ? Math.floor(range.start / 1000) : undefined,
