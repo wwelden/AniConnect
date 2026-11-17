@@ -1,4 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { ElicitRequestFormParams, ElicitResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import pkg from "../package.json" with { type: "json" };
 import {
@@ -32,6 +33,7 @@ import {
   toRawScore,
 } from "./logic";
 import {
+  candidateLabel,
   describeCandidates,
   memo,
   resolveAnime,
@@ -144,6 +146,43 @@ export function clientSource(client: AniListClient, options: LinkOptions = {}): 
 const ADULT_HIDDEN =
   "turn on 18+ content in the user's AniList settings, or use the show's AniList ID (the number in its anilist.co URL).";
 
+/**
+ * Shows the user a form through their MCP client (elicitation, R2.7). null when the client
+ * can't show one or the request failed, so the caller falls back to asking through the assistant.
+ */
+type Ask = (params: ElicitRequestFormParams) => Promise<ElicitResult | null>;
+
+/**
+ * Asks the user to pick one of several equally likely shows. undefined when they couldn't be
+ * asked: no form, or one closed without an answer ("cancel"), which is also what clients that
+ * can't show forms right now (Claude Code's non-interactive mode) send back.
+ */
+async function pick(
+  ask: Ask,
+  why: string,
+  candidates: Media[],
+  language: TitleLanguage,
+): Promise<{ media: Media } | { declined: true } | undefined> {
+  const answer = await ask({
+    message: `${why} Which one do you mean?`,
+    requestedSchema: {
+      type: "object",
+      properties: {
+        anime: {
+          type: "string",
+          title: "Show",
+          oneOf: candidates.map((m) => ({ const: String(m.id), title: candidateLabel(m, language) })),
+        },
+      },
+      required: ["anime"],
+    },
+  });
+  if (!answer || answer.action === "cancel") return undefined;
+  if (answer.action === "decline") return { declined: true };
+  const media = candidates.find((m) => String(m.id) === answer.content?.anime);
+  return media ? { media } : undefined;
+}
+
 /** Finds the show a tool call is about, or throws a message that tells the assistant what to do. */
 async function target(
   client: AniListClient,
@@ -153,6 +192,8 @@ async function target(
   changes = true,
   /** Tried when `intent` finds nothing, e.g. "remove" (the list alone) then all of AniList. */
   fallback?: Intent,
+  /** Asks the user directly to pick between ambiguous shows, when the client can. */
+  ask?: Ask,
 ): Promise<{ media: Media; note: string }> {
   const prefix = changes ? "Nothing was changed. " : "";
   const resolve = async (query: string, src: AnimeSource, language: TitleLanguage) => {
@@ -189,6 +230,13 @@ async function target(
     return { media: r.media, note: `Matched "${input}" to ${displayTitle(r.media.title, titleLanguage)}: ${r.why}.\n` };
   }
   if (r.kind === "ambiguous") {
+    const picked = ask && (await pick(ask, r.why, r.candidates, titleLanguage));
+    if (picked && "media" in picked) {
+      return { media: picked.media, note: `The user picked ${displayTitle(picked.media.title, titleLanguage)} from the matches for "${input}".\n` };
+    }
+    if (picked) {
+      throw new Error(`${prefix}${r.why} The user was shown the matches and didn't pick one, so don't ask them again unless they bring it up.`);
+    }
     throw new Error(
       `${prefix}${r.why} Ask the user which one they mean, then call again with its ID as a number:\n${describeCandidates(r.candidates, titleLanguage)}`,
     );
@@ -269,6 +317,12 @@ function userZone(viewer: Viewer): string {
 /** How many recently finished shows to check for sequels (one AniList request). */
 const SEQUEL_CHECK_LIMIT = 50;
 
+/** How long the user has to answer a form before the tool goes on without them. */
+const ASK_TIMEOUT_MS = 10 * 60_000;
+
+const REMOVE_DESCRIPTION =
+  "Delete an anime from the user's list, including its progress, score, dates and notes.";
+
 export function createServer(client: AniListClient, options: ServerOptions = {}): McpServer {
   const now = options.now ?? Date.now;
   const safe = safeFor(client, now);
@@ -278,6 +332,30 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
   const server = new McpServer({ name: "aniconnect", version: pkg.version }, { instructions: INSTRUCTIONS });
   /** What this server changed, so it can be undone (R3.1). */
   const journal = new Journal();
+
+  /** Whether the client can show the user a form (MCP elicitation, R2.7). */
+  const canAsk = () => {
+    const elicitation = server.server.getClientCapabilities()?.elicitation;
+    // An empty capability object means forms, from before URL elicitation existed.
+    return Boolean(elicitation && (elicitation.form || !elicitation.url));
+  };
+  // One form at a time, so update_shows doesn't open several at once.
+  let asking: Promise<unknown> = Promise.resolve();
+  const ask: Ask = (params) => {
+    if (!canAsk()) return Promise.resolve(null);
+    // People take a while to choose: allow longer than the usual request timeout.
+    const answer = asking.then(() => server.server.elicitInput(params, { timeout: ASK_TIMEOUT_MS }).catch(() => null));
+    asking = answer;
+    return answer;
+  };
+  /** `target` with the user's form at hand for ambiguous names. */
+  const find = (
+    input: string | number,
+    intent: Intent,
+    source?: AnimeSource,
+    changes?: boolean,
+    fallback?: Intent,
+  ) => target(client, input, intent, source, changes, fallback, ask);
 
   server.registerTool(
     "search_anime",
@@ -415,7 +493,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       if (anime !== undefined) {
         // "status" ranks everything on the list above the rest of AniList, so a finished
         // show is described (with its next season) rather than a similarly named one.
-        const { media, note } = await target(client, anime, "status", source, false);
+        const { media, note } = await find(anime, "status", source, false);
         const show =
           media.relations && media.externalLinks !== undefined
             ? media
@@ -464,7 +542,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       // searches the rest of AniList): one request (R5.2). A show removed from the list still
       // has history in the feed, so a name the list doesn't have is looked up on AniList.
       const show =
-        anime === undefined ? undefined : await target(client, anime, "remove", undefined, false, "lookup");
+        anime === undefined ? undefined : await find(anime, "remove", undefined, false, "lookup");
       const { titleLanguage } = await client.getViewer(); // cached: getMyActivity needs it too
       const { activities, hasNextPage } = await client.getMyActivity({
         from: range.start > 0 ? Math.floor(range.start / 1000) : undefined,
@@ -493,7 +571,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
     safe(async ({ anime, status }) => {
-      const [viewer, { media, note }] = await Promise.all([client.getViewer(), target(client, anime, "add")]);
+      const [viewer, { media, note }] = await Promise.all([client.getViewer(), find(anime, "add")]);
       if (media.mediaListEntry) {
         return text(
           `${note}Already on your list, unchanged: ${describeEntry(media, media.mediaListEntry, viewer)}`,
@@ -518,7 +596,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
     safe(async ({ anime, status }) => {
-      const [viewer, { media, note }] = await Promise.all([client.getViewer(), target(client, anime, "status")]);
+      const [viewer, { media, note }] = await Promise.all([client.getViewer(), find(anime, "status")]);
       const entry = media.mediaListEntry;
       const plan = planStatus(media, entry, status, today(viewer));
       const saved = await client.saveEntry({ mediaId: media.id, ...plan });
@@ -545,7 +623,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
     },
     safe(async ({ anime, score }) => {
       const scoreRaw = toRawScore(score);
-      const [viewer, { media, note }] = await Promise.all([client.getViewer(), target(client, anime, "rate")]);
+      const [viewer, { media, note }] = await Promise.all([client.getViewer(), find(anime, "rate")]);
       const saved = await client.saveEntry({ mediaId: media.id, scoreRaw });
       journal.record("rate_anime", [change(media, media.mediaListEntry, saved)]);
       return text(
@@ -586,7 +664,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
 
   const applyProgress = async (tool: string, input: string | number, next: ProgressStep) => {
     const readAt = saves;
-    const [viewer, resolved] = await Promise.all([client.getViewer(), target(client, input, "progress")]);
+    const [viewer, resolved] = await Promise.all([client.getViewer(), find(input, "progress")]);
     return inTurn(resolved.media.id, readAt, (stale) => saveProgress(tool, viewer, resolved, stale, next));
   };
 
@@ -770,7 +848,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
               throw new Error("Nothing to change: give status, episodes, watched, score, a date or a note.");
             }
             const intent: Intent = counts ? "progress" : u.status || dated || noted ? "status" : "rate";
-            const resolved = await target(client, u.anime, intent, source, false);
+            const resolved = await find(u.anime, intent, source, false);
             return await inTurn(resolved.media.id, readAt, (stale) => saveUpdate(viewer, resolved, stale, u));
           } catch (err) {
             return { line: `Not changed: ${label}: ${(err as Error).message.replace(/^Nothing was changed\. /, "")}` };
@@ -786,26 +864,59 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
     }),
   );
 
-  server.registerTool(
+  const removeTool = server.registerTool(
     "remove_from_list",
     {
       title: "Remove from list",
-      description:
-        "Delete an anime from the user's list, including its progress, score and dates. Confirm with the user first." + BY_NAME,
-      inputSchema: { anime },
+      description: `${REMOVE_DESCRIPTION} Confirm with the user first.${BY_NAME}`,
+      inputSchema: {
+        anime,
+        confirmed: z
+          .boolean()
+          .optional()
+          .describe("true when the user has confirmed in the chat, after a dialog was closed without an answer"),
+      },
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
     },
-    safe(async ({ anime }) => {
-      const { media } = await target(client, anime, "remove");
+    safe(async ({ anime, confirmed }) => {
+      const { media, note } = await find(anime, "remove");
       // Cached once fetched (resolving a name fetches it), so this is a request only on first use.
       const viewer = await client.getViewer();
       const title = displayTitle(media.title, viewer.titleLanguage);
-      if (!media.mediaListEntry) return text(`${title} isn't on your list.`);
-      const deleted = await client.deleteEntry(media.mediaListEntry.id);
-      if (deleted) journal.record("remove_from_list", [change(media, media.mediaListEntry, null)]);
-      return text(deleted ? `Removed ${title} from your list.` : `AniList did not delete ${title}.`);
+      const entry = media.mediaListEntry;
+      if (!entry) return text(`${title} isn't on your list.`);
+      if (canAsk() && !confirmed) {
+        // The description told the assistant not to ask, so no answer means no.
+        const answer = await ask({
+          message: `Remove ${title} from your AniList list? ${describeEntry(media, entry, viewer).replace(/^\[\d+\] /, "")}. Its progress, score, dates and notes go with it.`,
+          requestedSchema: {
+            type: "object",
+            properties: { confirm: { type: "boolean", title: `Remove ${title}`, default: true } },
+            required: [],
+          },
+        });
+        if (!answer || answer.action === "cancel") {
+          return text(
+            `${note}Not removed: the confirmation dialog closed without an answer (some clients can't show it). Ask the user in the chat whether to remove ${title}; if they say yes, call again with confirmed: true.`,
+          );
+        }
+        if (answer.action === "decline" || answer.content?.confirm === false) {
+          return text(`${note}Not removed: the user chose to keep ${title}.`);
+        }
+      }
+      const deleted = await client.deleteEntry(entry.id);
+      if (deleted) journal.record("remove_from_list", [change(media, entry, null)]);
+      return text(`${note}${deleted ? `Removed ${title} from your list.` : `AniList did not delete ${title}.`}`);
     }),
   );
+  // Clients that show forms confirm deletions themselves: no need for the assistant to ask too.
+  server.server.oninitialized = () => {
+    if (canAsk()) {
+      removeTool.update({
+        description: `${REMOVE_DESCRIPTION} The user confirms in a dialog the tool shows them, so don't ask them first.${BY_NAME}`,
+      });
+    }
+  };
 
   server.registerTool(
     "undo",

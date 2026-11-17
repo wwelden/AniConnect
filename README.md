@@ -4,7 +4,7 @@
 
 An MCP server for your [AniList](https://anilist.co) anime list. Ask Claude (or any MCP client) to add shows, search your list, rate things, and track episodes, by name.
 
-Every tool that changes your list takes the show the way you'd say it: "jjk", "the second season of Spy x Family", "frieran", or "進撃の巨人". AniConnect works out which AniList entry you mean: episode updates go to the season you're watching, ratings to the one you finished, and new shows start at season 1. When a name could really mean two shows (the two Hunter x Hunter series, say), it changes nothing and asks.
+Every tool that changes your list takes the show the way you'd say it: "jjk", "the second season of Spy x Family", "frieran", or "進撃の巨人". AniConnect works out which AniList entry you mean: episode updates go to the season you're watching, ratings to the one you finished, and new shows start at season 1. When a name could really mean two shows (the two Hunter x Hunter series, say), it changes nothing and asks. In clients that can show forms (MCP elicitation), you pick from the matches in a dialog, and removing a show asks you to confirm there.
 
 ## Tools
 
