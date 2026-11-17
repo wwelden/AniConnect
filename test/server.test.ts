@@ -630,6 +630,22 @@ describe("adult titles (AniList's 18+ content setting)", () => {
     expect(fake.entries.has(320)).toBe(true);
   });
 
+  test("turning the setting off takes effect within minutes, without a restart", async () => {
+    let clock = 0;
+    const server = createServer(new AniListClient("t", fake.fetch), { now: () => clock });
+    const [a, b] = InMemoryTransport.createLinkedPair();
+    client = new Client({ name: "t", version: "0" });
+    await Promise.all([server.connect(b), client.connect(a)]);
+
+    fake.displayAdultContent = true;
+    expect((await call("search_anime", { query: "kite" })).text).toContain("[320]");
+    fake.displayAdultContent = false;
+    clock += 5 * 60_000;
+    const r = await call("search_anime", { query: "kite" });
+    expect(r.text).not.toContain("[320]");
+    expect(r.text).toContain("Only adult (18+) titles match");
+  });
+
   test("a format mismatch isn't blamed on the setting", async () => {
     // A KITE is an OVA, so "kite movie" matches nothing, adult or not.
     const r = await call("add_to_list", { anime: "kite movie" });

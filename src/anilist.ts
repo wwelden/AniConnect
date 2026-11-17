@@ -215,8 +215,12 @@ const ENTRY_FIELDS = `
   completedAt { year month day }
 `;
 
+/** How long account settings (such as the 18+ content setting) are trusted before being read again. */
+const VIEWER_TTL_MS = 5 * 60_000;
+
 export class AniListClient {
   private viewer: Viewer | null = null;
+  private viewerAt = 0;
   /** When the token expires (ms), read from the JWT; null if it can't be decoded. */
   readonly tokenExpiresAt: number | null;
   /** The whole list keyed by media ID, shared by calls that start while it loads. */
@@ -291,7 +295,7 @@ export class AniListClient {
   }
 
   async getViewer(): Promise<Viewer> {
-    if (this.viewer) return this.viewer;
+    if (this.viewer && this.now() - this.viewerAt < VIEWER_TTL_MS) return this.viewer;
     const data = await this.request<{
       Viewer: {
         id: number;
@@ -309,6 +313,7 @@ export class AniListClient {
       timeZone: parseTimeZone(data.Viewer.options?.timezone),
       displayAdultContent: data.Viewer.options?.displayAdultContent ?? false,
     };
+    this.viewerAt = this.now();
     return this.viewer;
   }
 
