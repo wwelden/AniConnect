@@ -24,6 +24,10 @@ const status = z
     "CURRENT = watching, PLANNING = plan to watch, COMPLETED, DROPPED, PAUSED, REPEATING = rewatching",
   );
 
+/** Appended to every tool that changes the list (requirement R2.2: one call per request). */
+const BY_NAME =
+  " Pass the show the way the user said it (\"jjk\", \"spy x family season 2\"): this tool works out the right AniList entry and season from the user's list, so don't search first. If the name is ambiguous, nothing changes and the candidates come back to ask about.";
+
 type ToolResult = { content: { type: "text"; text: string }[]; isError?: boolean };
 
 function text(body: string): ToolResult {
@@ -79,7 +83,7 @@ export function createServer(client: AniListClient): McpServer {
     {
       title: "Search AniList",
       description:
-        "Search all of AniList for anime by title. Returns IDs, and whether each show is already on the user's list.",
+        "Search all of AniList for anime by title, for when the user wants to find or compare shows. Returns IDs, and whether each show is already on the user's list. Tools that change the list take names directly and don't need this first.",
       inputSchema: {
         query: z.string().min(1).describe("Title to search for, in English, romaji or Japanese"),
         limit: z.number().int().min(1).max(25).default(5),
@@ -101,7 +105,7 @@ export function createServer(client: AniListClient): McpServer {
     {
       title: "Search my list",
       description:
-        "Search the user's own AniList anime list. Filter by title words and/or list status. Leave query empty to list everything in a status.",
+        "Answer questions about the user's own AniList anime list (what they're watching, whether something is on it). Filter by title words and/or list status; leave query empty to list everything in a status. Tools that change the list take names directly and don't need this first.",
       inputSchema: {
         query: z.string().optional().describe("Words that must all appear in the title"),
         status: status.optional(),
@@ -131,7 +135,7 @@ export function createServer(client: AniListClient): McpServer {
     {
       title: "Add to list",
       description:
-        "Add an anime to the user's list (plan to watch by default). If it is already on the list, nothing changes; use set_status to move it.",
+        "Add an anime to the user's list (plan to watch by default). If it is already on the list, nothing changes; use set_status to move it." + BY_NAME,
       inputSchema: { anime, status: status.default("PLANNING") },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
@@ -156,7 +160,7 @@ export function createServer(client: AniListClient): McpServer {
     {
       title: "Set list status",
       description:
-        "Change an anime's status on the user's list (watching, completed, dropped, ...). Adds it to the list if it isn't there yet.",
+        "Change an anime's status on the user's list (watching, completed, dropped, ...). Adds it to the list if it isn't there yet." + BY_NAME,
       inputSchema: { anime, status },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
@@ -180,7 +184,7 @@ export function createServer(client: AniListClient): McpServer {
     {
       title: "Rate anime",
       description:
-        "Rate an anime on the user's list. The score is always out of 10 (decimals like 7.5 allowed; 0 clears the rating), and AniList shows it in the user's own scoring format. Adds the show to the list if needed.",
+        "Rate an anime on the user's list. The score is always out of 10 (decimals like 7.5 allowed; 0 clears the rating), and AniList shows it in the user's own scoring format. Adds the show to the list if needed." + BY_NAME,
       inputSchema: {
         anime,
         score: z.number().min(0).max(10).describe("Score out of 10. 0 removes the rating."),
@@ -214,7 +218,7 @@ export function createServer(client: AniListClient): McpServer {
     {
       title: "Mark episodes watched",
       description:
-        "Mark the next episode(s) of an anime as watched, counting up from the user's current progress. Finishing the last episode marks the show completed; watching something planned, paused or dropped moves it to watching.",
+        "Mark the next episode(s) of an anime as watched, counting up from the user's current progress. Finishing the last episode marks the show completed; watching something planned, paused or dropped moves it to watching." + BY_NAME,
       inputSchema: {
         anime,
         count: z.number().int().min(1).default(1).describe("How many more episodes were watched"),
@@ -229,7 +233,7 @@ export function createServer(client: AniListClient): McpServer {
     {
       title: "Set episode progress",
       description:
-        "Set exactly how many episodes of an anime the user has watched (e.g. 'I'm on episode 7' -> 7). Same completion rules as mark_episodes_watched.",
+        "Set exactly how many episodes of an anime the user has watched (e.g. 'I'm on episode 7' -> 7). Same completion rules as mark_episodes_watched." + BY_NAME,
       inputSchema: {
         anime,
         episodes: z.number().int().min(0).describe("Total episodes watched so far"),
@@ -244,7 +248,7 @@ export function createServer(client: AniListClient): McpServer {
     {
       title: "Remove from list",
       description:
-        "Delete an anime from the user's list, including its progress, score and dates. Confirm with the user first.",
+        "Delete an anime from the user's list, including its progress, score and dates. Confirm with the user first." + BY_NAME,
       inputSchema: { anime },
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
     },

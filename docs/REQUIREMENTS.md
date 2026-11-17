@@ -54,13 +54,14 @@ Every tool that targets a show accepts a title (or an ID) and picks the right An
 | R1.6 | Intent-aware defaults: episode updates prefer in-progress entries; ratings prefer completed ones; adding prefers the first season. | Done (resolver tests) |
 | R1.7 | When the request is truly ambiguous, change nothing and return the short list of candidates so the assistant can ask. Never guess between equally likely shows. | Done (resolver tests) |
 | R1.8 | Prefer TV seasons over movies, OVAs and specials unless the request names one. | Done (resolver tests) |
+| R1.9 | Understand relative seasons: "the new season", "latest season" (most recent one that has aired) and "next season". | Done (resolver tests; found by the eval) |
 
 ### R2: Tool design
 
 | ID | Requirement | Status |
 |---|---|---|
 | R2.1 | Keep the tool set small (target ≤ 12) with clear, non-overlapping descriptions. | Done |
-| R2.2 | Common requests take one tool call. | In progress: 15/26 in the eval baseline; the model often searches first even though tools take names |
+| R2.2 | Common requests take one tool call. | Done: 25/26 (Opus 5.5) and 26/26 (Sonnet 5.5) after telling the model in each tool description not to search first; baseline was 15/26 |
 | R2.3 | Results are short, readable text that states exactly what changed (before → after). | Done |
 | R2.4 | Errors say what went wrong and what to do next (expired token, rate limit, unknown show). | Done |
 | R2.5 | Destructive tools are annotated as such and ask the assistant to confirm first. | Done |
@@ -98,7 +99,7 @@ Every tool that targets a show accepts a title (or an ID) and picks the right An
 |---|---|---|
 | R6.1 | A fixture of real AniList data for franchises that are hard to resolve (many seasons, split cours, movies, sequels with unrelated titles). | Done (196 entries, 24 franchises) |
 | R6.2 | Deterministic resolver tests: request text + user list → expected entry or "ambiguous". Run in `bun test`. | Done (65 cases) |
-| R6.3 | End-to-end evals with a real model: natural-language request → tool calls → final list state, scored on correctness and number of calls. | Done. Baseline 2026-11-17 on Opus 5.5: 31/31 correct (one grader fix), 1.42 tool calls per request, $0.52 per run |
+| R6.3 | End-to-end evals with a real model: natural-language request → tool calls → final list state, scored on correctness and number of calls. | Done. 2026-11-17: 31/31 correct on Opus 5.5 and Sonnet 5.5; 1.13 and 1.03 tool calls per request; $0.59 and $0.29 per run |
 | R6.4 | Run the same evals against competing servers for a side-by-side score. | Later |
 
 ### R7: Distribution

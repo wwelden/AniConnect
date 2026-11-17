@@ -47,6 +47,10 @@ describe("parseQuery", () => {
     ["Attack on Titan S3 part 2", "attack on titan", { season: 3, part: 2 }],
     ["mob psycho 100 3rd season", "mob psycho 100", { season: 3 }],
     ["chainsaw man movie", "chainsaw man", { movie: true }],
+    ["the new Frieren season", "the frieren", { latest: true }],
+    ["spy x family latest season", "spy x family", { latest: true }],
+    ["next season of oshi no ko", "of oshi no ko", {}],
+    ["New Game!", "new game", {}],
     ["Re:Zero 2nd cour", "re zero", { part: 2 }],
   ])("%s", (raw, exact, hint) => {
     const q = parseQuery(raw);
@@ -106,6 +110,17 @@ describe("seasons by name, number and part (R1.5)", () => {
     ["mushoku tensei season 2", "add", "Mushoku Tensei II: Isekai Ittara Honki Dasu"],
     ["dandadan season 2", "add", "Dandadan 2nd Season"],
     ["frieren season 7", "add", "none"],
+  ]);
+});
+
+describe("latest and next seasons", () => {
+  run([
+    // Season 3 is announced but hasn't aired, so the newest is season 2.
+    ["the new Frieren season", "progress", "Sousou no Frieren 2nd Season"],
+    ["Frieren new season", "add", "Sousou no Frieren 2nd Season"],
+    // Season 4 (2027) hasn't aired; season 3 (2025) is the latest.
+    ["latest season of spy x family", "add", "SPY×FAMILY Season 3"],
+    ["next season of frieren", "progress", "Sousou no Frieren 2nd Season"],
   ]);
 });
 

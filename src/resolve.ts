@@ -27,6 +27,8 @@ export interface SeasonHint {
   season?: number;
   part?: number;
   movie?: boolean;
+  /** "the new season", "latest season": the most recent season that has aired. */
+  latest?: boolean;
 }
 
 export interface ParsedQuery {
@@ -91,6 +93,18 @@ export function parseQuery(raw: string): ParsedQuery {
   take(/ (\d+)(?:st|nd|rd|th) (?:part|cour|half) /, (m) => (hint.part = num(m[1]!)));
   take(new RegExp(` ${ORDINAL_WORD} (?:part|cour|half) `), (m) => (hint.part = num(m[1]!)));
   take(/ (?:movie|film) /, () => (hint.movie = true));
+  take(/ (?:new|newest|latest|most recent|recent|current) (?:season|cour|part) /, () => (hint.latest = true));
+  // "next season" needs no hint: episode updates already go to the next season once
+  // the previous one is finished.
+  take(/ next (?:season|cour|part) /, () => {});
+  // Split around the title: "the new Frieren season", "next oshi no ko season".
+  if (hint.season === undefined && / (?:season|cour) /.test(q)) {
+    const split = / (new|newest|latest|recent|current|next) /.exec(q);
+    if (split) {
+      if (split[1] !== "next") hint.latest = true;
+      q = q.replace(split[0], " ").replace(/ (?:season|cour) /, " ");
+    }
+  }
 
   let exact = q.replace(/\s+/g, " ").trim();
   if (ALIASES[exact]) exact = ALIASES[exact]!;
@@ -298,7 +312,7 @@ export async function resolveAnime(query: string, intent: Intent, source: AnimeS
     pool = score(dedupe([...list, ...results]), q);
   };
 
-  if (intent === "add" || q.hint.season !== undefined || q.hint.part !== undefined) {
+  if (intent === "add" || q.hint.season !== undefined || q.hint.part !== undefined || q.hint.latest) {
     await searchAll();
   } else if (intent !== "remove") {
     const ranks = STATUS_RANK[intent];
@@ -316,8 +330,9 @@ export async function resolveAnime(query: string, intent: Intent, source: AnimeS
   }
 
   if (q.hint.season !== undefined || q.hint.part !== undefined) {
-    return resolveSeason(query, q, intent, pool, source);
+    return resolveSeason(q, intent, pool, source);
   }
+  if (q.hint.latest) return resolveLatest(query, pool);
   return pick(query, intent, pool);
 }
 
@@ -375,6 +390,23 @@ function pick(query: string, intent: Intent, pool: Scored[]): Resolution {
   };
 }
 
+/** The most recent season that has started airing, preferring TV over shorts. */
+function resolveLatest(query: string, pool: Scored[]): Resolution {
+  const aired = pool.filter((s) => isSeries(s.media) && s.media.status !== "NOT_YET_RELEASED");
+  const tv = aired.filter((s) => s.media.format === "TV");
+  const candidates = (tv.length ? tv : aired).map((s) => s.media);
+  if (candidates.length === 0) return { kind: "none", why: `Couldn't find an aired season of "${query}".` };
+  if (!sameFranchise(candidates)) {
+    return {
+      kind: "ambiguous",
+      candidates: candidates.slice(0, MAX_CANDIDATES),
+      why: `"${query}" matches more than one show.`,
+    };
+  }
+  const latest = candidates.reduce((a, b) => (dateKey(b) > dateKey(a) ? b : a));
+  return { kind: "match", media: latest, why: "it's the latest season that has aired" };
+}
+
 interface SeasonEntry {
   media: Media;
   season: number;
@@ -415,7 +447,6 @@ async function seasonChain(root: Media, upTo: number, source: AnimeSource): Prom
 }
 
 async function resolveSeason(
-  query: string,
   q: ParsedQuery,
   intent: Intent,
   pool: Scored[],
