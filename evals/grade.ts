@@ -1,5 +1,12 @@
 /** Grades an eval run by comparing list state before and after. */
+import { normalize } from "../src/logic";
 import { findMedia, type StoredEntry } from "../test/support/fake-anilist";
+
+/** "DAN DA DAN" mentions "Dandadan"; "ONE PIECE" mentions "One Piece". */
+function mentions(reply: string, name: string): boolean {
+  const squash = (t: string) => normalize(t).replace(/ /g, "");
+  return squash(reply).includes(squash(name));
+}
 import type { Change, EvalCase, Outcome } from "./cases";
 
 export type Changes = Map<number, { before?: StoredEntry; after?: StoredEntry }>;
@@ -40,7 +47,7 @@ export function grade(outcome: Outcome, changed: Changes, reply: string): string
   }
   if ("readOnly" in outcome) {
     if (changed.size) return `changed ${changed.size} entries on a read-only request`;
-    const missing = (outcome.mentions ?? []).filter((m) => !reply.toLowerCase().includes(m.toLowerCase()));
+    const missing = (outcome.mentions ?? []).filter((m) => !mentions(reply, m));
     return missing.length ? `reply doesn't mention ${missing.join(", ")}` : null;
   }
   const wantIds = new Set(outcome.changes.map((c) => findMedia(c.anime).id));

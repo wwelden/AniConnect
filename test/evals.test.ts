@@ -51,6 +51,13 @@ describe("eval cases", () => {
     });
   }
 
+  test("mentions ignore spacing and case", () => {
+    const c = CASES.find((x) => x.id === "read-watching")!;
+    const reply = "You're watching DAN DA DAN, ONE PIECE and JUJUTSU KAISEN Season 2.";
+    expect(gradeCase(c, applyChanges([]), reply)).toBeNull();
+    expect(gradeCase(c, applyChanges([]), "You're watching ONE PIECE.")).not.toBeNull();
+  });
+
   test("an unexpected extra change fails", () => {
     const c = CASES.find((x) => x.id === "rate-simple")!;
     const changed = applyChanges([
