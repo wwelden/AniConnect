@@ -74,7 +74,10 @@ function parts(ms: number, timeZone: string) {
   };
 }
 
-/** "Fri, Nov 20 at 2:00 PM (in 3 days)", in the given time zone. */
+/**
+ * "Fri, Nov 20 at 2:00 PM (in 3 days)", in the given time zone. A fixed offset follows no
+ * daylight-saving rules, so the time names it: "at 2:00 PM UTC-05:00".
+ */
 export function formatAirTime(airingAt: number, now: number, timeZone: string): string {
   const at = parts(airingAt * 1000, timeZone);
   const today = parts(now, timeZone);
@@ -83,10 +86,11 @@ export function formatAirTime(airingAt: number, now: number, timeZone: string): 
     Date.UTC(p.year, ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"].indexOf(p.month), p.day);
   const days = Math.round((dayNumber(at) - dayNumber(today)) / 86_400_000);
   const relative = days <= 0 ? "today" : days === 1 ? "tomorrow" : `in ${days} days`;
-  return `${at.weekday}, ${at.month} ${at.day} at ${at.time} (${relative})`;
+  const offset = /^[+-]/.test(timeZone) ? ` UTC${timeZone}` : "";
+  return `${at.weekday}, ${at.month} ${at.day} at ${at.time}${offset} (${relative})`;
 }
 
-/** Throws a readable error for an unknown IANA time zone. */
+/** Throws a readable error for an unknown time zone (IANA name or offset like "-05:00"). */
 export function checkTimeZone(timeZone: string): string {
   try {
     new Intl.DateTimeFormat("en-US", { timeZone });

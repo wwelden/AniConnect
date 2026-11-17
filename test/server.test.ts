@@ -28,7 +28,7 @@ beforeEach(async () => {
 describe("title language", () => {
   test("the viewer query asks for the title language", async () => {
     await call("search_my_list", {});
-    expect(fake.calls.find((c) => c.query.includes("Viewer"))!.query).toContain("options { titleLanguage }");
+    expect(fake.calls.find((c) => c.query.includes("Viewer"))!.query).toMatch(/options \{[^}]*\btitleLanguage\b/);
   });
 
   test("results print the English title alone for English readers", async () => {

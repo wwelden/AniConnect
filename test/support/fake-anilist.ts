@@ -90,6 +90,8 @@ export class FakeAniList {
   rateLimited = false;
   /** The viewer's AniList title language setting. */
   titleLanguage: TitleLanguage = "ENGLISH";
+  /** The viewer's AniList time zone setting, as AniList returns it (e.g. "-05:00"). */
+  timeZone: string | null = null;
 
   constructor(
     public scoreFormat: ScoreFormat = "POINT_10_DECIMAL",
@@ -226,7 +228,7 @@ export class FakeAniList {
           id: 1,
           name: this.viewerName,
           mediaListOptions: { scoreFormat: this.scoreFormat },
-          options: { titleLanguage: this.titleLanguage },
+          options: { titleLanguage: this.titleLanguage, timezone: this.timeZone },
         },
       });
     }

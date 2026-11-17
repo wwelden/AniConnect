@@ -107,6 +107,8 @@ export interface Viewer {
   scoreFormat: ScoreFormat;
   /** The language the user reads titles in on AniList. */
   titleLanguage: TitleLanguage;
+  /** Time zone from the user's AniList settings: an offset like "-05:00" or an IANA name. Null when unset or unreadable. */
+  timeZone: string | null;
 }
 
 export class AniListError extends Error {}
@@ -120,6 +122,27 @@ export type ListItem = ListEntry & { media: Media };
  * counts up from can be.
  */
 export const LIST_TTL_MS = 60_000;
+
+/**
+ * Reads AniList's time zone setting, documented as an offset ("-05:00", "+05:30"), into a
+ * zone `Intl` accepts: a canonical "+HH:MM" offset, or an IANA name if that's what is stored.
+ * Returns null for an empty or unreadable value, so callers fall back to the server's zone.
+ */
+export function parseTimeZone(raw: string | null | undefined): string | null {
+  const value = raw?.trim();
+  if (!value) return null;
+  const offset = /^(?:UTC|GMT)?\s*([+-]?)(\d{1,2})(?::?(\d{2}))?$/i.exec(value);
+  if (offset) {
+    const [, sign, h, m = "00"] = offset;
+    if (Number(h) > 14 || Number(m) > 59) return null;
+    return `${sign === "-" ? "-" : "+"}${h!.padStart(2, "0")}:${m}`;
+  }
+  try {
+    return new Intl.DateTimeFormat("en-US", { timeZone: value }).resolvedOptions().timeZone;
+  } catch {
+    return null;
+  }
+}
 
 type FetchFn = (input: string, init: RequestInit) => Promise<Response>;
 
@@ -236,15 +259,16 @@ export class AniListClient {
         id: number;
         name: string;
         mediaListOptions: { scoreFormat: ScoreFormat };
-        options: { titleLanguage: TitleLanguage | null } | null;
+        options: { titleLanguage: TitleLanguage | null; timezone: string | null } | null;
       };
-    }>(`query { Viewer { id name mediaListOptions { scoreFormat } options { titleLanguage } } }`);
+    }>(`query { Viewer { id name mediaListOptions { scoreFormat } options { titleLanguage timezone } } }`);
     this.viewer = {
       id: data.Viewer.id,
       name: data.Viewer.name,
       scoreFormat: data.Viewer.mediaListOptions.scoreFormat,
       // AniList's own default for new accounts.
       titleLanguage: data.Viewer.options?.titleLanguage ?? "ROMAJI",
+      timeZone: parseTimeZone(data.Viewer.options?.timezone),
     };
     return this.viewer;
   }
