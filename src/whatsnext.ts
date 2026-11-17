@@ -53,7 +53,7 @@ export function upcoming(m: Pick<Media, "nextAiringEpisode">, now: number): Medi
 }
 
 /** Date and time parts in a zone, assembled by hand so the text doesn't depend on the ICU version. */
-function parts(ms: number, timeZone: string) {
+export function parts(ms: number, timeZone: string) {
   const fields = new Intl.DateTimeFormat("en-US", {
     timeZone,
     weekday: "short",

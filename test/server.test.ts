@@ -101,6 +101,7 @@ describe("tools", () => {
       "search_my_list",
       "set_progress",
       "set_status",
+      "watch_history",
       "whats_next",
     ]);
   });

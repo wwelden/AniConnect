@@ -39,6 +39,27 @@ export interface SeedEntry {
   score?: number;
 }
 
+/** A list activity as AniList stores it (see FakeAniList.recordActivity). */
+export interface StoredActivity {
+  id: number;
+  mediaId: number;
+  status: string;
+  progress: string | null;
+  /** Unix seconds. */
+  createdAt: number;
+}
+
+export interface SeedActivity {
+  anime: string | number;
+  status: string;
+  progress?: string;
+  /** ISO time. */
+  at: string;
+}
+
+/** AniList folds a progress update into the previous activity for the same show if it came this soon after. */
+const MERGE_SECONDS = 60 * 60;
+
 export function findMedia(anime: string | number): CatalogMedia {
   const m =
     typeof anime === "number"
@@ -92,6 +113,11 @@ export class FakeAniList {
   titleLanguage: TitleLanguage = "ENGLISH";
   /** The viewer's AniList time zone setting, as AniList returns it (e.g. "-05:00"). */
   timeZone: string | null = null;
+  /** The user's list activity, oldest first. */
+  activities: StoredActivity[] = [];
+  nextActivityId = 1;
+  /** Clock for new activity, in ms. */
+  clock: () => number = () => Date.now();
 
   constructor(
     public scoreFormat: ScoreFormat = "POINT_10_DECIMAL",
@@ -114,18 +140,84 @@ export class FakeAniList {
     return this;
   }
 
+  seedActivity(list: SeedActivity[]): this {
+    for (const a of [...list].sort((x, y) => Date.parse(x.at) - Date.parse(y.at))) {
+      this.activities.push({
+        id: this.nextActivityId++,
+        mediaId: findMedia(a.anime).id,
+        status: a.status,
+        progress: a.progress ?? null,
+        createdAt: Date.parse(a.at) / 1000,
+      });
+    }
+    return this;
+  }
+
+  /**
+   * Logs a save the way AniList's feed does: one activity per status change, and episode
+   * updates as "watched episode" with the episode or a range ("3 - 5"). An update right
+   * after another for the same show extends that activity's range instead of adding one.
+   */
+  private recordActivity(before: StoredEntry | undefined, after: StoredEntry) {
+    const was = before?.progress ?? 0;
+    const statusChanged = before?.status !== after.status;
+    const rewatch = after.status === "REPEATING";
+    let status: string;
+    let progress: string | null = null;
+    if (after.progress > was && (after.status === "CURRENT" || rewatch)) {
+      status = rewatch ? "rewatched episode" : "watched episode";
+      progress = after.progress === was + 1 ? String(after.progress) : `${was + 1} - ${after.progress}`;
+    } else if (statusChanged) {
+      status = {
+        CURRENT: "watching",
+        PLANNING: "plans to watch",
+        COMPLETED: before?.status === "REPEATING" ? "rewatched" : "completed",
+        DROPPED: "dropped",
+        PAUSED: "paused watching",
+        REPEATING: "rewatching",
+      }[after.status];
+    } else {
+      return;
+    }
+    const now = Math.floor(this.clock() / 1000);
+    const last = this.activities.at(-1);
+    if (
+      progress &&
+      last?.mediaId === after.mediaId &&
+      last.status === status &&
+      last.progress &&
+      now - last.createdAt <= MERGE_SECONDS
+    ) {
+      last.progress = `${last.progress.split(" - ")[0]} - ${after.progress}`;
+      return;
+    }
+    this.activities.push({ id: this.nextActivityId++, mediaId: after.mediaId, status, progress, createdAt: now });
+  }
+
   /** Writes made so far, i.e. calls that change the list. */
   get writes() {
     return this.calls.filter((c) => /^\s*mutation/.test(c.query));
   }
 
   exportState() {
-    return { entries: [...this.entries.values()], nextEntryId: this.nextEntryId };
+    return {
+      entries: [...this.entries.values()],
+      nextEntryId: this.nextEntryId,
+      activities: this.activities,
+      nextActivityId: this.nextActivityId,
+    };
   }
 
-  importState(state: { entries: StoredEntry[]; nextEntryId: number }) {
+  importState(state: {
+    entries: StoredEntry[];
+    nextEntryId: number;
+    activities?: StoredActivity[];
+    nextActivityId?: number;
+  }) {
     this.entries = new Map(state.entries.map((e) => [e.mediaId, e]));
     this.nextEntryId = state.nextEntryId;
+    this.activities = state.activities ?? [];
+    this.nextActivityId = state.nextActivityId ?? 1;
   }
 
   private entryView(e: StoredEntry) {
@@ -233,6 +325,23 @@ export class FakeAniList {
         },
       });
     }
+    if (query.includes("activities(")) {
+      const { userId, mediaId, from, to } = variables;
+      const matching = this.activities
+        .filter(
+          (a) =>
+            userId === 1 &&
+            (mediaId === undefined || a.mediaId === mediaId) &&
+            (from === undefined || a.createdAt > from) &&
+            (to === undefined || a.createdAt < to),
+        )
+        .sort((a, b) => b.id - a.id);
+      const activities = matching.slice(0, 50).map((a) => {
+        const m = catalog.find((c) => c.id === a.mediaId)!;
+        return { id: a.id, status: a.status, progress: a.progress, createdAt: a.createdAt, media: { id: m.id, title: m.title } };
+      });
+      return json({ Page: { pageInfo: { hasNextPage: matching.length > 50 }, activities } });
+    }
     if (query.includes("id_in")) {
       const ids: number[] = variables.ids ?? [];
       const links = query.includes("externalLinks");
@@ -271,6 +380,7 @@ export class FakeAniList {
         startedAt: EMPTY_DATE,
         completedAt: EMPTY_DATE,
       };
+      const before = this.entries.get(mediaId);
       const updated: StoredEntry = {
         ...existing,
         ...(status !== undefined && { status }),
@@ -280,6 +390,7 @@ export class FakeAniList {
         ...(completedAt !== undefined && { completedAt }),
       };
       this.entries.set(mediaId, updated);
+      this.recordActivity(before, updated);
       return json({ SaveMediaListEntry: { ...this.entryView(updated), media: this.mediaView(mediaId) } });
     }
     if (query.includes("DeleteMediaListEntry")) {

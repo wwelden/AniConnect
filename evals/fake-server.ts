@@ -15,9 +15,13 @@ if (!statePath) {
   process.exit(1);
 }
 
+// The fixture's airing schedule was captured on 2026-11-17; keep the clock there.
+const NOW = Date.parse("2026-11-17T12:00:00Z");
+
 const state = await Bun.file(statePath).json();
 const fake = new FakeAniList(state.scoreFormat, state.viewerName);
 fake.importState(state);
+fake.clock = () => NOW;
 
 // Writes queue behind each other, so parallel tool calls can't leave an older snapshot last.
 let persisting: Promise<unknown> = Promise.resolve();
@@ -34,8 +38,5 @@ const fetchAndPersist = async (url: string, init: RequestInit) => {
   return res;
 };
 
-// The fixture's airing schedule was captured on 2026-11-17; keep the clock there.
-const server = createServer(new AniListClient("eval", fetchAndPersist), {
-  now: () => Date.parse("2026-11-17T12:00:00Z"),
-});
+const server = createServer(new AniListClient("eval", fetchAndPersist), { now: () => NOW });
 await server.connect(new StdioServerTransport());

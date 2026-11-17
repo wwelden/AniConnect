@@ -139,4 +139,16 @@ export const CASES: EvalCase[] = [
     expect: { readOnly: true, mentions: ["season 2"] } },
   { id: "next-where-to-watch", prompt: "where can I watch Frieren?", idealCalls: 1,
     expect: { readOnly: true, tools: ["whats_next"], mentions: ["Crunchyroll"] } },
+
+  // Watch history (R0.14). The persona's feed is in test/fixtures/persona.ts.
+  { id: "history-this-week", prompt: "what did I watch this week?", idealCalls: 1,
+    expect: { readOnly: true, tools: ["watch_history"], mentions: ["One Piece", "Dandadan"] } },
+  { id: "history-finished-last-month", prompt: "Which shows did I finish last month?", idealCalls: 1,
+    expect: { readOnly: true, tools: ["watch_history"], mentions: ["Frieren", "Mob Psycho"] } },
+  { id: "history-in-march", prompt: "what anime did I complete in March?", idealCalls: 1,
+    expect: { readOnly: true, tools: ["watch_history"], mentions: ["Bocchi"] } },
+  { id: "history-when-finished", prompt: "When did I finish Frieren?", idealCalls: 1,
+    expect: { readOnly: true, tools: ["watch_history"], mentions: ["Oct"] } },
+  { id: "history-empty-day", prompt: "did I log anything on November 1st?", idealCalls: 1,
+    expect: { readOnly: true, tools: ["watch_history"] } },
 ];
