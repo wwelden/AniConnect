@@ -642,6 +642,37 @@ describe("list cache (R5.4)", () => {
     expect(fake.entries.get(145064)!.progress).toBe(5);
   });
 
+  test("parallel progress updates to one show count every episode (#28)", async () => {
+    const [a, b] = await Promise.all([
+      run("mark_episodes_watched", { anime: "dandadan" }),
+      run("mark_episodes_watched", { anime: "dandadan" }),
+    ]);
+    expect([a.text, b.text].map((t) => t.match(/episode \d+ -> \d+/)![0]).sort()).toEqual([
+      "episode 7 -> 8",
+      "episode 8 -> 9",
+    ]);
+    expect(fake.entries.get(171018)!.progress).toBe(9);
+    expect(fake.writes.map((w) => w.variables.progress)).toEqual([8, 9]);
+  });
+
+  test("parallel progress updates by name and by ID serialize on the resolved show", async () => {
+    await Promise.all([
+      run("mark_episodes_watched", { anime: "dandadan", count: 2 }),
+      run("mark_episodes_watched", { anime: 171018 }),
+      run("mark_episodes_watched", { anime: "171018" }),
+    ]);
+    expect(fake.entries.get(171018)!.progress).toBe(11);
+  });
+
+  test("parallel progress updates to different shows both land", async () => {
+    await Promise.all([
+      run("mark_episodes_watched", { anime: "dandadan" }),
+      run("mark_episodes_watched", { anime: "jjk" }),
+    ]);
+    expect(fake.entries.get(171018)!.progress).toBe(8);
+    expect(fake.entries.get(145064)!.progress).toBe(4);
+  });
+
   test("a status search after a write is served from the patched cache", async () => {
     await run("search_my_list", { status: "PAUSED" });
     let r = await run("set_status", { anime: "dandadan", status: "PAUSED" });

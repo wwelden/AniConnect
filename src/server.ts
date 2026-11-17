@@ -504,12 +504,49 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
     }),
   );
 
-  /** `next` gives the new episode count from the current one, optionally with a note for the result. */
+  // Progress updates read the entry, count from it, and save, so two at once for the same show
+  // would both count from the same episode. They take turns per show (#28), and one that read
+  // the entry before another's save finished reads it again once it has its turn.
+  /** Gives the new episode count from the current one, optionally with a note for the result. */
+  type ProgressStep = (current: number, media: Media, language: TitleLanguage) => number | { episodes: number; note: string };
+  const progressTurns = new Map<number, Promise<unknown>>();
+  let progressSaves = 0;
+  const lastProgressSave = new Map<number, number>();
+
   const applyProgress = async (
     input: string | number,
-    next: (current: number, media: Media, language: TitleLanguage) => number | { episodes: number; note: string },
+    next: ProgressStep,
   ) => {
-    const [viewer, { media, note }] = await Promise.all([client.getViewer(), target(client, input, "progress")]);
+    const readAt = progressSaves;
+    const [viewer, resolved] = await Promise.all([client.getViewer(), target(client, input, "progress")]);
+    const id = resolved.media.id;
+    const turn = (progressTurns.get(id) ?? Promise.resolve())
+      .catch(() => {})
+      .then(async () => {
+        try {
+          return await saveProgress(viewer, resolved, readAt, next);
+        } finally {
+          lastProgressSave.set(id, ++progressSaves);
+        }
+      });
+    progressTurns.set(id, turn);
+    try {
+      return await turn;
+    } finally {
+      if (progressTurns.get(id) === turn) progressTurns.delete(id);
+    }
+  };
+
+  const saveProgress = async (
+    viewer: Viewer,
+    resolved: { media: Media; note: string },
+    readAt: number,
+    next: ProgressStep,
+  ) => {
+    const { note } = resolved;
+    // Another update to this show finished (or failed) after this one read it: read it again.
+    const stale = (lastProgressSave.get(resolved.media.id) ?? 0) > readAt;
+    const media = stale ? await client.getAnime(resolved.media.id) : resolved.media;
     const entry = media.mediaListEntry;
     const before = entry?.progress ?? 0;
     const step = next(before, media, viewer.titleLanguage);
