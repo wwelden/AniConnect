@@ -33,6 +33,8 @@ const SEEDS = [
   "Fullmetal Alchemist",
   "Hunter x Hunter",
   "Naruto",
+  // An adult (18+) title, for the tests that keep adult titles out of search.
+  "A KITE",
 ];
 
 /** Relations followed when collecting a franchise. */
@@ -47,6 +49,7 @@ const FIELDS = `
   duration
   format
   status
+  isAdult
   season
   genres
   seasonYear
