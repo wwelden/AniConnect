@@ -1,0 +1,108 @@
+import { describe, expect, test } from "bun:test";
+import { formatScore, matchesTitle, planProgress, toRawScore } from "../src/logic";
+
+const today = { year: 2026, month: 11, day: 16 };
+const unset = { year: null, month: null, day: null };
+const earlier = { year: 2025, month: 3, day: 1 };
+
+describe("matchesTitle", () => {
+  const media = {
+    title: { romaji: "Shingeki no Kyojin", english: "Attack on Titan", native: "進撃の巨人" },
+    synonyms: ["AoT", "SnK"],
+  };
+
+  test("matches any title, ignoring case and punctuation", () => {
+    expect(matchesTitle(media, "attack titan")).toBe(true);
+    expect(matchesTitle(media, "SHINGEKI")).toBe(true);
+    expect(matchesTitle(media, "進撃")).toBe(true);
+    expect(matchesTitle(media, "aot")).toBe(true);
+    expect(matchesTitle(media, "Attack-on")).toBe(true);
+  });
+
+  test("requires every word to appear in the same title", () => {
+    expect(matchesTitle(media, "attack kyojin")).toBe(false);
+    expect(matchesTitle(media, "naruto")).toBe(false);
+  });
+
+  test("ignores accents", () => {
+    expect(matchesTitle({ title: { romaji: "Pokémon", english: null, native: null }, synonyms: [] }, "pokemon")).toBe(true);
+  });
+});
+
+describe("planProgress", () => {
+  test("watching an episode of a planned show starts it", () => {
+    expect(planProgress({ episodes: 12 }, { status: "PLANNING", startedAt: unset, completedAt: unset }, 1, today)).toEqual({
+      progress: 1,
+      status: "CURRENT",
+      startedAt: today,
+    });
+  });
+
+  test("a show not on the list becomes watching", () => {
+    expect(planProgress({ episodes: 12 }, null, 3, today)).toEqual({ progress: 3, status: "CURRENT", startedAt: today });
+  });
+
+  test("keeps an existing start date", () => {
+    expect(planProgress({ episodes: 12 }, { status: "PAUSED", startedAt: earlier, completedAt: unset }, 4, today)).toEqual({
+      progress: 4,
+      status: "CURRENT",
+    });
+  });
+
+  test("progress within a watching show changes nothing else", () => {
+    expect(planProgress({ episodes: 12 }, { status: "CURRENT", startedAt: earlier, completedAt: unset }, 5, today)).toEqual({ progress: 5 });
+  });
+
+  test("the last episode completes the show", () => {
+    expect(planProgress({ episodes: 12 }, { status: "CURRENT", startedAt: earlier, completedAt: unset }, 12, today)).toEqual({
+      progress: 12,
+      status: "COMPLETED",
+      completedAt: today,
+    });
+  });
+
+  test("finishing a rewatch keeps the first completion date", () => {
+    expect(planProgress({ episodes: 12 }, { status: "REPEATING", startedAt: earlier, completedAt: earlier }, 12, today)).toEqual({
+      progress: 12,
+      status: "COMPLETED",
+    });
+  });
+
+  test("a rewatch in progress stays a rewatch", () => {
+    expect(planProgress({ episodes: 12 }, { status: "REPEATING", startedAt: earlier, completedAt: earlier }, 6, today)).toEqual({ progress: 6 });
+  });
+
+  test("unknown episode counts (airing shows) never auto-complete", () => {
+    expect(planProgress({ episodes: null }, { status: "CURRENT", startedAt: earlier, completedAt: unset }, 500, today)).toEqual({ progress: 500 });
+  });
+
+  test("rejects going past the last episode", () => {
+    expect(() => planProgress({ episodes: 12 }, null, 13, today)).toThrow("only has 12 episodes");
+  });
+
+  test("rejects negative or fractional counts", () => {
+    expect(() => planProgress({ episodes: 12 }, null, -1, today)).toThrow();
+    expect(() => planProgress({ episodes: 12 }, null, 1.5, today)).toThrow();
+  });
+});
+
+describe("scores", () => {
+  test("converts 0-10 to AniList's raw 0-100 score", () => {
+    expect(toRawScore(8)).toBe(80);
+    expect(toRawScore(7.5)).toBe(75);
+    expect(toRawScore(0)).toBe(0);
+    expect(toRawScore(10)).toBe(100);
+  });
+
+  test("rejects out-of-range scores", () => {
+    expect(() => toRawScore(11)).toThrow();
+    expect(() => toRawScore(-1)).toThrow();
+    expect(() => toRawScore(Number.NaN)).toThrow();
+  });
+
+  test("formats in the user's scoring format", () => {
+    expect(formatScore(85, "POINT_100")).toBe("85/100");
+    expect(formatScore(4, "POINT_5")).toBe("4 stars (of 5)");
+    expect(formatScore(0, "POINT_10")).toBe("unrated");
+  });
+});
