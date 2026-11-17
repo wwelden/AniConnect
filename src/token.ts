@@ -15,6 +15,10 @@ const REPEAT_MS = DAY_MS;
 const RENEW =
   'Get a new one: open https://anilist.co/api/v2/oauth/authorize?client_id=YOUR_CLIENT_ID&response_type=token with your client ID from anilist.co/settings/developer, approve, and put the token in ANILIST_TOKEN (README, "Get an AniList token").';
 
+/** For the hosted server (R7.2), where AniConnect got the token by signing the user in. */
+export const HOSTED_RENEW =
+  "To renew it, sign in with AniList again: reconnect AniConnect in your MCP client's connector settings.";
+
 /** The token's expiry in ms, or null if it isn't a JWT with a numeric `exp`. */
 export function tokenExpiry(token: string): number | null {
   const parts = token.split(".");
@@ -36,19 +40,19 @@ function day(ms: number): string {
  * Decides, for each tool call, whether the token has expired (fail before any request)
  * or expires soon (add a one-line warning: on the first call, then at most once a day).
  */
-export function tokenWatch(expiresAt: number | null) {
+export function tokenWatch(expiresAt: number | null, renew: string = RENEW) {
   let warnedAt: number | null = null;
   return (at: number): { expired: string } | { warning: string } | null => {
     if (expiresAt === null) return null;
     if (expiresAt <= at) {
-      return { expired: `AniList token expired on ${day(expiresAt)}, so nothing was sent. ${RENEW}` };
+      return { expired: `AniList token expired on ${day(expiresAt)}, so nothing was sent. ${renew}` };
     }
     if (expiresAt - at > WARN_DAYS * DAY_MS) return null;
     if (warnedAt !== null && at - warnedAt < REPEAT_MS) return null;
     warnedAt = at;
     const days = Math.ceil((expiresAt - at) / DAY_MS);
     return {
-      warning: `Heads-up: the AniList token expires on ${day(expiresAt)} (in ${days} day${days === 1 ? "" : "s"}). ${RENEW}`,
+      warning: `Heads-up: the AniList token expires on ${day(expiresAt)} (in ${days} day${days === 1 ? "" : "s"}). ${renew}`,
     };
   };
 }

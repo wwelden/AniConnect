@@ -116,7 +116,7 @@ Every tool that targets a show accepts a title (or an ID) and picks the right An
 | ID | Requirement | Status |
 |---|---|---|
 | R7.1 | Run locally over stdio with a personal access token. | Done |
-| R7.2 | Hosted remote server with "Sign in with AniList" (OAuth), usable from claude.ai and mobile with no config files. | Later |
+| R7.2 | Hosted remote server with "Sign in with AniList" (OAuth), usable from claude.ai and mobile with no config files. | In progress: built (`bun run serve`, Streamable HTTP with OAuth 2.1: discovery, dynamic client registration, PKCE). After the user approves the app on AniConnect's own page (anyone can register a client, so this keeps a link from someone else from reaching AniList's approval directly), AniConnect sends them to AniList's sign-in and issues its own access token around the AniList token, sealed with `AUTH_SECRET`, so it stores nothing. Each user's conversations share one list cache, undo history and per-show write order. Tested end to end with the MCP SDK's OAuth client against a stand-in for AniList; AniList's real sign-in page was checked to keep the sign-in state. Still to do: deploy it with a real AniList client and connect from claude.ai |
 | R7.3 | Published so others can install it in one command. | Later |
 
 ## Non-goals (for now)
