@@ -32,7 +32,7 @@ const { values: args } = parseArgs({
 });
 
 const SYSTEM_PROMPT =
-  "You are a helpful assistant. The user keeps track of the anime they watch on AniList, and you can manage their list with the tools provided. Today is 2026-11-16.";
+  "You are a helpful assistant. The user keeps track of the anime they watch on AniList, and you can manage their list with the tools provided. Today is 2026-11-17 and the user is in the UTC time zone.";
 
 const SERVER = join(import.meta.dir, "fake-server.ts");
 
@@ -44,6 +44,9 @@ interface RunResult {
   costUsd: number;
   durationMs: number;
   reply: string;
+  model: string;
+  /** Tool calls with their inputs and results, for diagnosing failures. */
+  transcript: { tool: string; input: unknown; result?: string; isError?: boolean }[];
 }
 
 function seedState() {
@@ -85,8 +88,11 @@ async function runCase(c: EvalCase): Promise<RunResult> {
     await proc.exited;
 
     const toolCalls: string[] = [];
+    const transcript: RunResult["transcript"] = [];
+    const byId = new Map<string, RunResult["transcript"][number]>();
     let reply = "";
     let costUsd = 0;
+    let model = "";
     for (const line of out.split("\n")) {
       if (!line.trim()) continue;
       let event: any;
@@ -95,22 +101,37 @@ async function runCase(c: EvalCase): Promise<RunResult> {
       } catch {
         continue;
       }
-      if (event.type === "assistant") {
+      if (event.type === "system" && event.subtype === "init") {
+        model = event.model ?? "";
+      } else if (event.type === "assistant") {
         for (const block of event.message?.content ?? []) {
-          if (block.type === "tool_use") toolCalls.push(block.name.replace(/^mcp__aniconnect__/, ""));
+          if (block.type !== "tool_use") continue;
+          const tool = block.name.replace(/^mcp__aniconnect__/, "");
+          toolCalls.push(tool);
+          const step = { tool, input: block.input };
+          transcript.push(step);
+          byId.set(block.id, step);
+        }
+      } else if (event.type === "user") {
+        for (const block of event.message?.content ?? []) {
+          const step = block.type === "tool_result" ? byId.get(block.tool_use_id) : undefined;
+          if (!step) continue;
+          const content = block.content;
+          step.result = typeof content === "string" ? content : (content ?? []).map((c: any) => c.text ?? "").join("\n");
+          step.isError = Boolean(block.is_error);
         }
       } else if (event.type === "result") {
         reply = event.result ?? "";
         costUsd = event.total_cost_usd ?? 0;
       }
     }
-    const base = { id: c.id, toolCalls, costUsd, durationMs: Date.now() - started, reply };
-    if (proc.exitCode !== 0 && !reply) {
+    const base = { id: c.id, toolCalls, costUsd, durationMs: Date.now() - started, reply, model, transcript };
+    if (proc.exitCode !== 0) {
       return { ...base, passed: false, detail: `claude exited ${proc.exitCode}: ${err.trim().slice(0, 300)}` };
     }
 
     const final = await Bun.file(statePath).json();
-    const problem = gradeCase(c, diff(initial.entries, final.entries), reply);
+    const problem = gradeCase(c, diff(initial.entries, final.entries), reply, toolCalls);
     return { ...base, passed: problem === null, detail: problem ?? "" };
   } finally {
     if (!args["keep-temp"]) await rm(dir, { recursive: true, force: true });
@@ -159,7 +180,7 @@ async function main() {
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   await Bun.write(
     join(outDir, `${stamp}.json`),
-    JSON.stringify({ model: args.model ?? "default", passed, total: results.length, efficient, results }, null, 2),
+    JSON.stringify({ model: results[0]?.model || args.model || "default", passed, total: results.length, efficient, results }, null, 2),
   );
   console.log(`\nSaved to evals/results/${stamp}.json`);
   process.exit(passed === results.length ? 0 : 1);

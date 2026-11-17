@@ -1,6 +1,18 @@
 /** Grades an eval run by comparing list state before and after. */
+import { normalize } from "../src/logic";
 import { findMedia, type StoredEntry } from "../test/support/fake-anilist";
 import type { Change, EvalCase, Outcome } from "./cases";
+
+/**
+ * Whether the reply mentions a name, starting at a word boundary and ignoring spacing
+ * and case: "DAN DA DAN" mentions "Dandadan", "Plan to watch" and "planning" mention
+ * "plan", but "explanation" doesn't.
+ */
+export function mentions(reply: string, name: string): boolean {
+  const target = normalize(name).replace(/ /g, "");
+  const words = normalize(reply).split(" ");
+  return words.some((_, i) => words.slice(i).join("").startsWith(target));
+}
 
 export type Changes = Map<number, { before?: StoredEntry; after?: StoredEntry }>;
 
@@ -33,14 +45,16 @@ function checkChange(want: Change, got: { before?: StoredEntry; after?: StoredEn
   return null;
 }
 
-export function grade(outcome: Outcome, changed: Changes, reply: string): string | null {
+export function grade(outcome: Outcome, changed: Changes, reply: string, toolCalls: string[] = []): string | null {
   if ("asks" in outcome) {
     if (changed.size) return `changed ${changed.size} entries instead of asking`;
     return reply.includes("?") ? null : "didn't ask the user anything";
   }
   if ("readOnly" in outcome) {
     if (changed.size) return `changed ${changed.size} entries on a read-only request`;
-    const missing = (outcome.mentions ?? []).filter((m) => !reply.toLowerCase().includes(m.toLowerCase()));
+    const unused = (outcome.tools ?? []).filter((t) => !toolCalls.includes(t));
+    if (unused.length) return `didn't call ${unused.join(", ")}`;
+    const missing = (outcome.mentions ?? []).filter((m) => !mentions(reply, m));
     return missing.length ? `reply doesn't mention ${missing.join(", ")}` : null;
   }
   const wantIds = new Set(outcome.changes.map((c) => findMedia(c.anime).id));
@@ -54,8 +68,8 @@ export function grade(outcome: Outcome, changed: Changes, reply: string): string
 }
 
 /** null when any acceptable outcome matches, else why none did. */
-export function gradeCase(c: EvalCase, changed: Changes, reply: string): string | null {
+export function gradeCase(c: EvalCase, changed: Changes, reply: string, toolCalls: string[] = []): string | null {
   const outcomes = Array.isArray(c.expect) ? c.expect : [c.expect];
-  const problems = outcomes.map((o) => grade(o, changed, reply));
+  const problems = outcomes.map((o) => grade(o, changed, reply, toolCalls));
   return problems.some((p) => p === null) ? null : problems.filter(Boolean).join(" / ");
 }

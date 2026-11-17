@@ -3,8 +3,9 @@
  * -> the AniList entry it should resolve to, or "ambiguous".
  */
 import { beforeEach, describe, expect, test } from "bun:test";
-import { AniListClient } from "../src/anilist";
-import { parseQuery, resolveAnime, type Intent } from "../src/resolve";
+import { AniListClient, type Media } from "../src/anilist";
+import { normalize } from "../src/logic";
+import { parseQuery, resolveAnime, titleSeason, type Intent } from "../src/resolve";
 import { clientSource } from "../src/server";
 import { PERSONA } from "./fixtures/persona";
 import { FakeAniList, findMedia } from "./support/fake-anilist";
@@ -47,6 +48,10 @@ describe("parseQuery", () => {
     ["Attack on Titan S3 part 2", "attack on titan", { season: 3, part: 2 }],
     ["mob psycho 100 3rd season", "mob psycho 100", { season: 3 }],
     ["chainsaw man movie", "chainsaw man", { movie: true }],
+    ["the new Frieren season", "the frieren", { latest: true }],
+    ["spy x family latest season", "spy x family", { latest: true }],
+    ["next season of oshi no ko", "of oshi no ko", { next: true }],
+    ["New Game!", "new game", {}],
     ["Re:Zero 2nd cour", "re zero", { part: 2 }],
   ])("%s", (raw, exact, hint) => {
     const q = parseQuery(raw);
@@ -109,6 +114,46 @@ describe("seasons by name, number and part (R1.5)", () => {
   ]);
 });
 
+describe("latest and next seasons", () => {
+  run([
+    // Season 3 is announced but hasn't aired, so the newest is season 2.
+    ["the new Frieren season", "progress", "Sousou no Frieren 2nd Season"],
+    ["Frieren new season", "add", "Sousou no Frieren 2nd Season"],
+    // Season 4 (2027) hasn't aired; season 3 (2025) is the latest.
+    ["latest season of spy x family", "add", "SPY×FAMILY Season 3"],
+    ["next season of frieren", "progress", "Sousou no Frieren 2nd Season"],
+    // Next = after the furthest season started: S1 and its Part 2 are done, Season 2 is planned.
+    ["next season of spy x family", "add", "SPY×FAMILY Season 2"],
+    ["the next dandadan season", "progress", "Dandadan 2nd Season"],
+    ["next season of bocchi the rock", "add", "Bocchi the Rock! 2nd Season"],
+    // Latest walks the whole sequel chain, past split cours, and skips unaired entries.
+    ["latest season of attack on titan", "rate", "Shingeki no Kyojin: The Final Season Part 2"],
+    ["the new apothecary diaries season", "add", "Kusuriya no Hitorigoto 3rd Season"],
+  ]);
+
+  test("a title containing \"new\" is read literally first", async () => {
+    const base = clientSource(client);
+    const newGame = {
+      ...findMedia("Dandadan"),
+      id: 9001,
+      title: { romaji: "New Game!", english: "New Game!", native: null },
+      synonyms: [],
+      mediaListEntry: null,
+    } as unknown as Media;
+    const source = {
+      ...base,
+      search: async (q: string) => [...(await base.search(q)), ...(q.includes("new game") ? [newGame] : [])],
+    };
+    const r = await resolveAnime("new game season", "add", source);
+    expect(r.kind === "match" && r.media.id).toBe(9001);
+  });
+
+  test("removing never searches beyond the list", async () => {
+    await resolve("spy x family season 2", "remove");
+    expect(fake.calls.some((c) => c.query.includes("search:"))).toBe(false);
+  });
+});
+
 describe("intent-aware defaults (R1.6, R1.8)", () => {
   run([
     // Adding means the first season, not a movie or a later season.
@@ -129,6 +174,41 @@ describe("intent-aware defaults (R1.6, R1.8)", () => {
     ["bocchi the rock", "rate", "Bocchi the Rock!"],
     ["vinland saga", "status", "VINLAND SAGA"],
   ]);
+});
+
+describe("fixes from the PR #1 review", () => {
+  run([
+    // An explicit movie request never falls back to a TV season, and searches past the list.
+    ["jjk movie", "progress", "Jujutsu Kaisen 0"],
+    ["dandadan movie", "rate", "none"],
+    // "II" is not a prefix match for "III".
+    ["Mob Psycho 100 II", "progress", "Mob Psycho 100 II"],
+    ["mob psycho 100 iii", "rate", "Mob Psycho 100 III"],
+    // Naming a season doesn't settle which of two versions is meant.
+    ["hunter x hunter season 1", "add", "ambiguous"],
+    // Arcs that share a season number ("KnY 2") don't shift later seasons.
+    ["demon slayer season 3", "add", "Kimetsu no Yaiba: Katanakaji no Sato-hen"],
+    ["demon slayer season 4", "add", "Kimetsu no Yaiba: Hashira Geiko-hen"],
+    ["demon slayer season 2", "add", "Kimetsu no Yaiba: Mugen Ressha-hen (TV)"],
+  ]);
+
+  test("a numbered title isn't read as a season (\"Macross 7\")", () => {
+    const m = { ...findMedia("Dandadan"), title: { romaji: "Macross 7", english: null, native: null }, synonyms: ["Macross Seven"] } as unknown as Media;
+    expect(titleSeason(m)).toBeUndefined();
+    expect(titleSeason({ ...m, synonyms: ["KnY 3"] } as Media)).toBe(3);
+  });
+
+  test("the version on the list settles a numbered-season request", async () => {
+    fake.seed([{ anime: "HUNTER×HUNTER (2011)", status: "CURRENT", progress: 40 }]);
+    const r = await resolve("hunter x hunter season 1", "progress");
+    expect(r.kind === "match" && r.media.id).toBe(11061);
+  });
+
+  test("voiced kana survive normalization", () => {
+    expect(normalize("ガンダム")).toBe("ガンダム");
+    expect(normalize("ぼっち・ざ・ろっく！")).toBe("ぼっち ざ ろっく");
+    expect(normalize("Pokémon")).toBe("pokemon");
+  });
 });
 
 describe("asks instead of guessing (R1.7)", () => {

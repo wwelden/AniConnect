@@ -37,6 +37,7 @@ describe("tools", () => {
       "search_my_list",
       "set_progress",
       "set_status",
+      "whats_next",
     ]);
   });
 

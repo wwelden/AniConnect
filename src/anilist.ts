@@ -52,9 +52,24 @@ export interface Media {
   startDate: FuzzyDate | null;
   averageScore: number | null;
   siteUrl: string;
+  /** Present while a show is airing on a known schedule. `airingAt` is in Unix seconds. */
+  nextAiringEpisode: { episode: number; airingAt: number } | null;
   mediaListEntry: ListEntry | null;
   /** Only present when fetched with getMany. */
-  relations?: { edges: { relationType: string; node: { id: number; type: string; format: string | null } }[] };
+  relations?: { edges: RelationEdge[] };
+}
+
+export interface RelationEdge {
+  relationType: string;
+  node: {
+    id: number;
+    type: string;
+    format: string | null;
+    status?: string | null;
+    episodes?: number | null;
+    title?: MediaTitle;
+    startDate?: FuzzyDate | null;
+  };
 }
 
 export interface Viewer {
@@ -78,6 +93,7 @@ const MEDIA_FIELDS = `
   startDate { year month day }
   averageScore
   siteUrl
+  nextAiringEpisode { episode airingAt }
 `;
 
 const ENTRY_FIELDS = `
@@ -206,7 +222,12 @@ export class AniListClient {
           media(id_in: $ids, type: ANIME) {
             ${MEDIA_FIELDS}
             mediaListEntry { ${ENTRY_FIELDS} }
-            relations { edges { relationType node { id type format } } }
+            relations {
+              edges {
+                relationType
+                node { id type format status episodes title { romaji english native } startDate { year month day } }
+              }
+            }
           }
         }
       }`,

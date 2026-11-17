@@ -3,7 +3,7 @@
  * "frieran") into one AniList entry, or a short list of candidates when it is
  * genuinely ambiguous. See docs/REQUIREMENTS.md, R1.
  */
-import type { ListStatus, Media } from "./anilist";
+import type { ListStatus, Media, RelationEdge } from "./anilist";
 import { displayTitle, normalize } from "./logic";
 
 /** What the caller wants to do with the show; it decides which season is most likely meant. */
@@ -27,6 +27,10 @@ export interface SeasonHint {
   season?: number;
   part?: number;
   movie?: boolean;
+  /** "the new season", "latest season": the most recent season that has aired. */
+  latest?: boolean;
+  /** "the next season": the one after the furthest season the user has started. */
+  next?: boolean;
 }
 
 export interface ParsedQuery {
@@ -35,6 +39,12 @@ export interface ParsedQuery {
   /** Meaningful words, for containment matching. */
   words: string[];
   hint: SeasonHint;
+  /**
+   * Set when "new"/"next" was read as a season word but sits apart from "season"
+   * ("the new Frieren season"). The words might instead be part of a title
+   * ("New Game", "My Next Life as a Villainess"), so this literal reading is tried first.
+   */
+  literal?: ParsedQuery;
 }
 
 /** Common fan abbreviations AniList's synonyms don't reliably cover. */
@@ -91,7 +101,24 @@ export function parseQuery(raw: string): ParsedQuery {
   take(/ (\d+)(?:st|nd|rd|th) (?:part|cour|half) /, (m) => (hint.part = num(m[1]!)));
   take(new RegExp(` ${ORDINAL_WORD} (?:part|cour|half) `), (m) => (hint.part = num(m[1]!)));
   take(/ (?:movie|film) /, () => (hint.movie = true));
+  take(/ (?:new|newest|latest|most recent|recent|current) (?:season|cour) /, () => (hint.latest = true));
+  take(/ next (?:season|cour) /, () => (hint.next = true));
 
+  // Split around the title: "the new Frieren season", "next oshi no ko season".
+  let literal: ParsedQuery | undefined;
+  if (hint.season === undefined && !hint.latest && !hint.next && / (?:season|cour) /.test(q)) {
+    const split = / (new|newest|latest|recent|current|next) /.exec(q);
+    if (split) {
+      literal = finish(q.replace(/ (?:season|cour) /, " "), { ...hint });
+      if (split[1] === "next") hint.next = true;
+      else hint.latest = true;
+      q = q.replace(split[0], " ").replace(/ (?:season|cour) /, " ");
+    }
+  }
+  return { ...finish(q, hint), ...(literal && { literal }) };
+}
+
+function finish(q: string, hint: SeasonHint): ParsedQuery {
   let exact = q.replace(/\s+/g, " ").trim();
   if (ALIASES[exact]) exact = ALIASES[exact]!;
   const words = exact.split(" ").filter((w) => w && !STOPWORDS.has(w));
@@ -121,7 +148,11 @@ function levenshtein(a: string, b: string): number {
 
 const LATIN = /^[a-z0-9]+$/;
 
+/** Numbers and Roman numerals: "ii" must not match "iii", "1" must not match "100". */
+const NUMBERISH = /^(\d+|[ivx]+)$/;
+
 function wordHit(word: string, name: string, nameWords: string[]): boolean {
+  if (NUMBERISH.test(word)) return nameWords.some((nw) => nw === word || nw === `${word}st` || nw === `${word}nd` || nw === `${word}rd` || nw === `${word}th`);
   if (nameWords.some((nw) => nw.startsWith(word))) return true;
   // Scripts without spaces (Japanese), or words run together ("spyxfamily", "rezero").
   if (!LATIN.test(word)) return name.includes(word);
@@ -154,7 +185,7 @@ export function matchScore(m: Media, q: ParsedQuery): number {
   return best;
 }
 
-const SERIES_FORMATS = new Set(["TV", "TV_SHORT", "ONA"]);
+export const SERIES_FORMATS = new Set(["TV", "TV_SHORT", "ONA"]);
 const FORMAT_ORDER: Record<string, number> = { TV: 0, ONA: 1, TV_SHORT: 2, MOVIE: 3, OVA: 3, SPECIAL: 3, MUSIC: 4 };
 
 function isSeries(m: Media): boolean {
@@ -170,6 +201,12 @@ export function titleSeason(m: Media): number | undefined {
       new RegExp(`\\b${ORDINAL_WORD} season\\b`).exec(name) ??
       / (ii|iii|iv|v|vi)$/.exec(name);
     if (match) return num(match[1]!);
+  }
+  // Short fan tags in AniList synonyms ("KnY 2", "AoT 4") number seasons named by arc.
+  // Synonyms only: real titles like "Macross 7" aren't season numbers.
+  for (const synonym of m.synonyms.map(normalize)) {
+    const tag = /^[a-z]{2,8} ([1-9])$/.exec(synonym);
+    if (tag) return num(tag[1]!);
   }
   return undefined;
 }
@@ -273,10 +310,7 @@ function score(items: Media[], q: ParsedQuery): Scored[] {
 
 /** Drop movies/OVAs/specials unless asked for, or unless they match clearly better than any series. */
 function preferSeries(items: Scored[], hint: SeasonHint): Scored[] {
-  if (hint.movie) {
-    const movies = items.filter((s) => s.media.format === "MOVIE");
-    return movies.length ? movies : items;
-  }
+  if (hint.movie) return items.filter((s) => s.media.format === "MOVIE");
   const bestSeries = Math.max(-1, ...items.filter((s) => isSeries(s.media)).map((s) => s.score));
   if (bestSeries < 0) return items;
   return items.filter((s) => isSeries(s.media) || s.score > bestSeries);
@@ -284,8 +318,37 @@ function preferSeries(items: Scored[], hint: SeasonHint): Scored[] {
 
 const MAX_CANDIDATES = 8;
 
+/** Fetch the list once and each search once per resolution (or per tool call). */
+export function memo(source: AnimeSource): AnimeSource {
+  let list: Promise<Media[]> | undefined;
+  const searches = new Map<string, Promise<Media[]>>();
+  return {
+    listMedia: () => (list ??= source.listMedia()),
+    search: (query) => {
+      if (!searches.has(query)) searches.set(query, source.search(query));
+      return searches.get(query)!;
+    },
+    getMany: (ids) => source.getMany(ids),
+  };
+}
+
 export async function resolveAnime(query: string, intent: Intent, source: AnimeSource): Promise<Resolution> {
+  const src = memo(source);
   const q = parseQuery(query);
+  if (q.literal && (await matchesStrongly(q.literal, intent, src))) {
+    return resolveParsed(query, q.literal, intent, src);
+  }
+  return resolveParsed(query, q, intent, src);
+}
+
+async function matchesStrongly(q: ParsedQuery, intent: Intent, source: AnimeSource): Promise<boolean> {
+  if (q.words.length === 0) return false;
+  const strong = (items: Media[]) => items.some((m) => matchScore(m, q) >= 2);
+  if (strong(await source.listMedia())) return true;
+  return intent !== "remove" && strong(await source.search(q.words.join(" ")));
+}
+
+async function resolveParsed(query: string, q: ParsedQuery, intent: Intent, source: AnimeSource): Promise<Resolution> {
   if (q.words.length === 0) return { kind: "none", why: `"${query}" doesn't name a show.` };
 
   const list = await source.listMedia();
@@ -298,9 +361,13 @@ export async function resolveAnime(query: string, intent: Intent, source: AnimeS
     pool = score(dedupe([...list, ...results]), q);
   };
 
-  if (intent === "add" || q.hint.season !== undefined || q.hint.part !== undefined) {
+  const named =
+    q.hint.season !== undefined || q.hint.part !== undefined || q.hint.latest || q.hint.next || q.hint.movie;
+  if (intent === "remove") {
+    // Removing only ever targets the list, so AniList-wide results can't change the answer.
+  } else if (intent === "add" || named) {
     await searchAll();
-  } else if (intent !== "remove") {
+  } else {
     const ranks = STATUS_RANK[intent];
     const listed = pool.filter((s) => s.media.mediaListEntry);
     // Only look beyond the list when nothing there is a likely target.
@@ -315,8 +382,9 @@ export async function resolveAnime(query: string, intent: Intent, source: AnimeS
     return { kind: "none", why: `Couldn't find "${query}" ${where}.` };
   }
 
+  if (q.hint.latest || q.hint.next) return resolveRelative(query, q, pool, source);
   if (q.hint.season !== undefined || q.hint.part !== undefined) {
-    return resolveSeason(query, q, intent, pool, source);
+    return resolveSeason(q, intent, pool, source);
   }
   return pick(query, intent, pool);
 }
@@ -375,6 +443,75 @@ function pick(query: string, intent: Intent, pool: Scored[]): Resolution {
   };
 }
 
+/** AniList statuses for something that has started airing. */
+export const AIRED = new Set(["RELEASING", "FINISHED", "HIATUS"]);
+
+function hasAired(m: Media): boolean {
+  return AIRED.has(m.status ?? "") && Boolean(m.startDate?.year);
+}
+
+/**
+ * The first season to count from, or an ambiguity when equally good first seasons
+ * belong to different shows or versions ("Hunter x Hunter" 1999 / 2011).
+ */
+function pickRoot(pool: Scored[], label: string): { root: Media } | Resolution {
+  const roots = rootsOf(pool);
+  const root = roots[0]?.media;
+  if (!root) return { kind: "none", why: `Couldn't find "${label}" on AniList.` };
+  const rivals = roots.filter((s) => s.score === roots[0]!.score).map((s) => s.media);
+  const versions = roots.filter((s) => isRemake(s.media, root)).map((s) => s.media);
+  if (versions.length) {
+    const all = [root, ...versions];
+    // If only one version is on the user's list, that's the one they mean.
+    const listed = all.filter((m) => m.mediaListEntry);
+    if (listed.length === 1) return { root: listed[0]! };
+    return { kind: "ambiguous", candidates: all.slice(0, MAX_CANDIDATES), why: `"${label}" has more than one version.` };
+  }
+  if (!sameFranchise(rivals)) {
+    return { kind: "ambiguous", candidates: rivals.slice(0, MAX_CANDIDATES), why: `"${label}" matches more than one show.` };
+  }
+  return { root };
+}
+
+/** First seasons that best match the words, sorted best first. */
+function rootsOf(pool: Scored[]): Scored[] {
+  return pool
+    .filter((s) => isRoot(s.media))
+    .sort((a, b) => b.score - a.score || dateKey(a.media) - dateKey(b.media));
+}
+
+/**
+ * "The new season" (the most recent one that has aired) and "the next season" (the one
+ * after the furthest the user has started), found by walking the sequel chain from season 1.
+ */
+async function resolveRelative(query: string, q: ParsedQuery, pool: Scored[], source: AnimeSource): Promise<Resolution> {
+  const picked = pickRoot(pool, query);
+  if (!("root" in picked)) return picked;
+  const { root } = picked;
+
+  const chain = (await seasonChain(root, Number.POSITIVE_INFINITY, source)).map((e) => e.media);
+
+  if (q.hint.latest) {
+    const aired = chain.filter(hasAired).filter((m) => q.hint.part === undefined || (titlePart(m) ?? 1) === q.hint.part);
+    const latest = aired.at(-1);
+    if (!latest) return { kind: "none", why: `No season of ${displayTitle(root.title)} has aired yet.` };
+    return { kind: "match", media: latest, why: "it's the latest season that has aired" };
+  }
+
+  // Next: after the furthest season the user has started (anything on the list but plan-to-watch).
+  let anchor = -1;
+  chain.forEach((m, i) => {
+    if (m.mediaListEntry && m.mediaListEntry.status !== "PLANNING") anchor = i;
+  });
+  const next = chain[anchor >= 0 ? anchor + 1 : 1];
+  if (!next) {
+    const after = anchor >= 0 ? chain[anchor]! : root;
+    return { kind: "none", why: `AniList doesn't list a season after ${displayTitle(after.title)} yet.` };
+  }
+  const why = anchor >= 0 ? `it's the season after ${displayTitle(chain[anchor]!.title)}` : "it's the sequel to the first season";
+  return { kind: "match", media: next, why };
+}
+
 interface SeasonEntry {
   media: Media;
   season: number;
@@ -392,7 +529,7 @@ async function seasonChain(root: Media, upTo: number, source: AnimeSource): Prom
     chain.push({ media: current, season, part });
     if (season > upTo) break;
     const withRelations: Media | undefined = current.relations ? current : (await source.getMany([current.id]))[0];
-    const edges: NonNullable<Media["relations"]>["edges"] = withRelations?.relations?.edges ?? [];
+    const edges: RelationEdge[] = withRelations?.relations?.edges ?? [];
     const sequel = edges.find(
       (e) => e.relationType === "SEQUEL" && e.node.type === "ANIME" && SERIES_FORMATS.has(e.node.format ?? ""),
     );
@@ -415,7 +552,6 @@ async function seasonChain(root: Media, upTo: number, source: AnimeSource): Prom
 }
 
 async function resolveSeason(
-  query: string,
   q: ParsedQuery,
   intent: Intent,
   pool: Scored[],
@@ -434,10 +570,9 @@ async function resolveSeason(
 
   // 2. Otherwise walk the sequel chain from season 1 ("Shingeki no Kyojin: The Final Season" is season 4).
   if (matches.length === 0 || wantSeason === 1) {
-    const roots = pool
-      .filter((s) => isSeries(s.media) && titleSeason(s.media) === undefined && titlePart(s.media) === undefined)
-      .sort((a, b) => b.score - a.score || dateKey(a.media) - dateKey(b.media));
-    const root = roots[0]?.media;
+    const picked = pickRoot(pool, q.exact);
+    if (!("root" in picked) && picked.kind === "ambiguous") return picked;
+    const root = "root" in picked ? picked.root : undefined;
     if (root) {
       const chain = await seasonChain(root, wantSeason, source);
       const fromChain = chain.filter((e) => fits(e.season, e.part));

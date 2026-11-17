@@ -18,6 +18,7 @@ Every tool that changes your list takes the show the way you'd say it: "jjk", "t
 | `mark_episodes_watched` | Count up from where you are ("I watched the next two episodes"). |
 | `set_progress` | Set an exact episode count ("I'm on episode 7"). |
 | `remove_from_list` | Delete a show from your list. |
+| `whats_next` | What to watch next: aired episodes you haven't seen, when the next ones air, shows on hold with episodes left, and the next season of shows you've finished. Or ask about one show ("when's the next Apothecary Diaries episode?"). |
 
 Project goals and requirements: [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md).
 
