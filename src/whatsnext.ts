@@ -240,7 +240,8 @@ export function buildReport(list: Media[], sequels: NextSeason[], now: number): 
 export function watchTime(episodes: number, duration: number | null): string {
   if (!duration || episodes <= 0) return "";
   const minutes = episodes * duration;
-  const roundedMinutes = Math.max(5, Math.round(minutes / 5) * 5);
+  if (minutes < 5) return ", a few minutes";
+  const roundedMinutes = Math.round(minutes / 5) * 5;
   if (roundedMinutes < 60) return `, about ${roundedMinutes} minutes`;
   const half = Math.round(minutes / 30) / 2;
   const hours = half >= 10 ? Math.round(minutes / 60) : half;

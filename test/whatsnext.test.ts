@@ -52,7 +52,8 @@ describe("watchTime", () => {
   test("minutes to the nearest 5 under an hour", () => {
     expect(watchTime(1, 24)).toBe(", about 25 minutes");
     expect(watchTime(2, 12)).toBe(", about 25 minutes");
-    expect(watchTime(1, 2)).toBe(", about 5 minutes");
+    expect(watchTime(1, 2)).toBe(", a few minutes");
+    expect(watchTime(3, 2)).toBe(", about 5 minutes");
   });
 
   test("hours to the nearest half from an hour up", () => {
