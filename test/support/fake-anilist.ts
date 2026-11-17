@@ -141,15 +141,16 @@ export class FakeAniList {
   }
 
   /** `depth` levels of relations, the way a query nesting `relations` that many times gets them. */
-  private mediaView(id: number, depth = 0, level = 1): Record<string, unknown> | null {
+  private mediaView(id: number, depth = 0, level = 1, links = false): Record<string, unknown> | null {
     const m = catalog.find((c) => c.id === id);
     if (!m) return null;
-    const { relations, franchise, popularity, ...rest } = m;
+    const { relations, franchise, popularity, externalLinks, ...rest } = m;
     const entry = this.entries.get(id);
     return {
       ...rest,
       mediaListEntry: entry ? this.entryView(entry) : null,
-      ...(depth > 0 ? { relations: this.relationsView(relations, depth, level) } : {}),
+      ...(depth > 0 ? { relations: this.relationsView(relations, depth, level, links) } : {}),
+      ...(links ? { externalLinks } : {}),
     };
   }
 
@@ -157,14 +158,14 @@ export class FakeAniList {
    * The innermost level has the short node AniConnect selects there; outer levels have
    * full media (the snapshot can't fill in anime it doesn't hold, so those stay short).
    */
-  private relationsView(relations: CatalogMedia["relations"], depth: number, level: number) {
+  private relationsView(relations: CatalogMedia["relations"], depth: number, level: number, links: boolean) {
     if (level > RELATION_LEVELS) return { edges: [] };
     return {
       edges: relations.edges.map((e) => ({
         relationType: e.relationType,
         node: (() => {
           const target = catalog.find((c) => c.id === e.node.id);
-          if (depth > 1 && target) return { type: e.node.type, ...this.mediaView(target.id, depth - 1, level + 1) };
+          if (depth > 1 && target) return { type: e.node.type, ...this.mediaView(target.id, depth - 1, level + 1, links) };
           return {
             id: e.node.id,
             type: e.node.type,
@@ -234,11 +235,12 @@ export class FakeAniList {
     }
     if (query.includes("id_in")) {
       const ids: number[] = variables.ids ?? [];
-      return json({ Page: { media: ids.map((id) => this.mediaView(id, relationDepth(query))).filter(Boolean) } });
+      const links = query.includes("externalLinks");
+      return json({ Page: { media: ids.map((id) => this.mediaView(id, relationDepth(query), 1, links)).filter(Boolean) } });
     }
     if (query.includes("Page(")) {
       const media = this.search(variables.search ?? "", variables.perPage ?? 10, variables).map((m) =>
-        this.mediaView(m.id, relationDepth(query)),
+        this.mediaView(m.id, relationDepth(query), 1, query.includes("externalLinks")),
       );
       return json({ Page: { media } });
     }

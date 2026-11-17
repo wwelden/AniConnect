@@ -2,7 +2,7 @@
  * "What should I watch next?" (requirement R4): unwatched aired episodes, upcoming air
  * times, shows on hold with episodes left, and the next season of finished shows.
  */
-import type { ListStatus, Media, RelationEdge, TitleLanguage } from "./anilist";
+import type { ExternalLink, ListStatus, Media, RelationEdge, TitleLanguage } from "./anilist";
 import { displayTitle, statusLabel } from "./logic";
 import { AIRED as AIRED_STATUSES, SERIES_FORMATS } from "./resolve";
 
@@ -349,5 +349,21 @@ export function formatShow(
   const next = upcoming(m, now);
   if (next) lines.push(`Next: episode ${next.episode} airs ${formatAirTime(next.airingAt, now, timeZone)}.`);
   for (const s of sequels) lines.push(`Comes next: ${sequelDetail(s, language)}`);
+  lines.push(...streamingLines(m.externalLinks ?? []));
   return lines.join("\n");
+}
+
+/**
+ * Where to stream a show, from AniList's streaming links. Nothing when there are none:
+ * AniList's data is incomplete, so no links doesn't mean it isn't streaming anywhere.
+ */
+export function streamingLines(links: ExternalLink[]): string[] {
+  const seen = new Set<string>();
+  const lines: string[] = [];
+  for (const l of links) {
+    if (l.type !== "STREAMING" || l.isDisabled || !l.url || seen.has(l.url)) continue;
+    seen.add(l.url);
+    lines.push(`- ${l.site}${l.notes ? ` (${l.notes})` : ""}: ${l.url}`);
+  }
+  return lines.length ? ["Stream on (availability varies by region):", ...lines] : [];
 }

@@ -55,6 +55,7 @@ const FIELDS = `
   popularity
   siteUrl
   nextAiringEpisode { episode airingAt }
+  externalLinks { site url type notes isDisabled }
   relations { edges { relationType node { id type } } }
 `;
 

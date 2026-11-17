@@ -18,7 +18,7 @@ Every tool that changes your list takes the show the way you'd say it: "jjk", "t
 | `mark_episodes_watched` | Count up from where you are ("I watched the next two episodes"). |
 | `set_progress` | Set an exact episode count ("I'm on episode 7"), or catch up to the latest aired episode ("I'm caught up on Dandadan"). |
 | `remove_from_list` | Delete a show from your list. |
-| `whats_next` | What to watch next: aired episodes you haven't seen and how long they take, when the next ones air, shows on hold with episodes left, and the next season or sequel movie of shows you've finished. Or ask about one show ("when's the next Apothecary Diaries episode?"). |
+| `whats_next` | What to watch next: aired episodes you haven't seen and how long they take, when the next ones air, shows on hold with episodes left, and the next season or sequel movie of shows you've finished. Or ask about one show ("when's the next Apothecary Diaries episode?", "where can I watch Frieren?"), which also lists where it streams. |
 
 Project goals and requirements: [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md).
 

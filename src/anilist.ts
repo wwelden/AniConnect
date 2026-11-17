@@ -70,6 +70,28 @@ export interface Media {
   mediaListEntry: ListEntry | null;
   /** Present when fetched with getMany, getRelated or searchAnime. */
   relations?: { edges: RelationEdge[] };
+  /** Present when fetched with `{ links: true }`. */
+  externalLinks?: ExternalLink[] | null;
+}
+
+/** A link from AniList's "External & Streaming links" section of a show. */
+export interface ExternalLink {
+  site: string;
+  url: string | null;
+  /** STREAMING, INFO (official site) or SOCIAL. */
+  type: string | null;
+  /** Free text such as a channel or region ("Muse Asia", "EN"). */
+  notes: string | null;
+  isDisabled: boolean | null;
+}
+
+/** Asks a media query for streaming links too: only for answers about one show. */
+export interface LinkOptions {
+  links?: boolean;
+}
+
+function linkFields(options: LinkOptions): string {
+  return options.links ? "externalLinks { site url type notes isDisabled }" : "";
 }
 
 export interface RelationEdge {
@@ -273,12 +295,13 @@ export class AniListClient {
     return this.viewer;
   }
 
-  async searchAnime(search: string, perPage: number): Promise<Media[]> {
+  async searchAnime(search: string, perPage: number, options: LinkOptions = {}): Promise<Media[]> {
     const data = await this.request<{ Page: { media: Media[] } }>(
       `query ($search: String, $perPage: Int) {
         Page(perPage: $perPage) {
           media(search: $search, type: ANIME, sort: SEARCH_MATCH) {
             ${MEDIA_FIELDS}
+            ${linkFields(options)}
             mediaListEntry { ${ENTRY_FIELDS} }
             relations { edges { ${RELATION_EDGE} } }
           }
@@ -335,13 +358,14 @@ export class AniListClient {
   }
 
   /** Fetches several anime at once, with their relations (sequels, prequels, ...). */
-  async getMany(ids: number[]): Promise<Media[]> {
+  async getMany(ids: number[], options: LinkOptions = {}): Promise<Media[]> {
     if (ids.length === 0) return [];
     const data = await this.request<{ Page: { media: Media[] } }>(
       `query ($ids: [Int]) {
         Page(perPage: 50) {
           media(id_in: $ids, type: ANIME) {
             ${MEDIA_FIELDS}
+            ${linkFields(options)}
             mediaListEntry { ${ENTRY_FIELDS} }
             relations { edges { ${RELATION_EDGE} } }
           }
@@ -357,13 +381,14 @@ export class AniListClient {
    * and with its own relations, so one request covers two steps of a sequel chain.
    * AniList fills in relations only two levels deep; a third level comes back empty.
    */
-  async getRelated(ids: number[]): Promise<Media[]> {
+  async getRelated(ids: number[], options: LinkOptions = {}): Promise<Media[]> {
     if (ids.length === 0) return [];
     const data = await this.request<{ Page: { media: Media[] } }>(
       `query ($ids: [Int]) {
         Page(perPage: 50) {
           media(id_in: $ids, type: ANIME) {
             ${MEDIA_FIELDS}
+            ${linkFields(options)}
             mediaListEntry { ${ENTRY_FIELDS} }
             relations {
               edges {
@@ -371,6 +396,7 @@ export class AniListClient {
                 node {
                   type
                   ${MEDIA_FIELDS}
+                  ${linkFields(options)}
                   mediaListEntry { ${ENTRY_FIELDS} }
                   relations { edges { ${RELATION_EDGE} } }
                 }

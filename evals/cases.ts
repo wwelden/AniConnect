@@ -137,4 +137,6 @@ export const CASES: EvalCase[] = [
     expect: { readOnly: true, mentions: ["80"] } },
   { id: "next-more-frieren", prompt: "I finished Frieren, is there more?", idealCalls: 1,
     expect: { readOnly: true, mentions: ["season 2"] } },
+  { id: "next-where-to-watch", prompt: "where can I watch Frieren?", idealCalls: 1,
+    expect: { readOnly: true, tools: ["whats_next"], mentions: ["Crunchyroll"] } },
 ];
