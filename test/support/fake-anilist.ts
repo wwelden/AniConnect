@@ -93,6 +93,8 @@ interface SearchVariables {
   formats?: string[];
   status?: string;
   sort?: string[];
+  /** Like AniList's argument: false hides adult titles, true keeps only them. */
+  isAdult?: boolean;
 }
 
 /** Descending sort keys for the AniList sorts we use. SEARCH_MATCH is imitated by popularity. */
@@ -118,6 +120,8 @@ export class FakeAniList {
   nextActivityId = 1;
   /** Clock for new activity, in ms. */
   clock: () => number = () => Date.now();
+  /** The account's 18+ content setting (AniList's default is off). */
+  displayAdultContent = false;
 
   constructor(
     public scoreFormat: ScoreFormat = "POINT_10_DECIMAL",
@@ -295,7 +299,8 @@ export class FakeAniList {
           (filters.seasonYear == null || m.seasonYear === filters.seasonYear) &&
           (filters.genres == null || filters.genres.every((g) => m.genres.includes(g))) &&
           (filters.formats == null || (m.format !== null && filters.formats.includes(m.format))) &&
-          (filters.status == null || m.status === filters.status),
+          (filters.status == null || m.status === filters.status) &&
+          (filters.isAdult == null || m.isAdult === filters.isAdult),
       )
       .sort((a, b) => sortKey(b) - sortKey(a))
       .slice(0, perPage);
@@ -321,7 +326,7 @@ export class FakeAniList {
           id: 1,
           name: this.viewerName,
           mediaListOptions: { scoreFormat: this.scoreFormat },
-          options: { titleLanguage: this.titleLanguage, timezone: this.timeZone },
+          options: { titleLanguage: this.titleLanguage, timezone: this.timeZone, displayAdultContent: this.displayAdultContent },
         },
       });
     }

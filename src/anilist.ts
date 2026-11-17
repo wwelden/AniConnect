@@ -121,6 +121,8 @@ export interface BrowseFilters {
   formats?: string[];
   status?: string;
   sort: "SEARCH_MATCH" | "POPULARITY_DESC" | "SCORE_DESC" | "START_DATE_DESC";
+  /** As for searchAnime: false hides adult (18+) titles, true returns only them, unset returns both. */
+  isAdult?: boolean;
 }
 
 /** One list update from the user's activity feed. */
@@ -143,6 +145,8 @@ export interface Viewer {
   titleLanguage: TitleLanguage;
   /** Time zone from the user's AniList settings: an offset like "-05:00" or an IANA name. Null when unset or unreadable. */
   timeZone: string | null;
+  /** The account's 18+ content setting. When off, AniList-wide search leaves adult titles out. */
+  displayAdultContent: boolean;
 }
 
 export class AniListError extends Error {}
@@ -293,9 +297,9 @@ export class AniListClient {
         id: number;
         name: string;
         mediaListOptions: { scoreFormat: ScoreFormat };
-        options: { titleLanguage: TitleLanguage | null; timezone: string | null } | null;
+        options: { titleLanguage: TitleLanguage | null; timezone: string | null; displayAdultContent: boolean | null } | null;
       };
-    }>(`query { Viewer { id name mediaListOptions { scoreFormat } options { titleLanguage timezone } } }`);
+    }>(`query { Viewer { id name mediaListOptions { scoreFormat } options { titleLanguage timezone displayAdultContent } } }`);
     this.viewer = {
       id: data.Viewer.id,
       name: data.Viewer.name,
@@ -303,15 +307,25 @@ export class AniListClient {
       // AniList's own default for new accounts.
       titleLanguage: data.Viewer.options?.titleLanguage ?? "ROMAJI",
       timeZone: parseTimeZone(data.Viewer.options?.timezone),
+      displayAdultContent: data.Viewer.options?.displayAdultContent ?? false,
     };
     return this.viewer;
   }
 
-  async searchAnime(search: string, perPage: number, options: LinkOptions = {}): Promise<Media[]> {
+  /** Drops the cached viewer, so the next call re-reads settings the user may have just changed. */
+  forgetViewer(): void {
+    this.viewer = null;
+  }
+
+  /**
+   * `isAdult: false` leaves out adult (18+) titles and `true` returns only them;
+   * leaving it out returns both, as AniList does when the argument is omitted.
+   */
+  async searchAnime(search: string, perPage: number, options: LinkOptions = {}, isAdult?: boolean): Promise<Media[]> {
     const data = await this.request<{ Page: { media: Media[] } }>(
-      `query ($search: String, $perPage: Int) {
+      `query ($search: String, $perPage: Int, $isAdult: Boolean) {
         Page(perPage: $perPage) {
-          media(search: $search, type: ANIME, sort: SEARCH_MATCH) {
+          media(search: $search, type: ANIME, sort: SEARCH_MATCH, isAdult: $isAdult) {
             ${MEDIA_FIELDS}
             ${linkFields(options)}
             mediaListEntry { ${ENTRY_FIELDS} }
@@ -319,7 +333,7 @@ export class AniListClient {
           }
         }
       }`,
-      { search, perPage },
+      { search, perPage, isAdult },
     );
     return data.Page.media;
   }
@@ -332,12 +346,12 @@ export class AniListClient {
     const data = await this.request<{ Page: { media: Media[] } }>(
       `query (
         $search: String, $season: MediaSeason, $seasonYear: Int, $genres: [String],
-        $formats: [MediaFormat], $status: MediaStatus, $sort: [MediaSort], $perPage: Int
+        $formats: [MediaFormat], $status: MediaStatus, $sort: [MediaSort], $perPage: Int, $isAdult: Boolean
       ) {
         Page(perPage: $perPage) {
           media(
             search: $search, type: ANIME, season: $season, seasonYear: $seasonYear,
-            genre_in: $genres, format_in: $formats, status: $status, sort: $sort
+            genre_in: $genres, format_in: $formats, status: $status, sort: $sort, isAdult: $isAdult
           ) {
             ${MEDIA_FIELDS}
             mediaListEntry { ${ENTRY_FIELDS} }

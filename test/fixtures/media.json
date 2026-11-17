@@ -17,6 +17,7 @@
   "duration": 23,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Action",
@@ -222,6 +223,7 @@
   "duration": 24,
   "format": "TV",
   "status": "RELEASING",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Action",
@@ -828,6 +830,7 @@
   "duration": 25,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Action",
@@ -947,6 +950,7 @@
   "duration": 23,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Action",
@@ -1021,6 +1025,7 @@
   "duration": 24,
   "format": "OVA",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "WINTER",
   "genres": [
    "Action",
@@ -1088,6 +1093,7 @@
   "duration": 22,
   "format": "OVA",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "WINTER",
   "genres": [
    "Action",
@@ -1156,6 +1162,7 @@
   "duration": 24,
   "format": "OVA",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SPRING",
   "genres": [
    "Action",
@@ -1201,6 +1208,63 @@
   "franchise": "Hunter x Hunter"
  },
  {
+  "id": 320,
+  "title": {
+   "romaji": "A KITE",
+   "english": "Kite",
+   "native": "A KITE"
+  },
+  "synonyms": [
+   "Kite Remastered",
+   "Kite Remastered: Special Edition",
+   "A Kite Special Edition",
+   "A Kite: International Version",
+   "A カイト",
+   "ア カイト",
+   "カイト"
+  ],
+  "episodes": 2,
+  "duration": 27,
+  "format": "OVA",
+  "status": "FINISHED",
+  "isAdult": true,
+  "season": "WINTER",
+  "genres": [
+   "Action",
+   "Drama",
+   "Hentai"
+  ],
+  "seasonYear": 1998,
+  "startDate": {
+   "year": 1998,
+   "month": 2,
+   "day": 25
+  },
+  "averageScore": 63,
+  "popularity": 22390,
+  "siteUrl": "https://anilist.co/anime/320",
+  "nextAiringEpisode": null,
+  "relations": {
+   "edges": [
+    {
+     "relationType": "SEQUEL",
+     "node": {
+      "id": 3323,
+      "type": "ANIME"
+     }
+    },
+    {
+     "relationType": "CHARACTER",
+     "node": {
+      "id": 221,
+      "type": "ANIME"
+     }
+    }
+   ]
+  },
+  "franchise": "A KITE"
+ },
+ {
   "id": 430,
   "title": {
    "romaji": "Hagane no Renkinjutsushi: Shamballa wo Yuku Mono",
@@ -1219,6 +1283,7 @@
   "duration": 105,
   "format": "MOVIE",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SUMMER",
   "genres": [
    "Action",
@@ -1288,6 +1353,7 @@
   "duration": 90,
   "format": "MOVIE",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SUMMER",
   "genres": [
    "Action",
@@ -1372,6 +1438,7 @@
   "duration": 28,
   "format": "OVA",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SUMMER",
   "genres": [
    "Adventure",
@@ -1433,6 +1500,7 @@
   "duration": 40,
   "format": "SPECIAL",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "WINTER",
   "genres": [
    "Action",
@@ -1486,6 +1554,7 @@
   "duration": 17,
   "format": "SPECIAL",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SPRING",
   "genres": [
    "Adventure",
@@ -1532,6 +1601,7 @@
   "duration": 8,
   "format": "OVA",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SPRING",
   "genres": [
    "Comedy",
@@ -1588,6 +1658,7 @@
   "duration": 97,
   "format": "MOVIE",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SUMMER",
   "genres": [
    "Action",
@@ -1665,6 +1736,7 @@
   "duration": 27,
   "format": "OVA",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "WINTER",
   "genres": [
    "Adventure",
@@ -1712,6 +1784,7 @@
   "duration": 49,
   "format": "SPECIAL",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Adventure",
@@ -1766,6 +1839,7 @@
   "duration": 46,
   "format": "SPECIAL",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SPRING",
   "genres": [
    "Adventure",
@@ -1825,6 +1899,7 @@
   "duration": 45,
   "format": "SPECIAL",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "WINTER",
   "genres": [
    "Action",
@@ -1884,6 +1959,7 @@
   "duration": 23,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "WINTER",
   "genres": [
    "Action",
@@ -2142,6 +2218,7 @@
   "duration": 44,
   "format": "SPECIAL",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Adventure",
@@ -2190,6 +2267,7 @@
   "duration": 94,
   "format": "MOVIE",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SUMMER",
   "genres": [
    "Action",
@@ -2263,6 +2341,7 @@
   "duration": 11,
   "format": "SPECIAL",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SUMMER",
   "genres": [
    "Action",
@@ -2307,6 +2386,7 @@
   "duration": 5,
   "format": "SPECIAL",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SPRING",
   "genres": [
    "Comedy",
@@ -2362,6 +2442,7 @@
   "duration": 94,
   "format": "MOVIE",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SUMMER",
   "genres": [
    "Action",
@@ -2422,6 +2503,7 @@
   "duration": 5,
   "format": "SPECIAL",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SPRING",
   "genres": [
    "Comedy",
@@ -2470,6 +2552,7 @@
   "duration": 92,
   "format": "MOVIE",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SUMMER",
   "genres": [
    "Action",
@@ -2531,6 +2614,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SUMMER",
   "genres": [
    "Comedy",
@@ -2666,6 +2750,7 @@
   "duration": 25,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SPRING",
   "genres": [
    "Action",
@@ -2802,6 +2887,7 @@
   "duration": 95,
   "format": "MOVIE",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SUMMER",
   "genres": [
    "Action",
@@ -2870,6 +2956,7 @@
   "duration": 15,
   "format": "OVA",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SUMMER",
   "genres": [
    "Adventure",
@@ -2921,6 +3008,7 @@
   "duration": 27,
   "format": "SPECIAL",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Action",
@@ -2970,6 +3058,7 @@
   "duration": 110,
   "format": "MOVIE",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SUMMER",
   "genres": [
    "Action",
@@ -3055,6 +3144,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SPRING",
   "genres": [
    "Drama",
@@ -3206,6 +3296,7 @@
   "duration": 64,
   "format": "MOVIE",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "WINTER",
   "genres": [
    "Action",
@@ -3291,6 +3382,7 @@
   "duration": 25,
   "format": "OVA",
   "status": "FINISHED",
+  "isAdult": false,
   "season": null,
   "genres": [
    "Action",
@@ -3344,6 +3436,7 @@
   "duration": 15,
   "format": "SPECIAL",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SUMMER",
   "genres": [
    "Action",
@@ -3396,6 +3489,7 @@
   "duration": 25,
   "format": "OVA",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "WINTER",
   "genres": [
    "Comedy",
@@ -3460,6 +3554,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Action",
@@ -3622,6 +3717,7 @@
   "duration": 90,
   "format": "MOVIE",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SPRING",
   "genres": [
    "Drama",
@@ -3683,6 +3779,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "WINTER",
   "genres": [
    "Comedy",
@@ -3792,6 +3889,7 @@
   "duration": 12,
   "format": "MOVIE",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Action",
@@ -3839,6 +3937,7 @@
   "duration": 97,
   "format": "MOVIE",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "WINTER",
   "genres": [
    "Action",
@@ -3903,6 +4002,7 @@
   "duration": 27,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Drama",
@@ -3990,6 +4090,7 @@
   "duration": 102,
   "format": "SPECIAL",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Action",
@@ -4044,6 +4145,7 @@
   "duration": 5,
   "format": "SPECIAL",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Action",
@@ -4110,6 +4212,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SPRING",
   "genres": [
    "Action",
@@ -4300,6 +4403,7 @@
   "duration": 26,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SUMMER",
   "genres": [
    "Comedy",
@@ -4428,6 +4532,7 @@
   "duration": 25,
   "format": "OVA",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Action",
@@ -4511,6 +4616,7 @@
   "duration": 98,
   "format": "MOVIE",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Action",
@@ -4574,6 +4680,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SPRING",
   "genres": [
    "Comedy",
@@ -4732,6 +4839,7 @@
   "duration": 118,
   "format": "MOVIE",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Action",
@@ -4819,6 +4927,7 @@
   "duration": 120,
   "format": "MOVIE",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SPRING",
   "genres": [
    "Action",
@@ -4924,6 +5033,7 @@
   "duration": 28,
   "format": "OVA",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "WINTER",
   "genres": [
    "Action",
@@ -5004,6 +5114,7 @@
   "duration": 107,
   "format": "SPECIAL",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SUMMER",
   "genres": [
    "Action",
@@ -5074,6 +5185,7 @@
   "duration": 25,
   "format": "OVA",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Comedy",
@@ -5147,6 +5259,7 @@
   "duration": 4,
   "format": "ONA",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Comedy",
@@ -5219,6 +5332,7 @@
   "duration": 23,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Comedy",
@@ -5321,6 +5435,7 @@
   "duration": 25,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SPRING",
   "genres": [
    "Action",
@@ -5458,6 +5573,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Comedy",
@@ -5602,6 +5718,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SPRING",
   "genres": [
    "Drama",
@@ -5697,6 +5814,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Drama",
@@ -5780,6 +5898,7 @@
   "duration": 22,
   "format": "SPECIAL",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Comedy",
@@ -5860,6 +5979,7 @@
   "duration": 25,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SPRING",
   "genres": [
    "Action",
@@ -6077,6 +6197,7 @@
   "duration": 68,
   "format": "MOVIE",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SUMMER",
   "genres": [
    "Action",
@@ -6160,6 +6281,7 @@
   "duration": 82,
   "format": "MOVIE",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "WINTER",
   "genres": [
    "Action",
@@ -6255,6 +6377,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SPRING",
   "genres": [
    "Action",
@@ -6377,6 +6500,7 @@
   "duration": 116,
   "format": "SPECIAL",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Action",
@@ -6440,6 +6564,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SUMMER",
   "genres": [
    "Action",
@@ -6572,6 +6697,7 @@
   "duration": 14,
   "format": "ONA",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "WINTER",
   "genres": [
    "Comedy",
@@ -6659,6 +6785,7 @@
   "duration": 24,
   "format": "OVA",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Drama",
@@ -6720,6 +6847,7 @@
   "duration": 25,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Comedy",
@@ -6843,6 +6971,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SUMMER",
   "genres": [
    "Comedy",
@@ -6923,6 +7052,7 @@
   "duration": 104,
   "format": "SPECIAL",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SUMMER",
   "genres": [
    "Action",
@@ -7020,6 +7150,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SPRING",
   "genres": [
    "Action",
@@ -7151,6 +7282,7 @@
   "duration": 27,
   "format": "OVA",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SPRING",
   "genres": [
    "Action",
@@ -7233,6 +7365,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SUMMER",
   "genres": [
    "Action",
@@ -7383,6 +7516,7 @@
   "duration": 25,
   "format": "OVA",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Action",
@@ -7479,6 +7613,7 @@
   "duration": 68,
   "format": "OVA",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Comedy",
@@ -7573,6 +7708,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SPRING",
   "genres": [
    "Action",
@@ -7705,6 +7841,7 @@
   "duration": 120,
   "format": "MOVIE",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "WINTER",
   "genres": [
    "Action",
@@ -7795,6 +7932,7 @@
   "duration": 96,
   "format": "MOVIE",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SUMMER",
   "genres": [
    "Action",
@@ -7890,6 +8028,7 @@
   "duration": 26,
   "format": "OVA",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "WINTER",
   "genres": [
    "Drama",
@@ -7981,6 +8120,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Action",
@@ -8169,6 +8309,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "WINTER",
   "genres": [
    "Action",
@@ -8297,6 +8438,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SUMMER",
   "genres": [
    "Action",
@@ -8402,6 +8544,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "WINTER",
   "genres": [
    "Comedy",
@@ -8513,6 +8656,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SPRING",
   "genres": [
    "Action",
@@ -8649,6 +8793,7 @@
   "duration": 7,
   "format": "SPECIAL",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Comedy"
@@ -8692,6 +8837,7 @@
   "duration": 24,
   "format": "OVA",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "WINTER",
   "genres": [
    "Comedy",
@@ -8770,6 +8916,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Action",
@@ -8908,6 +9055,7 @@
   "duration": 4,
   "format": "OVA",
   "status": "FINISHED",
+  "isAdult": false,
   "season": null,
   "genres": [
    "Comedy",
@@ -8961,6 +9109,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SPRING",
   "genres": [
    "Action",
@@ -9084,6 +9233,7 @@
   "duration": 5,
   "format": "OVA",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "WINTER",
   "genres": [
    "Action",
@@ -9154,6 +9304,7 @@
   "duration": 24,
   "format": "OVA",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SUMMER",
   "genres": [
    "Action",
@@ -9246,6 +9397,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "WINTER",
   "genres": [
    "Comedy",
@@ -9364,6 +9516,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "WINTER",
   "genres": [
    "Adventure",
@@ -9486,6 +9639,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "WINTER",
   "genres": [
    "Action",
@@ -9640,6 +9794,7 @@
   "duration": 104,
   "format": "MOVIE",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Action",
@@ -9745,6 +9900,7 @@
   "duration": 26,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SUMMER",
   "genres": [
    "Action",
@@ -9905,6 +10061,7 @@
   "duration": 24,
   "format": "OVA",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SUMMER",
   "genres": [
    "Action",
@@ -9979,6 +10136,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "WINTER",
   "genres": [
    "Action",
@@ -10113,6 +10271,7 @@
   "duration": 23,
   "format": "OVA",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "WINTER",
   "genres": [
    "Comedy",
@@ -10197,6 +10356,7 @@
   "duration": 117,
   "format": "MOVIE",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Action",
@@ -10322,6 +10482,7 @@
   "duration": 25,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SPRING",
   "genres": [
    "Comedy",
@@ -10425,6 +10586,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Action",
@@ -10563,6 +10725,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Comedy",
@@ -10683,6 +10846,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SUMMER",
   "genres": [
    "Action",
@@ -10847,6 +11011,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SPRING",
   "genres": [
    "Action",
@@ -10989,6 +11154,7 @@
   "duration": 30,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "WINTER",
   "genres": [
    "Action",
@@ -11134,6 +11300,7 @@
   "duration": 24,
   "format": "ONA",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SUMMER",
   "genres": [
    "Action",
@@ -11216,6 +11383,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SPRING",
   "genres": [
    "Comedy",
@@ -11333,6 +11501,7 @@
   "duration": 24,
   "format": "OVA",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SPRING",
   "genres": [
    "Comedy",
@@ -11417,6 +11586,7 @@
   "duration": 104,
   "format": "MOVIE",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SUMMER",
   "genres": [
    "Action",
@@ -11499,6 +11669,7 @@
   "duration": 10,
   "format": "SPECIAL",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SUMMER",
   "genres": [
    "Comedy"
@@ -11546,6 +11717,7 @@
   "duration": 25,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Action",
@@ -11761,6 +11933,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Adventure",
@@ -11898,6 +12071,7 @@
   "duration": 23,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Action",
@@ -12036,6 +12210,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Comedy",
@@ -12172,6 +12347,7 @@
   "duration": 25,
   "format": "OVA",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SPRING",
   "genres": [
    "Action",
@@ -12251,6 +12427,7 @@
   "duration": 105,
   "format": "MOVIE",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Action",
@@ -12347,6 +12524,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "WINTER",
   "genres": [
    "Action",
@@ -12457,6 +12635,7 @@
   "duration": 26,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "WINTER",
   "genres": [
    "Action",
@@ -12557,6 +12736,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Action",
@@ -12687,6 +12867,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Action",
@@ -12817,6 +12998,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SPRING",
   "genres": [
    "Action",
@@ -12971,6 +13153,7 @@
   "duration": 24,
   "format": "SPECIAL",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "WINTER",
   "genres": [
    "Adventure",
@@ -13077,6 +13260,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "WINTER",
   "genres": [
    "Action",
@@ -13210,6 +13394,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Action",
@@ -13362,6 +13547,7 @@
   "duration": 3,
   "format": "SPECIAL",
   "status": "FINISHED",
+  "isAdult": false,
   "season": null,
   "genres": [
    "Mystery",
@@ -13429,6 +13615,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SUMMER",
   "genres": [
    "Action",
@@ -13569,6 +13756,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SPRING",
   "genres": [
    "Action",
@@ -13697,6 +13885,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SUMMER",
   "genres": [
    "Adventure",
@@ -13836,6 +14025,7 @@
   "duration": 3,
   "format": "ONA",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "WINTER",
   "genres": [
    "Comedy",
@@ -13917,6 +14107,7 @@
   "duration": 61,
   "format": "SPECIAL",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "WINTER",
   "genres": [
    "Action",
@@ -14059,6 +14250,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SPRING",
   "genres": [
    "Drama",
@@ -14212,6 +14404,7 @@
   "duration": 25,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SPRING",
   "genres": [
    "Comedy",
@@ -14319,6 +14512,7 @@
   "duration": 85,
   "format": "MOVIE",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "WINTER",
   "genres": [
    "Comedy",
@@ -14434,6 +14628,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Adventure",
@@ -14580,6 +14775,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SPRING",
   "genres": [
    "Action",
@@ -14707,6 +14903,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Action",
@@ -14853,6 +15050,7 @@
   "duration": 110,
   "format": "MOVIE",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Action",
@@ -14984,6 +15182,7 @@
   "duration": 23,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Drama",
@@ -15100,6 +15299,7 @@
   "duration": 24,
   "format": "OVA",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Action",
@@ -15189,6 +15389,7 @@
   "duration": 3,
   "format": "ONA",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "WINTER",
   "genres": [
    "Action",
@@ -15253,6 +15454,7 @@
   "duration": 85,
   "format": "SPECIAL",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Action",
@@ -15349,6 +15551,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Action",
@@ -15511,6 +15714,7 @@
   "duration": 2,
   "format": "ONA",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SPRING",
   "genres": [
    "Drama"
@@ -15571,6 +15775,7 @@
   "duration": 92,
   "format": "MOVIE",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SPRING",
   "genres": [
    "Comedy",
@@ -15677,6 +15882,7 @@
   "duration": 10,
   "format": "ONA",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Comedy",
@@ -15759,6 +15965,7 @@
   "duration": 30,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SPRING",
   "genres": [
    "Action",
@@ -15885,6 +16092,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SUMMER",
   "genres": [
    "Drama",
@@ -16027,6 +16235,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SPRING",
   "genres": [
    "Adventure",
@@ -16148,6 +16357,7 @@
   "duration": 1,
   "format": "ONA",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Comedy",
@@ -16229,6 +16439,7 @@
   "duration": 2,
   "format": "ONA",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Comedy"
@@ -16296,6 +16507,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Action",
@@ -16431,6 +16643,7 @@
   "duration": 77,
   "format": "MOVIE",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SUMMER",
   "genres": [
    "Comedy",
@@ -16545,6 +16758,7 @@
   "duration": 100,
   "format": "MOVIE",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SUMMER",
   "genres": [
    "Action",
@@ -16686,6 +16900,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "WINTER",
   "genres": [
    "Action",
@@ -16802,6 +17017,7 @@
   "duration": null,
   "format": "MOVIE",
   "status": "NOT_YET_RELEASED",
+  "isAdult": false,
   "season": null,
   "genres": [
    "Comedy",
@@ -16887,6 +17103,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "WINTER",
   "genres": [
    "Drama",
@@ -16998,6 +17215,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Action",
@@ -17123,6 +17341,7 @@
   "duration": 155,
   "format": "MOVIE",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SUMMER",
   "genres": [
    "Action",
@@ -17235,6 +17454,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SUMMER",
   "genres": [
    "Adventure",
@@ -17356,6 +17576,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SPRING",
   "genres": [
    "Action",
@@ -17475,6 +17696,7 @@
   "duration": 104,
   "format": "MOVIE",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "WINTER",
   "genres": [
    "Action",
@@ -17571,6 +17793,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "WINTER",
   "genres": [
    "Adventure",
@@ -17687,6 +17910,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "WINTER",
   "genres": [
    "Drama",
@@ -17824,6 +18048,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SUMMER",
   "genres": [
    "Action",
@@ -17958,6 +18183,7 @@
   "duration": 2,
   "format": "ONA",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "WINTER",
   "genres": [
    "Comedy"
@@ -18036,6 +18262,7 @@
   "duration": null,
   "format": "TV",
   "status": "NOT_YET_RELEASED",
+  "isAdult": false,
   "season": null,
   "genres": [
    "Comedy",
@@ -18130,6 +18357,7 @@
   "duration": null,
   "format": "SPECIAL",
   "status": "NOT_YET_RELEASED",
+  "isAdult": false,
   "season": null,
   "genres": [
    "Comedy",
@@ -18204,6 +18432,7 @@
   "duration": 24,
   "format": "TV",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SPRING",
   "genres": [
    "Action",
@@ -18362,6 +18591,7 @@
   "duration": 1,
   "format": "ONA",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SPRING",
   "genres": [
    "Comedy",
@@ -18449,6 +18679,7 @@
   "duration": 111,
   "format": "MOVIE",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SPRING",
   "genres": [
    "Action",
@@ -18543,6 +18774,7 @@
   "duration": 26,
   "format": "SPECIAL",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Comedy",
@@ -18622,6 +18854,7 @@
   "duration": null,
   "format": "MOVIE",
   "status": "NOT_YET_RELEASED",
+  "isAdult": false,
   "season": null,
   "genres": [
    "Action",
@@ -18715,6 +18948,7 @@
   "duration": null,
   "format": "MOVIE",
   "status": "NOT_YET_RELEASED",
+  "isAdult": false,
   "season": null,
   "genres": [
    "Action",
@@ -18801,6 +19035,7 @@
   "duration": 24,
   "format": "TV",
   "status": "RELEASING",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Drama",
@@ -18923,6 +19158,7 @@
   "duration": 1,
   "format": "ONA",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SUMMER",
   "genres": [
    "Comedy",
@@ -18981,6 +19217,7 @@
   "duration": null,
   "format": "TV",
   "status": "NOT_YET_RELEASED",
+  "isAdult": false,
   "season": null,
   "genres": [
    "Action",
@@ -19058,6 +19295,7 @@
   "duration": null,
   "format": "TV",
   "status": "NOT_YET_RELEASED",
+  "isAdult": false,
   "season": "SPRING",
   "genres": [
    "Drama",
@@ -19130,6 +19368,7 @@
   "duration": null,
   "format": "MOVIE",
   "status": "NOT_YET_RELEASED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Drama",
@@ -19199,6 +19438,7 @@
   "duration": 88,
   "format": "MOVIE",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Action",
@@ -19280,6 +19520,7 @@
   "duration": null,
   "format": null,
   "status": "NOT_YET_RELEASED",
+  "isAdult": false,
   "season": null,
   "genres": [
    "Action",
@@ -19347,6 +19588,7 @@
   "duration": null,
   "format": "MOVIE",
   "status": "NOT_YET_RELEASED",
+  "isAdult": false,
   "season": null,
   "genres": [
    "Comedy",
@@ -19416,6 +19658,7 @@
   "duration": 1,
   "format": "ONA",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "WINTER",
   "genres": [
    "Comedy",
@@ -19497,6 +19740,7 @@
   "duration": null,
   "format": "TV",
   "status": "NOT_YET_RELEASED",
+  "isAdult": false,
   "season": null,
   "genres": [
    "Drama",
@@ -19580,6 +19824,7 @@
   "duration": null,
   "format": null,
   "status": "NOT_YET_RELEASED",
+  "isAdult": false,
   "season": null,
   "genres": [
    "Action",
@@ -19655,6 +19900,7 @@
   "duration": null,
   "format": "TV",
   "status": "NOT_YET_RELEASED",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Adventure",
@@ -19726,6 +19972,7 @@
   "duration": 2,
   "format": "SPECIAL",
   "status": "FINISHED",
+  "isAdult": false,
   "season": "SUMMER",
   "genres": [
    "Comedy",
@@ -19799,6 +20046,7 @@
   "duration": null,
   "format": "TV",
   "status": "NOT_YET_RELEASED",
+  "isAdult": false,
   "season": "SUMMER",
   "genres": [
    "Action",
@@ -19866,6 +20114,7 @@
   "duration": null,
   "format": "TV",
   "status": "NOT_YET_RELEASED",
+  "isAdult": false,
   "season": null,
   "genres": [
    "Adventure",
@@ -19936,6 +20185,7 @@
   "duration": 2,
   "format": "ONA",
   "status": "RELEASING",
+  "isAdult": false,
   "season": "FALL",
   "genres": [
    "Comedy"
@@ -20004,6 +20254,7 @@
   "duration": null,
   "format": "MOVIE",
   "status": "NOT_YET_RELEASED",
+  "isAdult": false,
   "season": null,
   "genres": [
    "Music",
@@ -20098,6 +20349,7 @@
   "duration": null,
   "format": "TV",
   "status": "NOT_YET_RELEASED",
+  "isAdult": false,
   "season": null,
   "genres": [
    "Action",
@@ -20179,6 +20431,7 @@
   "duration": null,
   "format": "TV",
   "status": "NOT_YET_RELEASED",
+  "isAdult": false,
   "season": null,
   "genres": [
    "Action",

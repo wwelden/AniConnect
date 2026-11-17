@@ -80,6 +80,7 @@ Every tool that targets a show accepts a title (or an ID) and picks the right An
 |---|---|---|
 | R3.1 | Undo recent changes exactly, including deleting an entry that was just added and restoring one that was just removed. | Planned |
 | R3.2 | Never overwrite data the user didn't ask to change (e.g. keep existing start/finish dates and rewatch completion dates). | Done |
+| R3.3 | Keep adult (18+) titles out of AniList-wide search and name resolution unless the user's AniList setting (`displayAdultContent`) allows them. Shows already on the list and direct AniList IDs always work. When only adult titles match, say so in one line rather than "not found". | Done (tool tests) |
 
 ### R4: Airing awareness
 
@@ -105,7 +106,7 @@ Every tool that targets a show accepts a title (or an ID) and picks the right An
 
 | ID | Requirement | Status |
 |---|---|---|
-| R6.1 | A fixture of real AniList data for franchises that are hard to resolve (many seasons, split cours, movies, sequels with unrelated titles). | Done (196 entries, 24 franchises) |
+| R6.1 | A fixture of real AniList data for franchises that are hard to resolve (many seasons, split cours, movies, sequels with unrelated titles). | Done (197 entries, 25 franchises, one adult title) |
 | R6.2 | Deterministic resolver tests: request text + user list → expected entry or "ambiguous". Run in `bun test`. | Done (65 cases) |
 | R6.3 | End-to-end evals with a real model: natural-language request → tool calls → final list state, scored on correctness and number of calls. | Done. 2026-11-17, 36 cases: 36/36 correct on Opus 5.5 and Sonnet 5.5, 1.14 and 1.11 tool calls per request, $0.68 and $0.35 per run. Haiku 5.5, two runs on 2026-11-17: 34/36 and 36/36 correct, 1.17 and 1.06 tool calls per request, $0.02 per run. Its misses were its own: it searched first and rated the wrong Kaguya-sama season by ID, and it listed the Attack on Titan candidates without asking a question. Earlier Haiku runs found that "finished the season" requests logged one episode or took two calls; the progress tools now point those to `set_status` COMPLETED |
 | R6.4 | Run the same evals against competing servers for a side-by-side score. | Later |

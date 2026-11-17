@@ -77,14 +77,29 @@ function safeFor(client: AniListClient, now: () => number) {
     };
 }
 
+/**
+ * Adult titles stay out of AniList-wide search unless the user's AniList settings allow them:
+ * the `isAdult` argument for searchAnime (false hides them, undefined returns everything).
+ */
+function adultFilter(viewer: Viewer): false | undefined {
+  return viewer.displayAdultContent ? undefined : false;
+}
+
 export function clientSource(client: AniListClient, options: LinkOptions = {}): AnimeSource {
   return {
+    // Shows already on the list come from here, so they resolve whatever the 18+ setting.
     listMedia: async () =>
       (await client.getMyList()).map(({ media, ...entry }) => ({ ...media, mediaListEntry: entry })),
-    search: (query) => client.searchAnime(query, 15, options),
+    search: async (query) => client.searchAnime(query, 15, options, adultFilter(await client.getViewer())),
     getRelated: (ids) => client.getRelated(ids, options),
+    searchHidden: async (query) =>
+      adultFilter(await client.getViewer()) === false ? client.searchAnime(query, 15, {}, true) : [],
   };
 }
+
+/** Next step when only adult titles matched and the user's settings hide them. */
+const ADULT_HIDDEN =
+  "turn on 18+ content in the user's AniList settings, or use the show's AniList ID (the number in its anilist.co URL).";
 
 /** Finds the show a tool call is about, or throws a message that tells the assistant what to do. */
 async function target(
@@ -108,7 +123,12 @@ async function target(
       `${prefix}${r.why} Ask the user which one they mean, then call again with its ID:\n${describeCandidates(r.candidates, titleLanguage)}`,
     );
   }
-  throw new Error(`${prefix}${r.why} Pass just the show's name, or try search_anime with a different spelling.`);
+  // The user may turn the setting on after reading this, so read it again next time.
+  if (r.hidden) client.forgetViewer();
+  const next = r.hidden
+    ? `To use one, ${ADULT_HIDDEN}`
+    : "Pass just the show's name, or try search_anime with a different spelling.";
+  throw new Error(`${prefix}${r.why} ${next}`);
 }
 
 /** AniList's genres (GenreCollection), less the adult-only one. */
@@ -218,14 +238,27 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
         .filter(Boolean)
         .join(", ");
 
-      const [viewer, results] = await Promise.all([
-        client.getViewer(),
+      const viewer = await client.getViewer();
+      const adult = adultFilter(viewer);
+      const browse = (isAdult: boolean | undefined) =>
         client.browseAnime(
-          { search: query, season, seasonYear: year, genres, formats, status: airingStatus, sort: order.sort },
+          { search: query, season, seasonYear: year, genres, formats, status: airingStatus, sort: order.sort, isAdult },
           limit ?? (browsing ? 10 : 5),
-        ),
-      ]);
-      if (results.length === 0) return text(`No anime found for ${filter}.`);
+        );
+      const results = await browse(adult);
+      if (results.length === 0) {
+        // When nothing else matches, adult titles on the user's list still show.
+        const hidden = adult === false ? await browse(true) : [];
+        const listed = hidden.filter((m) => m.mediaListEntry);
+        const lines = listed.map((m) => describeEntry(m, m.mediaListEntry, viewer));
+        if (hidden.length > listed.length) {
+          client.forgetViewer();
+          lines.push(
+            `${listed.length ? "Other" : "Only"} adult (18+) titles match ${filter}; they're hidden because 18+ content is off in the user's AniList settings. To see them, ${ADULT_HIDDEN}`,
+          );
+        }
+        return text(lines.length ? lines.join("\n") : `No anime found for ${filter}.`);
+      }
       const lines = results.map((m) => {
         const line = describeEntry(m, m.mediaListEntry, viewer);
         const score = browsing && m.averageScore ? `, AniList score ${m.averageScore}%` : "";

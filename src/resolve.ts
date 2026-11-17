@@ -19,12 +19,17 @@ export interface AnimeSource {
    * (with `mediaListEntry`) carrying its own `relations`: two steps of a sequel chain.
    */
   getRelated(ids: number[]): Promise<Media[]>;
+  /**
+   * Titles `search` leaves out because of the user's settings (adult titles), searched
+   * only to explain a miss. Omit, or return nothing, when nothing is hidden.
+   */
+  searchHidden?(query: string): Promise<Media[]>;
 }
 
 export type Resolution =
   | { kind: "match"; media: Media; why: string }
   | { kind: "ambiguous"; candidates: Media[]; why: string }
-  | { kind: "none"; why: string };
+  | { kind: "none"; why: string; hidden?: boolean };
 
 export interface SeasonHint {
   season?: number;
@@ -332,6 +337,7 @@ export function memo(source: AnimeSource): AnimeSource {
       return searches.get(query)!;
     },
     getRelated: (ids) => source.getRelated(ids),
+    ...(source.searchHidden && { searchHidden: (query: string) => source.searchHidden!(query) }),
   };
 }
 
@@ -396,6 +402,17 @@ async function resolveParsed(
   if (intent === "remove") pool = pool.filter((s) => s.media.mediaListEntry);
 
   if (pool.length === 0) {
+    if (intent !== "remove" && source.searchHidden) {
+      // Say why rather than "not found", so the assistant doesn't report that the show doesn't exist.
+      const hidden = preferSeries(score(await source.searchHidden(q.words.join(" ")), q), q.hint);
+      if (hidden.length) {
+        return {
+          kind: "none",
+          hidden: true,
+          why: `Only adult (18+) titles match "${query}", and they're hidden because 18+ content is off in the user's AniList settings.`,
+        };
+      }
+    }
     const where = intent === "remove" ? "on your list" : "on AniList";
     return { kind: "none", why: `Couldn't find "${query}" ${where}.` };
   }

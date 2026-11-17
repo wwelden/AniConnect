@@ -588,3 +588,84 @@ describe("search_anime filters", () => {
     expect(r.text).toContain("at least one filter");
   });
 });
+
+describe("adult titles (AniList's 18+ content setting)", () => {
+  // A KITE (320) is the fixture's only adult title, and the only one matching "kite".
+  const searches = () => fake.calls.filter((c) => c.query.includes("search:")).map((c) => c.variables.isAdult);
+
+  test("search_anime leaves them out when the setting is off, and says so in one line", async () => {
+    const r = await call("search_anime", { query: "kite" });
+    expect(r.isError).toBe(false);
+    expect(r.text).not.toContain("[320]");
+    expect(r.text).toContain('Only adult (18+) titles match "kite"');
+    expect(r.text.split("\n")).toHaveLength(1);
+    expect(searches()).toEqual([false, true]);
+  });
+
+  test("search_anime includes them when the setting is on", async () => {
+    fake.displayAdultContent = true;
+    const r = await call("search_anime", { query: "kite" });
+    expect(r.text).toContain("[320]");
+    expect(r.text).not.toContain("hidden");
+    expect(searches()).toEqual([undefined]);
+  });
+
+  test("a search that finds nothing at all still says nothing was found", async () => {
+    const r = await call("search_anime", { query: "zzzz" });
+    expect(r.text).toBe('No anime found for "zzzz".');
+  });
+
+  test("names don't resolve to them when the setting is off, and the error says why", async () => {
+    const r = await call("add_to_list", { anime: "kite" });
+    expect(r.isError).toBe(true);
+    expect(r.text).toContain('Nothing was changed. Only adult (18+) titles match "kite"');
+    expect(r.text).toContain("use the show's AniList ID");
+    expect(fake.writes).toHaveLength(0);
+  });
+
+  test("turning the setting on after being told to takes effect without a restart", async () => {
+    expect((await call("add_to_list", { anime: "kite" })).isError).toBe(true);
+    fake.displayAdultContent = true;
+    expect((await call("add_to_list", { anime: "kite" })).isError).toBe(false);
+    expect(fake.entries.has(320)).toBe(true);
+  });
+
+  test("a format mismatch isn't blamed on the setting", async () => {
+    // A KITE is an OVA, so "kite movie" matches nothing, adult or not.
+    const r = await call("add_to_list", { anime: "kite movie" });
+    expect(r.text).toContain('Couldn\'t find "kite movie" on AniList.');
+  });
+
+  test("names resolve to them when the setting is on", async () => {
+    fake.displayAdultContent = true;
+    const r = await call("add_to_list", { anime: "kite" });
+    expect(r.isError).toBe(false);
+    expect(fake.entries.get(320)!.status).toBe("PLANNING");
+  });
+
+  test("a show already on the list resolves and displays whatever the setting", async () => {
+    fake.seed([{ anime: 320, status: "CURRENT" }]);
+    let r = await call("mark_episodes_watched", { anime: "a kite" });
+    expect(r.isError).toBe(false);
+    expect(fake.entries.get(320)!.progress).toBe(1);
+
+    r = await call("search_anime", { query: "kite" });
+    expect(r.text).toContain("[320]");
+    expect(r.text).not.toContain("hidden");
+
+    r = await call("search_my_list", { query: "kite" });
+    expect(r.text).toContain("[320]");
+  });
+
+  test("an AniList ID works whatever the setting", async () => {
+    const r = await call("add_to_list", { anime: 320 });
+    expect(r.isError).toBe(false);
+    expect(fake.entries.has(320)).toBe(true);
+  });
+
+  test("other misses keep the usual message", async () => {
+    const r = await call("add_to_list", { anime: "zzzz" });
+    expect(r.text).toContain('Couldn\'t find "zzzz" on AniList.');
+  });
+});
+

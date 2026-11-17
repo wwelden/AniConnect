@@ -82,6 +82,7 @@ Then try: *"Add Frieren to my plan-to-watch list"*, *"What am I currently watchi
 - A tool call usually makes 1–4 AniList requests, including season lookups such as "the new season of My Hero Academia".
 - AniConnect reuses your list for up to a minute between tool calls, so a burst of requests doesn't refetch it each time. Its own changes show up immediately; changes you make on anilist.co (or through another app) can take up to a minute to appear.
 - Ratings are always given out of 10. AniList converts the score to your profile's format (stars, smileys, /100, ...), and the tool replies with the score as AniList shows it.
+- Adult (18+) titles are left out of AniList-wide search and name matching unless 18+ content is turned on in your [AniList settings](https://anilist.co/settings). Shows already on your list, and shows you pick by AniList ID, always work. When a name matches only adult titles, the tool says so instead of reporting that the show doesn't exist.
 
 ## Development
 
