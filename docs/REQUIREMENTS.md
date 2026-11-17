@@ -93,6 +93,7 @@ Every tool that targets a show accepts a title (or an ID) and picks the right An
 | R5.2 | Stay within a few AniList requests per tool call. | Done (2–3 typical; season lookups walk sequels, about 1 per season) |
 | R5.3 | Work with large lists (1,000+ entries). | Planned |
 | R5.4 | Cache the user's list briefly and refresh it after writes, to cut AniList requests (needed once hosted, where the rate limit is shared per IP). | Planned |
+| R5.5 | Warn before the AniList token expires: read the expiry from the token (a JWT) with no request, add a one-line warning with the date and renewal steps to tool results in the last 14 days (first call, then at most once a day), and once expired fail without calling AniList. Tokens that can't be decoded behave as before. | Done |
 
 ### R6: Evaluation
 

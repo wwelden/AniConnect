@@ -11,6 +11,7 @@ import {
   toRawScore,
 } from "./logic";
 import { describeCandidates, memo, resolveAnime, type AnimeSource, type Intent } from "./resolve";
+import { tokenWatch } from "./token";
 import { buildReport, checkTimeZone, formatReport, formatShow, nextSeasons } from "./whatsnext";
 
 const anime = z
@@ -35,15 +36,26 @@ function text(body: string): ToolResult {
   return { content: [{ type: "text", text: body }] };
 }
 
-/** Turns thrown errors into tool errors the model can read and recover from. */
-function safe<A>(fn: (args: A) => Promise<ToolResult>) {
-  return async (args: A): Promise<ToolResult> => {
-    try {
-      return await fn(args);
-    } catch (err) {
-      return { content: [{ type: "text", text: (err as Error).message }], isError: true };
-    }
-  };
+/**
+ * Makes the wrapper for every tool handler: it turns thrown errors into tool errors the model
+ * can read and recover from, fails before any request once the token has expired, and adds a
+ * one-line warning when it expires soon.
+ */
+function safeFor(client: AniListClient, now: () => number) {
+  const watch = tokenWatch(client.tokenExpiresAt);
+  return <A>(fn: (args: A) => Promise<ToolResult>) =>
+    async (args: A): Promise<ToolResult> => {
+      const token = watch(now());
+      if (token && "expired" in token) return { content: [{ type: "text", text: token.expired }], isError: true };
+      let result: ToolResult;
+      try {
+        result = await fn(args);
+      } catch (err) {
+        result = { content: [{ type: "text", text: (err as Error).message }], isError: true };
+      }
+      if (token) result.content.push({ type: "text", text: token.warning });
+      return result;
+    };
 }
 
 export function clientSource(client: AniListClient): AnimeSource {
@@ -94,6 +106,7 @@ const SEQUEL_CHECK_LIMIT = 50;
 
 export function createServer(client: AniListClient, options: ServerOptions = {}): McpServer {
   const now = options.now ?? Date.now;
+  const safe = safeFor(client, now);
   const server = new McpServer({ name: "aniconnect", version: "0.3.0" });
 
   server.registerTool(
