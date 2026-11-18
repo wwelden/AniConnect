@@ -7,6 +7,7 @@ import {
   LIST_STATUSES,
   SEASONS,
   type BrowseFilters,
+  type FuzzyDate,
   type LinkOptions,
   type ListEntry,
   type ListStatus,
@@ -377,6 +378,13 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
   /** The dates a plan filled in, saying when "today" was taken in UTC for want of the user's zone. */
   const planDates = (plan: EntryPlan, viewer: Viewer) =>
     `${describePlanDates(plan)}${zoneUnknown(viewer) && (plan.startedAt || plan.completedAt) ? UTC_NOTE : ""}`;
+  /**
+   * With no zone known, a start date can be a day past today in UTC: a finish date filled in as
+   * today moves up to `start`, the one it will be saved with, rather than coming before it.
+   */
+  const finishFromStart = (viewer: Viewer, plan: EntryPlan, start: FuzzyDate | null | undefined) => {
+    if (zoneUnknown(viewer) && start && plan.completedAt && after(start, plan.completedAt)) plan.completedAt = start;
+  };
   const server = new McpServer({ name: "aniconnect", version: pkg.version }, { instructions: INSTRUCTIONS });
   /** What this server changed, so it can be undone (R3.1). */
   const { journal, turns, lastSave } = user;
@@ -695,6 +703,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       return onTurn(resolved.media, readAt, async (media) => {
         const entry = media.mediaListEntry;
         const plan = planStatus(media, entry, status, today(viewer));
+        finishFromStart(viewer, plan, plan.startedAt ?? entry?.startedAt);
         const saved = await client.saveEntry({ mediaId: media.id, ...plan });
         journal.record("set_status", [change(media, entry, saved)]);
         const before = entry ? statusLabel(entry.status) : "not on list";
@@ -772,6 +781,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
     const step = next(before, media, viewer.titleLanguage);
     const { episodes, note: stepNote } = typeof step === "number" ? { episodes: step, note: "" } : step;
     const plan = planProgress(media, entry, episodes, today(viewer));
+    finishFromStart(viewer, plan, plan.startedAt ?? entry?.startedAt);
     const saved = await client.saveEntry({ mediaId: media.id, ...plan });
     journal.record(tool, [change(media, entry, saved)]);
     const was = entry ? ` (was ${statusLabel(entry.status)})` : "";
@@ -882,8 +892,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
     };
     // "Finished it on the 2nd" with Completed: today would be a start date after the finish, so leave it unset.
     if (dates.completedAt && plan.startedAt && after(plan.startedAt, dates.completedAt)) delete plan.startedAt;
-    // With no zone known, a start the user gives can be a day past today in UTC: finish that day, not before it.
-    if (dates.startedAt && plan.completedAt && after(dates.startedAt, plan.completedAt)) plan.completedAt = dates.startedAt;
+    finishFromStart(viewer, plan, dates.startedAt ?? plan.startedAt ?? entry?.startedAt);
     if (u.startedAt !== undefined || u.completedAt !== undefined) {
       checkDateOrder(
         dates.startedAt ?? plan.startedAt ?? entry?.startedAt,

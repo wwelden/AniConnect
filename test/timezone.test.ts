@@ -148,6 +148,19 @@ describe("the hosted server's clock says nothing about the user's day (#38)", ()
     expect(fake.entries.get(CHAINSAW_MAN)!.completedAt).toEqual(NOV_18);
   });
 
+  for (const [tool, args] of [
+    ["set_status", { status: "COMPLETED" }],
+    ["set_progress", { episodes: 12 }],
+  ] as const) {
+    test(`${tool} doesn't fill in a finish date before a start a day past UTC`, async () => {
+      const { fake, call } = await connect(null, TOKYO_MORNING, true);
+      await call("update_shows", { updates: [{ anime: CHAINSAW_MAN, status: "CURRENT", startedAt: "2026-11-18" }] });
+      const r = await call(tool, { anime: CHAINSAW_MAN, ...args });
+      expect(r.text).toContain("Finish date set to 2026-11-18.");
+      expect(fake.entries.get(CHAINSAW_MAN)!.completedAt).toEqual(NOV_18);
+    });
+  }
+
   test("a known zone gets no leeway", async () => {
     const { call } = await connect("UTC", TOKYO_MORNING, true);
     const r = await call("update_shows", { updates: [{ anime: CHAINSAW_MAN, completedAt: "2026-11-18" }] });
