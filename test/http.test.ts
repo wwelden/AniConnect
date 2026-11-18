@@ -427,6 +427,11 @@ describe("authorization checks", () => {
       state: "s",
     })}`;
     const { html, pending, cookie, res } = await consent(url);
+    expect(html).toContain('<link rel="icon" type="image/svg+xml" href="/favicon.svg">');
+    const favicon = await fetch(`${base}/favicon.svg`);
+    expect(favicon.status).toBe(200);
+    expect(favicon.headers.get("Content-Type")).toBe("image/svg+xml");
+    expect(await favicon.text()).toContain("<svg");
     // Names where the user goes back to; the app's name is escaped.
     expect(html).toContain("https://evil.example");
     expect(html).toContain("&#60;b&#62;Evil&#60;/b&#62; app");
@@ -468,7 +473,7 @@ describe("authorization checks", () => {
       })}`;
       const { res } = await consent(url);
       expect(res.headers.get("Content-Security-Policy")).toBe(
-        `default-src 'none'; style-src 'unsafe-inline'; form-action 'self' https://anilist.co ${app}; frame-ancestors 'none'`,
+        `default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; form-action 'self' https://anilist.co ${app}; frame-ancestors 'none'`,
       );
     }
   });
