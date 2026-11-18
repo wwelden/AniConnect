@@ -818,13 +818,16 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       throw new Error(`${displayTitle(media.title, viewer.titleLanguage)} isn't on your list, so there's nothing to clear.`);
     }
     const current = entry?.progress ?? 0;
+    const day = today(viewer);
     let progress: number | undefined;
     let stepNote = "";
-    if (u.watched !== undefined) progress = current + u.watched;
-    else if (u.episodes === "latest") {
+    if (u.watched !== undefined) {
+      // Starting a rewatch resets the count to 0, so the episodes watched count up from there.
+      const resets = u.status === "REPEATING" && planStatus(media, entry, u.status, day).progress === 0;
+      progress = (resets ? 0 : current) + u.watched;
+    } else if (u.episodes === "latest") {
       ({ episodes: progress, note: stepNote } = caughtUpProgress(media, current, now(), viewer.titleLanguage));
     } else progress = u.episodes;
-    const day = today(viewer);
     const plan = planUpdate(media, entry, { progress, status: u.status }, day);
     // Dates the user gave replace the ones a status change would fill in, and existing ones too.
     const readDate = (text: string) => (text === "clear" ? NO_DATE : parseFuzzyDate(text, day));
