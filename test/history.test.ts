@@ -333,8 +333,10 @@ describe("watch_history tool", () => {
   });
 
   test("a finish date counts after the show is paused, dropped or planned again", async () => {
-    // Finished in January, with no activity left in the feed for it, then a rewatch paused,
-    // another dropped and a third put back in Plan to watch.
+    // Finished in January, then a rewatch paused, another dropped and a third put back in
+    // Plan to watch. The January completion is older than the three feed pages read.
+    fake.seedActivity([{ anime: "Jujutsu Kaisen", status: "completed", at: "2026-01-20T20:00:00Z" }]);
+    busy(300);
     for (const [anime, status] of [
       ["Jujutsu Kaisen", "PAUSED"],
       ["SPY×FAMILY", "DROPPED"],
@@ -348,6 +350,7 @@ describe("watch_history tool", () => {
     expect(r.text).toMatch(/- Tue, Jan 20: JUJUTSU KAISEN\n/);
     expect(r.text).toMatch(/- Tue, Jan 20: SPY x FAMILY\n/);
     expect(r.text).toMatch(/- Tue, Jan 20: Mob Psycho 100\n/);
+    expect(r.text).toContain("The feed was read back to Fri, Oct 9, 2026");
   });
 
   test("a partial finish date doesn't hide the feed's exact time for it", async () => {
