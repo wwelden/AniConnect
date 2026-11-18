@@ -236,7 +236,7 @@ export function matchScore(m: Media, q: ParsedQuery): number {
 export const SERIES_FORMATS = new Set(["TV", "TV_SHORT", "ONA"]);
 const FORMAT_ORDER: Record<string, number> = { TV: 0, ONA: 1, TV_SHORT: 2, MOVIE: 3, OVA: 3, SPECIAL: 3, MUSIC: 4 };
 
-function isSeries(m: Media): boolean {
+function isSeries(m: Pick<Media, "format">): boolean {
   return SERIES_FORMATS.has(m.format ?? "");
 }
 
@@ -300,7 +300,7 @@ function status(m: Media): Status {
   return m.mediaListEntry?.status ?? "NONE";
 }
 
-function dateKey(m: Media): number {
+function dateKey(m: Pick<Media, "startDate">): number {
   const d = m.startDate;
   return d?.year ? d.year * 10000 + (d.month ?? 12) * 100 + (d.day ?? 31) : 99_999_999;
 }
@@ -516,7 +516,8 @@ async function resolveParsed(
       };
     }
   }
-  return pick(query, intent, pool);
+  const r = pick(query, intent, pool);
+  return r.kind === "match" ? keepNamedShow(query, q, intent, r, pool, source, fetched) : r;
 }
 
 /** matchScore for an exact title or synonym. */
@@ -555,6 +556,122 @@ async function keepCompleted(pool: Scored[], source: AnimeSource, fetched: Media
 
 /** Formats a sequel chain passes through when checking what follows what: series and movies. */
 const CHAIN_FORMATS = new Set([...SERIES_FORMATS, "MOVIE"]);
+
+/** Intents whose pick rests on list status, so a listed spin-off can outrank the show named (see `keepNamedShow`). */
+const BY_STATUS = new Set<Intent>(["progress", "status", "show", "rate"]);
+
+/** How far `keepNamedShow` walks a sequel chain, in anime. */
+const WALK_LIMIT = 15;
+
+/**
+ * List status chooses a season within one show, not between shows (R1.10). When the pick only
+ * has the name in its title and isn't joined by sequels to the show titled exactly as asked (a
+ * spin-off or side story: "KONOSUBA -An Explosion on This Wonderful World!" for "konosuba"),
+ * its status settles it only when the named show has nothing left to watch, or when the pick
+ * is the one being watched and the request isn't a rating. Otherwise ask.
+ */
+async function keepNamedShow(
+  query: string,
+  q: ParsedQuery,
+  intent: Intent,
+  r: Extract<Resolution, { kind: "match" }>,
+  pool: Scored[],
+  source: AnimeSource,
+  fetched: Media[],
+): Promise<Resolution> {
+  if (!BY_STATUS.has(intent)) return r;
+  const best = Math.max(...pool.map((s) => s.score));
+  const chosen = pool.find((s) => s.media.id === r.media.id);
+  if (!chosen || best < NORMALIZED_EXACT || chosen.score === best) return r;
+  // Settled without a look at relations: the season being watched takes an episode or a status
+  // change (R1.4), and a title that is the name plus a season or part is that show's season.
+  const watching = status(chosen.media) === "CURRENT" || status(chosen.media) === "REPEATING";
+  if ((watching && intent !== "rate") || titledAs(chosen.media, q)) return r;
+  const named = pool.filter((s) => s.score === best).map((s) => s.media);
+  // The list carries no relations; one search does, for every anime with the name in its title.
+  const lookup = relationLookup(source, [...fetched, ...(await source.search(q.words.join(" ")))]);
+  if (await joinedBySequels(chosen.media, named, lookup)) return r;
+  const left = await leftToWatch(named, chosen.media, intent, source, lookup);
+  if (left === "joined" || !left) return r;
+  return {
+    kind: "ambiguous",
+    candidates: [left, chosen.media],
+    why: `"${query}" is the title of a show you haven't finished, and a different show on your list has that name in its title.`,
+  };
+}
+
+/**
+ * Whether `from` reaches one of `targets` through SEQUEL and PREQUEL edges: seasons, parts and
+ * movies of one show, not its spin-offs. A walk cut short by the limit counts as joined, which
+ * leaves the pick as it was.
+ */
+async function joinedBySequels(
+  from: Media,
+  targets: Media[],
+  lookup: ReturnType<typeof relationLookup>,
+): Promise<boolean> {
+  const wanted = new Set(targets.map((m) => m.id));
+  const seen = new Set([from.id]);
+  const queue = [from.id];
+  while (queue.length) {
+    if (seen.size > WALK_LIMIT) return true;
+    for (const e of (await lookup.full(queue.shift()!))?.relations?.edges ?? []) {
+      if ((e.relationType !== "SEQUEL" && e.relationType !== "PREQUEL") || e.node.type !== "ANIME") continue;
+      if (wanted.has(e.node.id)) return true;
+      if (seen.has(e.node.id)) continue;
+      seen.add(e.node.id);
+      queue.push(e.node.id);
+    }
+  }
+  return false;
+}
+
+/**
+ * What the named show has left to watch, the likeliest for `intent` first: an entry of it on the
+ * list that isn't completed, else the first aired season after the ones completed that isn't on
+ * the list, looking past movies, OVAs and specials (Tensura's season 2 follows an OVA). Undefined
+ * when everything is watched; "joined" when the chain leads to `chosen` after all.
+ */
+async function leftToWatch(
+  named: Media[],
+  chosen: Media,
+  intent: Intent,
+  source: AnimeSource,
+  lookup: ReturnType<typeof relationLookup>,
+): Promise<Media | "joined" | undefined> {
+  const listed = new Map((await source.listMedia()).map((m) => [m.id, status(m)]));
+  type Node = Pick<Media, "id" | "format" | "status" | "startDate">;
+  const left: Node[] = [];
+  const seen = new Set(named.map((m) => m.id));
+  const queue: Node[] = [...named];
+  while (queue.length && seen.size <= WALK_LIMIT) {
+    const node = queue.shift()!;
+    const onList = listed.get(node.id);
+    if (onList && onList !== "COMPLETED") {
+      left.push(node);
+      continue;
+    }
+    if (!onList) {
+      if (!hasAired(node)) continue;
+      if (isSeries(node)) {
+        left.push(node);
+        continue;
+      }
+    }
+    // Completed, or an aired movie, OVA or special not on the list: what follows it.
+    for (const e of (await lookup.full(node.id))?.relations?.edges ?? []) {
+      if (e.relationType !== "SEQUEL" || e.node.type !== "ANIME") continue;
+      if (e.node.id === chosen.id) return "joined";
+      if (seen.has(e.node.id)) continue;
+      seen.add(e.node.id);
+      queue.push({ id: e.node.id, format: e.node.format, status: e.node.status ?? null, startDate: e.node.startDate ?? null });
+    }
+  }
+  const ranks = STATUS_RANK[intent];
+  const rank = (n: Node) => ranks[listed.get(n.id) ?? "NONE"];
+  const first = left.sort((a, b) => rank(a) - rank(b) || dateKey(a) - dateKey(b))[0];
+  return first && (await lookup.full(first.id));
+}
 
 /**
  * Which of `wanted` follow `from` through SEQUEL edges, movies included (season 1, the movie,
@@ -651,7 +768,7 @@ function pick(query: string, intent: Intent, pool: Scored[]): Resolution {
 /** AniList statuses for something that has started airing. */
 export const AIRED = new Set(["RELEASING", "FINISHED", "HIATUS"]);
 
-function hasAired(m: Media): boolean {
+function hasAired(m: Pick<Media, "status" | "startDate">): boolean {
   return AIRED.has(m.status ?? "") && Boolean(m.startDate?.year);
 }
 
