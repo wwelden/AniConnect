@@ -225,7 +225,7 @@ describe("tools", () => {
     expect(r.text.split("\n")[0]).toBe("120 matches on tester's list for Completed:");
 
     r = await call("search_my_list", { status: "COMPLETED", offset: 120 });
-    expect(r.text).toBe("120 matches on tester's list for Completed (offset 120 is past the end):");
+    expect(r.text).toBe("120 matches on tester's list for Completed; offset 120 is past the end, so use one below 120.");
   });
 
   test("search_my_list sorts by score, finish or start date, and progress", async () => {
@@ -239,6 +239,7 @@ describe("tools", () => {
     fake.entries.get(16498)!.completedAt = { year: 2024, month: 3, day: 1 };
     fake.entries.get(154587)!.completedAt = { year: 2025, month: 10, day: null };
     fake.entries.get(171018)!.startedAt = { year: 2024, month: 10, day: 4 };
+    fake.entries.get(21)!.startedAt = { year: 1999, month: 10, day: 20 };
     const ids = (text: string) => [...text.matchAll(/^\[(\d+)\]/gm)].map((m) => Number(m[1]));
 
     // Unrated shows go last, in title order.
@@ -254,7 +255,9 @@ describe("tools", () => {
 
     r = await call("search_my_list", { sort: "started" });
     expect(ids(r.text)[0]).toBe(171018);
+    expect(ids(r.text).slice(0, 2)).toEqual([171018, 21]);
     expect(r.text).toContain(", started 2024-10-04");
+    expect(r.text).toContain(", started 1999-10-20");
     expect(r.text).toContain(", no start date");
 
     r = await call("search_my_list", { status: "CURRENT", sort: "progress" });
