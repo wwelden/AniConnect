@@ -347,7 +347,7 @@ function userZone(viewer: Viewer): string {
 
 /** After dates filled in as today on the hosted server when the user's time zone is unknown (#38). */
 const UTC_NOTE =
-  " That's today in UTC, as the user's time zone is unknown: if their date differs, fix it with update_shows and pass timeZone.";
+  " Today's date was taken in UTC, as the user's time zone is unknown: if theirs differs, fix the dates with update_shows and pass timeZone.";
 
 /** How many recently finished shows to check for sequels (one AniList request). */
 const SEQUEL_CHECK_LIMIT = 50;
@@ -371,7 +371,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
   const latest = (viewer: Viewer) => (zoneUnknown(viewer) ? todayFuzzy(new Date(now()), "+14:00") : today(viewer));
   /** The viewer, with the time zone the call gave in place of the AniList one. */
   const viewerIn = (timeZone: string | undefined): Promise<Viewer> => {
-    const zone = timeZone === undefined ? undefined : checkTimeZone(timeZone);
+    const zone = timeZone ? checkTimeZone(timeZone) : undefined;
     return client.getViewer().then((viewer) => (zone ? { ...viewer, timeZone: zone } : viewer));
   };
   /** The dates a plan filled in, saying when "today" was taken in UTC for want of the user's zone. */
@@ -882,6 +882,8 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
     };
     // "Finished it on the 2nd" with Completed: today would be a start date after the finish, so leave it unset.
     if (dates.completedAt && plan.startedAt && after(plan.startedAt, dates.completedAt)) delete plan.startedAt;
+    // With no zone known, a start the user gives can be a day past today in UTC: finish that day, not before it.
+    if (dates.startedAt && plan.completedAt && after(dates.startedAt, plan.completedAt)) plan.completedAt = dates.startedAt;
     if (u.startedAt !== undefined || u.completedAt !== undefined) {
       checkDateOrder(
         dates.startedAt ?? plan.startedAt ?? entry?.startedAt,
@@ -908,8 +910,9 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
     const filled = { ...plan, ...(u.startedAt !== undefined && { startedAt: undefined }), ...(u.completedAt !== undefined && { completedAt: undefined }) };
     const title = displayTitle(saved.media.title, viewer.titleLanguage);
     return {
-      line: `${resolved.note}${title}: ${parts.join(", ") || "no change"}.${stepNote}${planDates(filled, viewer)}${airedNote(media, saved.progress)}\n${describeEntry(saved.media, saved, viewer)}`,
+      line: `${resolved.note}${title}: ${parts.join(", ") || "no change"}.${stepNote}${describePlanDates(filled)}${airedNote(media, saved.progress)}\n${describeEntry(saved.media, saved, viewer)}`,
       change: change(media, entry, saved),
+      filled: Boolean(filled.startedAt || filled.completedAt),
     };
   };
 
@@ -930,7 +933,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       // In the order they were saved, so undo can take them back newest first.
       const changes: EntryChange[] = [];
       const results = await Promise.all(
-        updates.map(async (u): Promise<{ line: string; change?: EntryChange }> => {
+        updates.map(async (u): Promise<{ line: string; change?: EntryChange; filled?: boolean }> => {
           const label = typeof u.anime === "number" ? `ID ${u.anime}` : `"${u.anime}"`;
           try {
             if (u.episodes !== undefined && u.watched !== undefined) {
@@ -958,7 +961,9 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
         }),
       );
       journal.record("update_shows", changes);
-      const body = results.map((r) => r.line).join("\n");
+      // Said once for the whole batch, not on every line.
+      const utc = zoneUnknown(viewer) && results.some((r) => r.filled) ? `\n${UTC_NOTE.trim()}` : "";
+      const body = results.map((r) => r.line).join("\n") + utc;
       if (changes.length === 0) return { ...text(body), isError: true };
       const failed = results.length - changes.length;
       return text(failed ? `Saved ${changes.length} of ${results.length} updates.\n${body}` : body);

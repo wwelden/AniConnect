@@ -114,8 +114,21 @@ describe("the hosted server's clock says nothing about the user's day (#38)", ()
   test("an unknown zone takes UTC and says so", async () => {
     const { fake, call } = await connect(null, NY_9PM, true);
     const r = await call("mark_episodes_watched", { anime: CHAINSAW_MAN });
-    expect(r.text).toContain("Start date set to 2026-11-18. That's today in UTC");
+    expect(r.text).toContain("Start date set to 2026-11-18. Today's date was taken in UTC");
     expect(fake.entries.get(CHAINSAW_MAN)!.startedAt).toEqual(NOV_18);
+  });
+
+  test("update_shows says it once for the whole batch", async () => {
+    const { call } = await connect(null, NY_9PM, true);
+    const r = await call("update_shows", { updates: [{ anime: CHAINSAW_MAN, status: "CURRENT" }, { anime: 16498, status: "CURRENT" }] });
+    expect(r.text.match(/taken in UTC/g)).toHaveLength(1);
+  });
+
+  test("an empty timeZone counts as none", async () => {
+    const { fake, call } = await connect("America/New_York", NY_9PM, true);
+    const r = await call("set_status", { anime: CHAINSAW_MAN, status: "CURRENT", timeZone: "" });
+    expect(r.isError).toBe(false);
+    expect(fake.entries.get(CHAINSAW_MAN)!.startedAt).toEqual(NOV_17);
   });
 
   test("an unknown zone allows the date where it's already tomorrow", async () => {
@@ -125,6 +138,14 @@ describe("the hosted server's clock says nothing about the user's day (#38)", ()
     expect(fake.entries.get(CHAINSAW_MAN)!.completedAt).toEqual(NOV_18);
     const later = await call("update_shows", { updates: [{ anime: CHAINSAW_MAN, completedAt: "2026-11-19" }] });
     expect(later.text).toContain("2026-11-19 is in the future (today is 2026-11-17)");
+  });
+
+  test("a start date a day past UTC isn't refused for being after today's finish", async () => {
+    const { fake, call } = await connect(null, TOKYO_MORNING, true);
+    const r = await call("update_shows", { updates: [{ anime: CHAINSAW_MAN, status: "COMPLETED", startedAt: "2026-11-18" }] });
+    expect(r.isError).toBe(false);
+    expect(fake.entries.get(CHAINSAW_MAN)!.startedAt).toEqual(NOV_18);
+    expect(fake.entries.get(CHAINSAW_MAN)!.completedAt).toEqual(NOV_18);
   });
 
   test("a known zone gets no leeway", async () => {
