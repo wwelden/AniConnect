@@ -188,7 +188,7 @@ describe("start and finish dates (R0.10)", () => {
     );
     expect(r.isError).toBe(true);
     expect(r.text).toBe(
-      'Not changed: "dandadan": 2026-12 is in the future (today is 2026-11-17).\n' +
+      `Not changed: "dandadan": 2026-12 is in the future (today is ${TODAY}).\n` +
         'Not changed: "jjk": There\'s no day 30 in 2025-02 (got "2025-02-30").\n' +
         'Not changed: "frieren": The start date (2024-05) is after the finish date (2024-03-22).',
     );
