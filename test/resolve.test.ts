@@ -296,6 +296,12 @@ describe("an episode of a completed show stays with it unless an aired sequel fo
     expect(r.kind === "match" && r.media.id).toBe(11061);
   });
 
+  test("the aired next movie after a completed movie still wins", async () => {
+    fake.seed([{ anime: "Kizumonogatari I: Tekketsu-hen", status: "COMPLETED" }]);
+    const r = await resolve("kizumonogatari movie", "progress");
+    expect(r.kind === "match" && r.media.id).toBe(findMedia("Kizumonogatari II: Nekketsu-hen").id);
+  });
+
   /** A completed show plus an unrelated one that shares a word, as AniList search returns them. */
   function sharedWord(listed: [number, string], other: [number, string]): AnimeSource {
     const base = findMedia("Dandadan");

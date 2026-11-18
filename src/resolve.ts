@@ -441,6 +441,15 @@ async function keepCompleted(pool: Scored[], source: AnimeSource, fetched: Media
   // Only an aired rival that isn't another version could be the next season: walk chains just for those.
   if (!rivals.some((s) => hasAired(s.media) && !remake(s))) return pool.filter((s) => !rivals.includes(s));
   const sequels = new Set<number>();
+  // A direct sequel of any format counts too: the next movie after a completed movie.
+  const follows = (prev: Media, next: Media) =>
+    Boolean(
+      prev.relations?.edges.some((e) => e.relationType === "SEQUEL" && e.node.id === next.id) ||
+        next.relations?.edges.some((e) => e.relationType === "PREQUEL" && e.node.id === prev.id),
+    );
+  for (const s of rivals) {
+    if (hasAired(s.media) && completed.some((c) => follows(c.media, s.media))) sequels.add(s.media.id);
+  }
   // Earliest first, so a later completed season is already in an earlier one's chain.
   for (const c of [...completed].sort((a, b) => dateKey(a.media) - dateKey(b.media))) {
     if (!isSeries(c.media) || sequels.has(c.media.id)) continue;
