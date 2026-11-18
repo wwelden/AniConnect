@@ -525,6 +525,33 @@ test("progress on an unreleased show with no schedule yet says it hasn't aired",
   expect(r.text).toContain("hasn't started airing yet");
 });
 
+describe("set_status COMPLETED on a show still airing", () => {
+  test("notes how many episodes have aired", async () => {
+    await connect({ now: () => NOW });
+    const r = await call("set_status", { anime: 195516, status: "COMPLETED" });
+    expect(r.isError).toBe(false);
+    expect(fake.entries.get(195516)!.progress).toBe(12);
+    expect(r.text).toContain("AniList says only 7 episodes have aired so far.");
+  });
+
+  test("notes a show that hasn't premiered, even with no episode count", async () => {
+    await connect({ now: () => NOW });
+    // Bocchi the Rock! 2nd Season: not yet released, episode count unknown.
+    const r = await call("set_status", { anime: 186712, status: "COMPLETED" });
+    expect(r.isError).toBe(false);
+    expect(fake.entries.get(186712)).toMatchObject({ status: "COMPLETED", progress: 0 });
+    expect(r.text).toContain("hasn't started airing yet");
+  });
+
+  test("says nothing for a finished show or another status", async () => {
+    await connect({ now: () => NOW });
+    let r = await call("set_status", { anime: 16498, status: "COMPLETED" });
+    expect(r.text).not.toContain("AniList says");
+    r = await call("set_status", { anime: 186712, status: "PLANNING" });
+    expect(r.text).not.toContain("AniList says");
+  });
+});
+
 describe("parts without a season number", () => {
   test("a part that fits two seasons goes to the one the intent points at", async () => {
     fake.seed([...PERSONA.filter((e) => e.anime !== "Shingeki no Kyojin Season 3 Part 2"), { anime: "Shingeki no Kyojin Season 3 Part 2", status: "CURRENT", progress: 2 }]);
