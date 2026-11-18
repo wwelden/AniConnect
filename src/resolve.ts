@@ -6,8 +6,12 @@
 import type { ListStatus, Media, RelationEdge, TitleLanguage } from "./anilist";
 import { bothTitles, displayTitle, normalize } from "./logic";
 
-/** What the caller wants to do with the show; it decides which season is most likely meant. */
-export type Intent = "progress" | "status" | "rate" | "add" | "remove" | "lookup";
+/**
+ * What the caller wants to do with the show; it decides which season is most likely meant.
+ * "show" reads about a show: ranked like "status", without the extra search a write makes
+ * for a title that may not be the listed show's (see `exactOnly`).
+ */
+export type Intent = "progress" | "status" | "show" | "rate" | "add" | "remove" | "lookup";
 
 export interface AnimeSource {
   /** Everything on the user's list, with `mediaListEntry` set. */
@@ -256,6 +260,7 @@ const STATUS_RANK: Record<Intent, Record<Status, number>> = {
   progress: { CURRENT: 0, REPEATING: 0, PAUSED: 1, PLANNING: 2, DROPPED: 3, NONE: 4, COMPLETED: 5 },
   // Status changes are almost always about something already on the list.
   status: { CURRENT: 0, REPEATING: 0, PAUSED: 1, PLANNING: 2, DROPPED: 3, COMPLETED: 4, NONE: 5 },
+  show: { CURRENT: 0, REPEATING: 0, PAUSED: 1, PLANNING: 2, DROPPED: 3, COMPLETED: 4, NONE: 5 },
   rate: { COMPLETED: 0, REPEATING: 0, CURRENT: 1, PAUSED: 2, DROPPED: 2, PLANNING: 3, NONE: 4 },
   add: { CURRENT: 0, REPEATING: 0, PAUSED: 0, PLANNING: 0, NONE: 0, DROPPED: 0, COMPLETED: 0 },
   remove: { CURRENT: 0, REPEATING: 0, PAUSED: 0, PLANNING: 0, NONE: 9, DROPPED: 0, COMPLETED: 0 },
@@ -430,8 +435,12 @@ async function resolveParsed(
   } else {
     const ranks = STATUS_RANK[intent];
     const listed = pool.filter((s) => s.media.mediaListEntry);
-    // Only look beyond the list when nothing there is a likely target.
-    if (!listed.some((s) => ranks[status(s.media)] < ranks.NONE)) await searchAll();
+    // Look beyond the list when nothing there is a likely target, or, for a status or a
+    // rating, when nothing there is titled exactly that: "Naruto" may be a show the user
+    // hasn't listed, not the Shippuden they have.
+    if (!listed.some((s) => ranks[status(s.media)] < ranks.NONE) || (exactOnly(intent) && !listed.some((s) => s.score === EXACT))) {
+      await searchAll();
+    }
   }
 
   pool = preferSeries(pool, q.hint);
@@ -458,7 +467,30 @@ async function resolveParsed(
     return resolveSeason(q, intent, pool, source, fetched);
   }
   if (intent === "progress") pool = await keepCompleted(pool, source, fetched);
+  if (exactOnly(intent)) {
+    // A show titled exactly as asked that isn't on the list, beside listed ones that only
+    // contain the words: either could be meant, so ask rather than change the listed one.
+    const exact = pool.filter((s) => s.score === EXACT);
+    const listed = pool.filter((s) => s.media.mediaListEntry);
+    if (exact.length && listed.length && !exact.some((s) => s.media.mediaListEntry)) {
+      const ranks = STATUS_RANK[intent];
+      listed.sort((a, b) => ranks[status(a.media)] - ranks[status(b.media)] || b.score - a.score || dateKey(a.media) - dateKey(b.media));
+      return {
+        kind: "ambiguous",
+        candidates: [...exact, ...listed].slice(0, MAX_CANDIDATES).map((s) => s.media),
+        why: `"${query}" is the title of a show that isn't on your list, and shows with that name in their title are.`,
+      };
+    }
+  }
   return pick(query, intent, pool);
+}
+
+/** matchScore for an exact title or synonym. */
+const EXACT = 4;
+
+/** Intents that, without a season named, mean the show titled as asked over listed shows that only contain the words. */
+function exactOnly(intent: Intent): boolean {
+  return intent === "status" || intent === "rate";
 }
 
 /**
@@ -553,9 +585,8 @@ function pick(query: string, intent: Intent, pool: Scored[]): Resolution {
   // season 1, "watched episode 2 of Frieren" means season 2).
   if ((intent === "add" || status(top.media) === "NONE") && sameFranchise(tied.map((s) => s.media))) {
     const first = tied[0]!.media;
-    // Only progress-style intents mean "the next one to watch"; adding or looking up means season 1.
-    const why =
-      intent === "add" || intent === "lookup" ? "it's the first season" : "it's the next season, and not on your list yet";
+    // Only an episode update means "the next one to watch"; otherwise it's simply the earliest, season 1.
+    const why = intent === "progress" ? "it's the next season, and not on your list yet" : "it's the first season";
     return { kind: "match", media: first, why };
   }
 

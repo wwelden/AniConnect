@@ -59,11 +59,18 @@ describe("update_shows (R2.6)", () => {
     expect(fake.entries.get(DANDADAN)).toMatchObject({ status: "COMPLETED", progress: 12, scoreRaw: 90 });
   });
 
+  const kinds = () =>
+    fake.calls.map((c) => (/^\s*mutation/.test(c.query) ? "write" : c.query.includes("Viewer") ? "viewer" : c.query.includes("MediaListCollection") ? "list" : "other"));
+
   test("shows on the list cost the viewer, the list and one write each", async () => {
-    await update({ anime: "jjk", watched: 1 }, { anime: "dandadan", watched: 1 }, { anime: "frieren", score: 10 });
-    expect(fake.calls.map((c) => (/^\s*mutation/.test(c.query) ? "write" : c.query.includes("Viewer") ? "viewer" : c.query.includes("MediaListCollection") ? "list" : "other"))).toEqual(
-      ["viewer", "list", "write", "write", "write"],
-    );
+    await update({ anime: "jjk", watched: 1 }, { anime: "dandadan", watched: 1 }, { anime: "bocchi the rock", score: 10 });
+    expect(kinds()).toEqual(["viewer", "list", "write", "write", "write"]);
+  });
+
+  test("rating a listed show by a name that isn't its exact title also searches AniList, once", async () => {
+    // "Frieren" might be a show the user hasn't listed; the search finds none titled exactly that.
+    await update({ anime: "frieren", score: 10 });
+    expect(kinds()).toEqual(["viewer", "list", "other", "write"]);
   });
 
   test("a rewatch with episodes targets the show on the list, not its next season (#35)", async () => {
