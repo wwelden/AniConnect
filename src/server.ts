@@ -42,7 +42,7 @@ import {
   type Intent,
   type Resolution,
 } from "./resolve";
-import { formatHistory, parsePeriod } from "./history";
+import { formatFinished, formatHistory, parsePeriod } from "./history";
 import { tokenWatch } from "./token";
 import { Journal, snapshot, undoGroups, type EntryChange } from "./undo";
 import {
@@ -300,6 +300,9 @@ function change(media: Pick<Media, "id" | "title">, before: Partial<ListEntry> |
   return { mediaId: media.id, title: media.title, before: snapshot(before), after: snapshot(after) };
 }
 
+/** Activity feed pages (50 updates each) watch_history reads at most: "last month" for someone logging every episode. */
+const HISTORY_PAGES = 3;
+
 function dateNum(d: { year: number | null; month: number | null; day: number | null } | null | undefined): number {
   return d?.year ? d.year * 10000 + (d.month ?? 0) * 100 + (d.day ?? 0) : 0;
 }
@@ -538,7 +541,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
     {
       title: "Watch history",
       description:
-        "What the user watched and when, from their AniList activity feed: episodes logged, shows finished, started, dropped or put on hold, newest first, in a time range (\"what did I watch this week?\", \"what did I finish last month?\"). Pass `anime` for one show's history (\"when did I finish Frieren?\").",
+        "What the user watched and when, from their AniList activity feed: episodes logged, shows finished, started, dropped or put on hold, newest first, in a time range (\"what did I watch this week?\"). Pass `finished: true` for the shows finished in it (\"what did I finish this year?\"), and `anime` for one show's history (\"when did I finish Frieren?\").",
       inputSchema: {
         period: z
           .string()
@@ -547,6 +550,10 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
             'Time range in the user\'s words or as dates: "today", "last night", "this weekend", "last friday", "3 days ago", "this week", "last week", "last month", "March", "March 5th", "March 2025", "last 30 days", "since June", "2026-03-01 to 2026-03-15", "all time". Weeks start on Monday. Defaults to the last 7 days, or all time when `anime` is given.',
           ),
         anime: anime.optional(),
+        finished: z
+          .boolean()
+          .optional()
+          .describe("Only the shows finished in the range, from the finish dates on the list and the feed; answers long ranges in one call."),
         timeZone: z
           .string()
           .optional()
@@ -554,7 +561,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       },
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
-    safe(async ({ period, anime, timeZone }) => {
+    safe(async ({ period, anime, finished, timeZone }) => {
       const zone = checkTimeZone(timeZone ?? userZone(await client.getViewer()));
       const at = now();
       const range = parsePeriod(period ?? (anime === undefined ? "last 7 days" : "all time"), at, zone);
@@ -564,19 +571,28 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       const show =
         anime === undefined ? undefined : await find(anime, "remove", undefined, false, "lookup");
       const { titleLanguage } = await client.getViewer(); // cached: getMyActivity needs it too
-      const { activities, hasNextPage } = await client.getMyActivity({
-        from: range.start > 0 ? Math.floor(range.start / 1000) : undefined,
-        to: Math.ceil(range.end / 1000),
-        mediaId: show?.media.id,
-      });
-      const body = formatHistory(activities, {
+      // Up to HISTORY_PAGES feed pages, and for finished shows the (usually cached) list,
+      // whose finish dates cover any range: a few requests (R5.2).
+      const [{ activities, hasNextPage }, list] = await Promise.all([
+        client.getMyActivity({
+          from: range.start > 0 ? Math.floor(range.start / 1000) : undefined,
+          to: Math.ceil(range.end / 1000),
+          mediaId: show?.media.id,
+          pages: HISTORY_PAGES,
+        }),
+        finished ? client.getMyList() : [],
+      ]);
+      const options = {
         range,
         now: at,
         timeZone: zone,
         show: show && displayTitle(show.media.title, titleLanguage),
         truncated: hasNextPage,
         language: titleLanguage,
-      });
+      };
+      const body = finished
+        ? formatFinished(show ? list.filter((e) => e.media.id === show.media.id) : list, activities, options)
+        : formatHistory(activities, options);
       return text(`${show?.note ?? ""}${body}`);
     }),
   );

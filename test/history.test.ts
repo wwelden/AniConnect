@@ -5,7 +5,7 @@ import { AniListClient } from "../src/anilist";
 import { describeActivity, parsePeriod } from "../src/history";
 import { createServer } from "../src/server";
 import { HISTORY, PERSONA } from "./fixtures/persona";
-import { FakeAniList } from "./support/fake-anilist";
+import { FakeAniList, findMedia } from "./support/fake-anilist";
 
 /** Tuesday. */
 const NOW = Date.parse("2026-11-17T12:00:00Z");
@@ -261,10 +261,82 @@ describe("watch_history tool", () => {
     expect(r.text).toContain("No list activity found (Sun, Nov 1, 2026, UTC). That doesn't prove nothing was watched");
   });
 
-  test("says when there is more than one page", async () => {
-    for (let i = 0; i < 60; i++) fake.seedActivity([{ anime: "ONE PIECE", status: "watched episode", progress: String(i), at: "2026-11-16T10:00:00Z" }]);
-    const r = await call("watch_history", { period: "this week", timeZone: "UTC" });
-    expect(r.text).toContain("Showing the 50 most recent updates");
+  /** `n` One Piece episode updates, one a day back from `from` (an ISO time). */
+  function busy(n: number, from = "2026-11-16T10:00:00Z") {
+    for (let i = 0; i < n; i++) {
+      const at = new Date(Date.parse(from) - i * 6 * 3_600_000).toISOString();
+      fake.seedActivity([{ anime: "ONE PIECE", status: "watched episode", progress: String(1000 - i), at }]);
+    }
+  }
+
+  test("reads further pages of a busy range (#42)", async () => {
+    // Four episodes a day for a month: 120 updates, more than one page of 50.
+    busy(120, "2026-10-31T22:00:00Z");
+    const r = await call("watch_history", { period: "last month", timeZone: "UTC" });
+    expect(r.text).toContain("watched episode 1000");
+    expect(r.text).toContain("watched episode 881");
+    expect(r.text).not.toContain("Showing the");
+    // Viewer and three pages of activity.
+    expect(fake.calls.map((c) => c.variables.page).filter(Boolean)).toEqual([1, 2, 3]);
+  });
+
+  test("says when the range has more than three pages", async () => {
+    busy(160);
+    const r = await call("watch_history", { period: "all time", timeZone: "UTC" });
+    expect(r.text).toContain("Showing the 150 most recent updates; ask about a shorter range to see earlier ones, or pass finished: true");
+    expect(fake.calls.length).toBe(4);
+  });
+
+  test("finished shows over a long range come from the list's finish dates (#42)", async () => {
+    // Hundreds of episode updates this year: the feed alone can't reach back to January.
+    busy(300);
+    const finish = (anime: string, completedAt: { year: number; month: number | null; day: number | null }) => {
+      fake.entries.get(findMedia(anime).id)!.completedAt = completedAt;
+    };
+    finish("Jujutsu Kaisen", { year: 2026, month: 1, day: 20 });
+    finish("SPY×FAMILY", { year: 2025, month: 12, day: 30 });
+    finish("Mob Psycho 100", { year: 2026, month: null, day: null });
+    finish("Shingeki no Kyojin", { year: 2026, month: 2, day: null });
+    const r = await call("watch_history", { period: "this year", finished: true, timeZone: "UTC" });
+    expect(r.isError).toBe(false);
+    expect(r.text).toMatch(/^Shows finished, Thu, Jan 1, 2026 to Tue, Nov 17, 2026 \(UTC\), newest first:\n/);
+    expect(r.text).toMatch(/- Tue, Jan 20: JUJUTSU KAISEN\n/);
+    expect(r.text).toMatch(/- 2026-02: Attack on Titan\n/);
+    expect(r.text).toMatch(/- 2026: Mob Psycho 100\n/);
+    expect(r.text).not.toContain("SPY");
+    // The feed's three pages don't reach the finishes it logged in October.
+    expect(r.text).toContain("The feed was read back to");
+    // Viewer, list, and three pages of activity.
+    expect(fake.calls.length).toBe(5);
+  });
+
+  test("finished shows with no finish date on the list come from the feed", async () => {
+    const r = await call("watch_history", { period: "last month", finished: true, timeZone: "UTC" });
+    expect(r.text).toMatch(/newest first:\n- Sun, Oct 25: Mob Psycho 100 II\n- Mon, Oct 5: Frieren[^\n]*\nDates are/);
+    expect(r.text).not.toContain("Bocchi");
+    expect(r.text).not.toContain("The feed was read back");
+
+    // A finish date on the list overrides the feed: the user corrected it.
+    expect((await call("update_shows", { updates: [{ anime: "frieren", completedAt: "2025-03" }] })).isError).toBe(false);
+    const fixed = await call("watch_history", { period: "last month", finished: true, timeZone: "UTC" });
+    expect(fixed.text).not.toContain("Frieren");
+    const partial = await call("watch_history", { period: "2025", finished: true, timeZone: "UTC" });
+    expect(partial.text).toMatch(/- 2025-03: Frieren/);
+  });
+
+  test("a partial finish date counts only when all of it is in the range", async () => {
+    fake.entries.get(findMedia("Bocchi the Rock!").id)!.completedAt = { year: 2026, month: null, day: null };
+    const r = await call("watch_history", { period: "last month", finished: true, timeZone: "UTC" });
+    expect(r.text).not.toContain("BOCCHI");
+    expect((await call("watch_history", { period: "since January", finished: true, timeZone: "UTC" })).text).toContain("2026: BOCCHI");
+  });
+
+  test("finished for one show, and none in the range", async () => {
+    const r = await call("watch_history", { anime: "frieren", finished: true, timeZone: "UTC" });
+    expect(r.text).toMatch(/\nShows finished \(Frieren[^\n]*\), all time \(UTC\), newest first:\n- Mon, Oct 5: Frieren[^\n]*\nDates are/);
+    expect(r.text).not.toContain("Mob Psycho");
+    const none = await call("watch_history", { period: "this week", finished: true, timeZone: "UTC" });
+    expect(none.text).toMatch(/^No finished shows found \(Mon, Nov 16, 2026 to Tue, Nov 17, 2026, UTC\)\./);
   });
 
   test("bad input is a readable error", async () => {
