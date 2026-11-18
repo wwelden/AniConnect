@@ -29,7 +29,7 @@ Status: **Done**, **In progress**, **Planned**, **Later**.
 | ID | Requirement | Status |
 |---|---|---|
 | R0.1 | Search AniList for anime by title. | Done |
-| R0.2 | Search the user's own list by title words and status. | Done |
+| R0.2 | Search the user's own list by title words and status. | Done (`search_my_list`; sorts by title, score, finish or start date, or episodes watched, and pages with `offset`, the header giving the next offset) |
 | R0.3 | Add a show to the list (plan to watch by default) without overwriting an existing entry. | Done |
 | R0.4 | Change a show's status. | Done |
 | R0.5 | Rate a show out of 10; report the score in the user's own scoring format. | Done |
@@ -99,7 +99,7 @@ Every tool that targets a show accepts a title (or an ID) and picks the right An
 |---|---|---|
 | R5.1 | Handle AniList's rate limit (30 requests/minute, per the live API's `x-ratelimit-limit`) by reporting the wait, never retry-looping. | Done: a rate-limited request waits once when AniList's `Retry-After` is 30 seconds or less, then is sent again (a rate-limited request isn't run, so this is safe for writes too); a longer wait, or a second limit, is reported. This keeps a large `update_shows` call from failing its last few shows |
 | R5.2 | Stay within a few AniList requests per tool call. | Done (1–2 typical while the list is cached (R5.4), 3–4 when it is fetched. Season lookups walk the sequel chain through the search results, which carry relations, and fetch any seasons search missed two per request: "the new season of my hero academia" takes list, search and write, down from 9) |
-| R5.3 | Work with large lists (1,000+ entries). | Done: measured 2026-11-17 on a public 2,752-entry list, AniList returns the whole list in one request (2 MB, 1.6 s), where pages of 500 would take 6 requests of the 30 a minute, so the list stays one unpaged request. Resolving a name over it takes 25–80 ms; a test holds 3,000 entries to the same answers |
+| R5.3 | Work with large lists (1,000+ entries). | Done: measured 2026-11-17 on a public 2,752-entry list, AniList returns the whole list in one request (2 MB, 1.6 s), where pages of 500 would take 6 requests of the 30 a minute, so the list stays one unpaged request. `search_my_list` pages over that list with `offset` (each page is cut from the cached list, refetched after its 60 s TTL), so every entry in a status can be read. Resolving a name over it takes 25–80 ms; a test holds 3,000 entries to the same answers |
 | R5.4 | Cache the user's list briefly and refresh it after writes, to cut AniList requests (needed once hosted, where the rate limit is shared per IP). | Done: the list is reused for 60 seconds; our own writes and deletes patch it, so a read after a write is never stale; changes made elsewhere show up once it expires |
 | R5.5 | Warn before the AniList token expires: read the expiry from the token (a JWT) with no request, add a one-line warning with the date and renewal steps to tool results in the last 14 days (on the first call of each server process, then at most once a day), and once expired fail without calling AniList. Tokens that can't be decoded behave as before. | Done |
 

@@ -200,6 +200,71 @@ describe("tools", () => {
     expect(r.text).toContain("Nothing on tester's list");
   });
 
+  test("search_my_list pages through a long list, and the header says how to get the next page", async () => {
+    fake.seed(catalog.slice(0, 120).map((m) => ({ anime: m.id, status: "COMPLETED" as const })));
+    const ids = (text: string) => [...text.matchAll(/^\[(\d+)\]/gm)].map((m) => Number(m[1]));
+
+    let r = await call("search_my_list", { status: "COMPLETED" });
+    expect(r.text.split("\n")[0]).toBe("120 matches on tester's list for Completed (showing 1-50; offset 50 for more):");
+    const seen = ids(r.text);
+    expect(seen).toHaveLength(50);
+
+    r = await call("search_my_list", { status: "COMPLETED", offset: 50 });
+    expect(r.text.split("\n")[0]).toBe("120 matches on tester's list for Completed (showing 51-100; offset 100 for more):");
+    seen.push(...ids(r.text));
+
+    r = await call("search_my_list", { status: "COMPLETED", offset: 100 });
+    expect(r.text.split("\n")[0]).toBe("120 matches on tester's list for Completed (showing 101-120):");
+    seen.push(...ids(r.text));
+    // Every entry once, in one title order across pages.
+    expect(new Set(seen)).toEqual(new Set(catalog.slice(0, 120).map((m) => m.id)));
+    expect(seen).toHaveLength(120);
+
+    r = await call("search_my_list", { status: "COMPLETED", limit: 200 });
+    expect(ids(r.text)).toEqual(seen);
+    expect(r.text.split("\n")[0]).toBe("120 matches on tester's list for Completed:");
+
+    r = await call("search_my_list", { status: "COMPLETED", offset: 120 });
+    expect(r.text).toBe("120 matches on tester's list for Completed; offset 120 is past the end, so use one below 120.");
+  });
+
+  test("search_my_list sorts by score, finish or start date, and progress", async () => {
+    // Attack on Titan, ONE PIECE, Frieren, Dandadan.
+    fake.seed([
+      { anime: 16498, status: "COMPLETED", score: 8 },
+      { anime: 21, status: "CURRENT", progress: 1100 },
+      { anime: 154587, status: "COMPLETED", score: 9.5 },
+      { anime: 171018, status: "CURRENT", progress: 3 },
+    ]);
+    fake.entries.get(16498)!.completedAt = { year: 2024, month: 3, day: 1 };
+    fake.entries.get(154587)!.completedAt = { year: 2025, month: 10, day: null };
+    fake.entries.get(171018)!.startedAt = { year: 2024, month: 10, day: 4 };
+    fake.entries.get(21)!.startedAt = { year: 1999, month: 10, day: 20 };
+    const ids = (text: string) => [...text.matchAll(/^\[(\d+)\]/gm)].map((m) => Number(m[1]));
+
+    // Unrated shows go last, in title order.
+    let r = await call("search_my_list", { sort: "score" });
+    expect(r.text.split("\n")[0]).toBe("4 matches on tester's list, highest score first:");
+    expect(ids(r.text)).toEqual([154587, 16498, 171018, 21]);
+
+    r = await call("search_my_list", { status: "COMPLETED", sort: "finished" });
+    const lines = r.text.split("\n");
+    expect(lines[0]).toBe("2 matches on tester's list for Completed, latest finish first:");
+    expect(lines[1]).toMatch(/^\[154587\] .*, finished 2025-10$/);
+    expect(lines[2]).toMatch(/^\[16498\] .*, finished 2024-03-01$/);
+
+    r = await call("search_my_list", { sort: "started" });
+    expect(ids(r.text)[0]).toBe(171018);
+    expect(ids(r.text).slice(0, 2)).toEqual([171018, 21]);
+    expect(r.text).toContain(", started 2024-10-04");
+    expect(r.text).toContain(", started 1999-10-20");
+    expect(r.text).toContain(", no start date");
+
+    r = await call("search_my_list", { status: "CURRENT", sort: "progress" });
+    expect(r.text.split("\n")[0]).toBe("2 matches on tester's list for Watching, most episodes first:");
+    expect(ids(r.text)).toEqual([21, 171018]);
+  });
+
   test("rate_anime sends a raw score and reports it in the user's format", async () => {
     const r = await call("rate_anime", { anime: 16498, score: 8 });
     expect(fake.calls.at(-1)!.variables.scoreRaw).toBe(80);
