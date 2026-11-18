@@ -367,14 +367,18 @@ export async function resolveAnime(
 ): Promise<Resolution> {
   const src = memo(source);
   const q = parseQuery(query);
+  let hidden: Resolution | undefined;
   for (let literal = q.literal; literal; literal = literal.literal) {
     if (!(await matchesStrongly(literal, intent, src))) continue;
     // A name can match yet miss the hint ("aot final season movie" against a TV synonym):
     // then the next reading gets its turn.
     const r = await resolveParsed(query, literal, intent, src, language);
     if (r.kind !== "none") return r;
+    if (r.hidden) hidden ??= r;
   }
-  return resolveParsed(query, q, intent, src, language);
+  const r = await resolveParsed(query, q, intent, src, language);
+  // Keep "only adult titles match" over a plain "couldn't find".
+  return r.kind === "none" && !r.hidden && hidden ? hidden : r;
 }
 
 async function matchesStrongly(q: ParsedQuery, intent: Intent, source: AnimeSource): Promise<boolean> {

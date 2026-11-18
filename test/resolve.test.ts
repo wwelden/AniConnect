@@ -105,6 +105,12 @@ describe("abbreviations next to other words (#36)", () => {
     const r = await resolveAnime("aot final season movie", "add", source, "ENGLISH");
     if (r.kind !== "match") throw new Error(`expected a match, got ${r.kind}: ${r.why}`);
     expect(r.media.id).toBe(2);
+
+    // Only an adult movie fits as written: say so rather than "couldn't find".
+    const adult = show(3, "AoT Final Season Movie", "MOVIE");
+    const withHidden = { ...source, search: async () => [all[0]!], searchHidden: async () => [adult] };
+    const hidden = await resolveAnime("aot final season movie", "add", withHidden, "ENGLISH");
+    expect(hidden).toMatchObject({ kind: "none", hidden: true });
   });
 });
 
