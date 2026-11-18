@@ -584,6 +584,14 @@ describe("a numbered season of two different shows asks which show (#62)", () =>
     expect(r.kind === "match" && r.media.id).toBe(2);
   });
 
+  test("a spin-off's season 2 doesn't rival the show titled as asked", async () => {
+    const all = [season2(1, "Sword Art Online II"), season2(2, "Sword Art Online Alternative: Gun Gale Online II")];
+    const first = await resolveAnime("sword art online season 2", "add", source(all), "ENGLISH");
+    expect(first.kind === "match" && first.media.id).toBe(1);
+    const second = await resolveAnime("sword art online season 2", "add", source([...all].reverse()), "ENGLISH");
+    expect(second.kind === "match" && second.media.id).toBe(1);
+  });
+
   test("two parts of one season (joined by a sequel edge) still pick the first part", async () => {
     const all = [season2(1, "Love Live! 2nd Season", [2]), season2(2, "Love Live! 2nd Season Part 2")];
     const r = await resolveAnime("love season 2", "add", source(all), "ENGLISH");
@@ -618,5 +626,14 @@ describe("\"next season ... part N\" resolves that part of the next season (#63)
     expect(part2.why).toBe("it's the season after Attack on Titan Season 2, part 2");
     const part1 = await resolve("next season of attack on titan part 1", "add");
     expect(part1.kind === "match" && part1.media.title.romaji).toBe("Shingeki no Kyojin Season 3");
+  });
+
+  test("partway through a split season, the next season is the one after it", async () => {
+    fake = new FakeAniList().seed([{ anime: "Shingeki no Kyojin Season 3", status: "CURRENT", progress: 5 }]);
+    client = new AniListClient("test", fake.fetch);
+    const part1 = await resolve("next season of attack on titan part 1", "add");
+    expect(part1.kind === "match" && part1.media.title.romaji).toBe("Shingeki no Kyojin: The Final Season");
+    const part2 = await resolve("next season of attack on titan part 2", "add");
+    expect(part2.kind === "match" && part2.media.title.romaji).toBe("Shingeki no Kyojin: The Final Season Part 2");
   });
 });
