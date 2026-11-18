@@ -58,6 +58,7 @@ import {
   formatShow,
   moviesBesideSeries,
   nextSeasons,
+  upcoming,
 } from "./whatsnext";
 
 const anime = z
@@ -569,11 +570,16 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       inputSchema: {
         query: z.string().optional().describe("Words that must all appear in the title"),
         status: status.optional(),
+        sort: z
+          .enum(["title", "score", "finished", "started", "progress"])
+          .optional()
+          .describe("score: highest first; finished, started: latest first; progress: most episodes first"),
         limit: z.number().int().min(1).max(200).default(50),
+        offset: z.number().int().min(0).default(0),
       },
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
-    safe(async ({ query, status, limit }) => {
+    safe(async ({ query, status, sort = "title", limit, offset }) => {
       const viewer = await client.getViewer();
       const entries = (await client.getMyList(status)).filter(
         (e) => !query || matchesTitle(e.media, query),
@@ -582,11 +588,43 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       if (entries.length === 0) {
         return text(`Nothing on ${viewer.name}'s list${filter ? ` matching ${filter}` : ""}.`);
       }
-      const title = (e: (typeof entries)[number]) => displayTitle(e.media.title, viewer.titleLanguage);
-      entries.sort((a, b) => title(a).localeCompare(title(b)));
-      const shown = entries.slice(0, limit);
-      const lines = shown.map((e) => `${describeEntry(e.media, e, viewer)}${e.notes ? `. Note: ${quoteNote(e.notes)}` : ""}`);
-      const header = `${entries.length} match${entries.length === 1 ? "" : "es"} on ${viewer.name}'s list${filter ? ` for ${filter}` : ""}${entries.length > limit ? ` (showing ${limit})` : ""}:`;
+      type Entry = (typeof entries)[number];
+      const title = (e: Entry) => displayTitle(e.media.title, viewer.titleLanguage);
+      // Largest first; unrated and undated entries (0) go last. Ties fall back to title, then
+      // ID, so pages cut from the same list never overlap. Date sorts show the date on each line.
+      const dated = (date: FuzzyDate, done: string, noun: string) =>
+        date?.year ? `, ${done} ${showDate(date)}` : `, no ${noun} date`;
+      const orders = {
+        title: { label: "", key: () => 0, show: () => "" },
+        score: { label: "highest score first", key: (e: Entry) => e.score, show: () => "" },
+        finished: {
+          label: "latest finish first",
+          key: (e: Entry) => dateNum(e.completedAt),
+          show: (e: Entry) => dated(e.completedAt, "finished", "finish"),
+        },
+        started: {
+          label: "latest start first",
+          key: (e: Entry) => dateNum(e.startedAt),
+          show: (e: Entry) => dated(e.startedAt, "started", "start"),
+        },
+        progress: { label: "most episodes first", key: (e: Entry) => e.progress, show: () => "" },
+      };
+      const order = orders[sort];
+      entries.sort(
+        (a, b) => order.key(b) - order.key(a) || title(a).localeCompare(title(b)) || a.media.id - b.media.id,
+      );
+      const shown = entries.slice(offset, offset + limit);
+      const lines = shown.map(
+        (e) => `${describeEntry(e.media, e, viewer)}${order.show(e)}${e.notes ? `. Note: ${quoteNote(e.notes)}` : ""}`,
+      );
+      const end = offset + shown.length;
+      const head = `${entries.length} match${entries.length === 1 ? "" : "es"} on ${viewer.name}'s list${filter ? ` for ${filter}` : ""}${order.label ? `, ${order.label}` : ""}`;
+      if (shown.length === 0) return text(`${head}; offset ${offset} is past the end, so use one below ${entries.length}.`);
+      const page =
+        offset > 0 || end < entries.length
+          ? ` (showing ${offset + 1}-${end}${end < entries.length ? `; offset ${end} for more` : ""})`
+          : "";
+      const header = `${head}${page}:`;
       return text([header, ...lines].join("\n"));
     }),
   );
@@ -603,10 +641,11 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
           .string()
           .optional()
           .describe('IANA time zone for air times, e.g. "America/New_York". Defaults to the user\'s AniList time zone.'),
+        all: z.boolean().optional().describe("List every show; by default long sections are cut short"),
       },
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
-    safe(async ({ anime, timeZone }) => {
+    safe(async ({ anime, timeZone, all }) => {
       const { zone, note: zoneNote } = await readZone(timeZone);
       const at = now();
       // Streaming links and what a show is about are only wanted for one show, so only that path's lookups fetch them.
@@ -625,17 +664,23 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
             : ((await client.getMany([media.id], { oneShow: true }))[0] ?? media);
         const sequels = nextSeasons([show], listStatus, await client.getMany(moviesBesideSeries([show])));
         const { displayAdultContent } = await client.getViewer(); // cached
-        return text(`${note}${formatShow(show, sequels, listStatus, at, zone, titleLanguage, displayAdultContent)}${zoneNote}`);
+        // The zone note only matters when an air time is printed: formatShow prints one for the next episode alone.
+        const timed = Boolean(upcoming(show, at));
+        return text(`${note}${formatShow(show, sequels, listStatus, at, zone, titleLanguage, displayAdultContent)}${timed ? zoneNote : ""}`);
       }
 
       const finished = list
         .filter((m) => m.mediaListEntry!.status === "COMPLETED")
         .sort((a, b) => dateNum(b.mediaListEntry!.completedAt) - dateNum(a.mediaListEntry!.completedAt))
         .slice(0, SEQUEL_CHECK_LIMIT);
-      const withRelations = await client.getMany(finished.map((m) => m.id));
+      // AniList answers in its own order: put the most recently finished first again, as the report lists them.
+      const rank = new Map(finished.map((m, i) => [m.id, i]));
+      const withRelations = (await client.getMany(finished.map((m) => m.id))).sort(
+        (a, b) => (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0),
+      );
       // Usually no request: only shows with both a series and a movie sequel need one.
       const sequels = nextSeasons(withRelations, listStatus, await client.getMany(moviesBesideSeries(withRelations)));
-      return text(`${formatReport(buildReport(list, sequels, at), at, zone, titleLanguage)}${zoneNote}`);
+      return text(formatReport(buildReport(list, sequels, at), at, zone, titleLanguage, { all, zoneNote }));
     }),
   );
 
@@ -692,11 +737,12 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
         show: show && displayTitle(show.media.title, titleLanguage),
         truncated: hasNextPage,
         language: titleLanguage,
+        zoneNote,
       };
       const body = finished
         ? formatFinished(show ? list.filter((e) => e.media.id === show.media.id) : list, activities, options)
         : formatHistory(activities, options);
-      return text(`${show?.note ?? ""}${body}${zoneNote}`);
+      return text(`${show?.note ?? ""}${body}`);
     }),
   );
 

@@ -14,9 +14,11 @@ import {
   formatShow,
   nextSeasons,
   plainSynopsis,
+  SECTION_LIMITS,
   streamingLines,
   SYNOPSIS_LENGTH,
   watchTime,
+  type NextSeason,
 } from "../src/whatsnext";
 import { PERSONA } from "./fixtures/persona";
 import { FakeAniList, findMedia } from "./support/fake-anilist";
@@ -136,7 +138,16 @@ describe("whats_next tool", () => {
     expect(r.text).not.toContain("VINLAND");
     expect(sections[3]).toContain("- Attack on Titan Final Season: 6 episodes to watch, about 2.5 hours (on 10 of 16 aired).");
     expect(sections[4]).toContain("Bocchi the Rock! 2nd Season (not out yet)");
+    // A list this size isn't cut.
+    expect(r.text).not.toContain("more.");
+    expect(r.text).not.toContain("all: true");
     expect(r.requests).toBeLessThanOrEqual(3);
+  });
+
+  test("all: true reads the same as the default on a short list", async () => {
+    const cut = await call({ timeZone: "UTC" });
+    const all = await call({ timeZone: "UTC", all: true });
+    expect(all.text).toBe(cut.text);
   });
 
   test("one show by name: progress, next air time, what comes after", async () => {
@@ -551,4 +562,118 @@ describe("aboutLines", () => {
     expect(aboutLines(m as unknown as Media)).toEqual(["ONA."]);
     expect(aboutLines({ ...m, format: null, source: "ORIGINAL", seasonYear: 2024 } as unknown as Media)).toEqual(["2024, original story."]);
   });
+});
+
+describe("a long list is cut to what matters most", () => {
+  const show = (id: number, romaji: string, fields: Partial<Media>, status: ListStatus, progress: number) =>
+    ({
+      id, title: { romaji, english: null, native: null }, synonyms: [], duration: 24, format: "TV", seasonYear: 2026,
+      startDate: { year: 2026, month: 1, day: 1 }, averageScore: null, siteUrl: "", episodes: null, status: "FINISHED",
+      nextAiringEpisode: null,
+      mediaListEntry: {
+        id, status, progress, score: 0, displayScore: 0,
+        startedAt: { year: null, month: null, day: null }, completedAt: { year: null, month: null, day: null },
+      },
+      ...fields,
+    }) as Media;
+  const DAY = 86_400;
+  const nowS = NOW / 1000;
+  // Like the owner's list: 48 shows being watched, 12 on hold, 7 announced sequels.
+  const airing = Array.from({ length: 6 }, (_, i) =>
+    show(100 + i, `Airing ${i + 1}`, { status: "RELEASING", nextAiringEpisode: { episode: 10, airingAt: nowS + (i + 1) * DAY } }, "CURRENT", 8 - i),
+  );
+  const backlog = Array.from({ length: 36 }, (_, i) =>
+    show(200 + i, `Backlog ${i + 1}`, { episodes: 50 }, "CURRENT", 48 - i),
+  );
+  const naruto = show(299, "Naruto: Shippuden", { episodes: 500 }, "CURRENT", 366);
+  const waiting = Array.from({ length: 5 }, (_, i) =>
+    show(300 + i, `Waiting ${i + 1}`, { status: "RELEASING", nextAiringEpisode: { episode: 5, airingAt: nowS + (i + 1) * DAY } }, "CURRENT", 4),
+  );
+  const onHold = Array.from({ length: 12 }, (_, i) => show(400 + i, `On hold ${i + 1}`, { episodes: 24 }, "PAUSED", 20 - i));
+  const finished = show(500, "Finished", { episodes: 12 }, "COMPLETED", 12);
+  const sequel = (id: number, status: string): NextSeason => ({
+    after: finished,
+    next: { id, type: "ANIME", format: "TV", status, episodes: 12, title: { romaji: `Sequel ${id}`, english: null, native: null } } as NextSeason["next"],
+    planned: false,
+  });
+  const sequels = [sequel(600, "FINISHED"), sequel(601, "FINISHED"), ...Array.from({ length: 7 }, (_, i) => sequel(700 + i, "NOT_YET_RELEASED"))];
+  const report = buildReport([...backlog, naruto, ...airing, ...waiting, ...onHold, finished], sequels, NOW);
+
+  test("each section keeps its first few and says how many more there are", () => {
+    const text = formatReport(report, NOW, "UTC", "ENGLISH");
+    const sections = text.split("\n\n");
+    expect(sections.map((s) => s.split("\n")[0])).toEqual([
+      "New episodes to watch:",
+      "Caught up, waiting for new episodes:",
+      "Next seasons of shows you finished:",
+      "On hold, with episodes left:",
+      "Announced sequels:",
+      "Long sections are cut short: to list every show, call again with all: true.",
+    ]);
+    const lines = (i: number) => sections[i]!.split("\n").slice(1);
+    // The cut keeps what just aired (airing, at most 3 behind), then the shows closest to
+    // done, airing first on a tie, and lists them in the usual order: airing shows first.
+    expect(lines(0)).toHaveLength(SECTION_LIMITS.newEpisodes + 1);
+    expect(lines(0).map((l) => l.split(":")[0])).toEqual([
+      "- Airing 1", "- Airing 2", "- Airing 3", "- Airing 4", "- Airing 5",
+      "- Backlog 1", "- Backlog 2", "- Backlog 3", "...and 35 more.",
+    ]);
+    expect(lines(0)[5]).toBe("- Backlog 1: 2 episodes to watch, about 50 minutes (on 48 of 50 aired).");
+    expect(text).not.toContain("Naruto");
+    // Sections that fit aren't cut.
+    expect(lines(1)).toHaveLength(5);
+    expect(lines(2)).toHaveLength(2);
+    expect(lines(3)).toEqual([
+      "- On hold 1: 4 episodes to watch, about 1.5 hours (on 20 of 24 aired).",
+      "- On hold 2: 5 episodes to watch, about 2 hours (on 19 of 24 aired).",
+      "- On hold 3: 6 episodes to watch, about 2.5 hours (on 18 of 24 aired).",
+      "...and 9 more.",
+    ]);
+    expect(lines(4)).toHaveLength(SECTION_LIMITS.comingSequels + 1);
+    expect(lines(4).at(-1)).toBe("...and 4 more.");
+    // Short enough to read at a glance; uncut, it's the owner's 75 lines and more.
+    expect(text.split("\n").length).toBeLessThanOrEqual(35);
+    expect(formatReport(report, NOW, "UTC", "ENGLISH", { all: true }).split("\n").length).toBeGreaterThan(75);
+  });
+
+  test("all: true lists every show, with no cut notes", () => {
+    const text = formatReport(report, NOW, "UTC", "ENGLISH", { all: true });
+    expect(text).toContain("- Naruto: Shippuden: 134 episodes to watch, about 54 hours (on 366 of 500 aired).");
+    expect(text.split("\n\n")[0]!.split("\n")).toHaveLength(1 + 43);
+    expect(text.split("\n\n")[3]!.split("\n")).toHaveLength(1 + 12);
+    expect(text).not.toContain("more.");
+    expect(text).not.toContain("all: true");
+  });
+
+  test("a long backlog of an airing show is cut before a show that's nearly done", () => {
+    const longRunner = show(910, "Long Runner", { status: "RELEASING", nextAiringEpisode: { episode: 1101, airingAt: nowS + DAY } }, "CURRENT", 800);
+    const weekly = Array.from({ length: 7 }, (_, i) =>
+      show(920 + i, `Weekly ${i}`, { status: "RELEASING", nextAiringEpisode: { episode: 6, airingAt: nowS + DAY } }, "CURRENT", 4),
+    );
+    const nearlyDone = show(930, "Nearly Done", { episodes: 12 }, "CURRENT", 11);
+    const text = formatReport(buildReport([longRunner, ...weekly, nearlyDone], [], NOW), NOW, "UTC", "ENGLISH");
+    expect(text).toContain("- Nearly Done: 1 episode to watch");
+    expect(text).not.toContain("Long Runner");
+    expect(text).toContain("...and 1 more.");
+    // Listed in the usual order: airing shows first.
+    expect(text.split("\n")[8]).toStartWith("- Nearly Done");
+  });
+
+  test("the zone note is added only when an air time is listed", () => {
+    const note = "\nTimes are in UTC.";
+    expect(formatReport(report, NOW, "UTC", "ENGLISH", { zoneNote: note })).toEndWith(note);
+    expect(formatReport(buildReport([...backlog, naruto, ...onHold], [], NOW), NOW, "UTC", "ENGLISH", { zoneNote: note })).not.toContain(note);
+    // Eight shows whose latest episode just aired (AniList hasn't moved the schedule on) rank
+    // ahead of one with an air time ahead and more to watch, which is cut.
+    const lagging = Array.from({ length: 8 }, (_, i) =>
+      show(800 + i, `Lagging ${i}`, { status: "RELEASING", nextAiringEpisode: { episode: 3, airingAt: nowS - 60 } }, "CURRENT", 2),
+    );
+    const later = show(900, "Later", { status: "RELEASING", nextAiringEpisode: { episode: 11, airingAt: nowS + DAY } }, "CURRENT", 1);
+    const cut = buildReport([...lagging, later], [], NOW);
+    expect(formatReport(cut, NOW, "UTC", "ENGLISH", { zoneNote: note })).not.toContain(" airs ");
+    expect(formatReport(cut, NOW, "UTC", "ENGLISH", { zoneNote: note })).not.toContain(note);
+    expect(formatReport(cut, NOW, "UTC", "ENGLISH", { all: true, zoneNote: note })).toEndWith(note);
+    expect(formatReport(buildReport([], [], NOW), NOW, "UTC", "ENGLISH", { zoneNote: note })).not.toContain(note);
+  });
+
 });

@@ -155,6 +155,8 @@ export const CASES: EvalCase[] = [
     expect: { readOnly: true, mentions: ["Dandadan", "One Piece", "Jujutsu Kaisen"] } },
   { id: "read-planned", prompt: "Is the second season of Spy x Family on my list?",
     expect: { readOnly: true, mentions: ["plan"] } },
+  { id: "read-top-rated", prompt: "What are my three highest-rated shows?", idealCalls: 1,
+    expect: { readOnly: true, tools: ["search_my_list"], mentions: ["Frieren", "Attack on Titan"] } },
 
   // Browsing AniList with filters (R0.13).
   { id: "browse-season", prompt: "What anime is airing this season?", idealCalls: 1,
