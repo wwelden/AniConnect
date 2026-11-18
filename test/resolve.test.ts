@@ -90,12 +90,13 @@ describe("abbreviations next to other words (#36)", () => {
     ["hxh phantom rogue", "add", "HUNTER×HUNTER: Phantom Rouge"],
   ]);
 
+  const show = (id: number, romaji: string, format: string, synonyms: string[] = []): Media => ({
+    id, title: { romaji, english: null, native: null }, synonyms, episodes: 1, duration: 24, format,
+    status: "FINISHED", seasonYear: 2023, startDate: { year: 2023, month: 1, day: 1 }, averageScore: null,
+    siteUrl: "", nextAiringEpisode: null, mediaListEntry: null, relations: { edges: [] },
+  });
+
   test("falls back to the expanded reading when the literal one misses the hint", async () => {
-    const show = (id: number, romaji: string, format: string, synonyms: string[] = []): Media => ({
-      id, title: { romaji, english: null, native: null }, synonyms, episodes: 1, duration: 24, format,
-      status: "FINISHED", seasonYear: 2023, startDate: { year: 2023, month: 1, day: 1 }, averageScore: null,
-      siteUrl: "", nextAiringEpisode: null, mediaListEntry: null, relations: { edges: [] },
-    });
     // The TV entry matches "aot final season" as written, but a movie was asked for.
     const all = [
       show(1, "Shingeki no Kyojin: The Final Season", "TV", ["AoT Final Season"]),
@@ -111,6 +112,18 @@ describe("abbreviations next to other words (#36)", () => {
     const withHidden = { ...source, search: async () => [all[0]!], searchHidden: async () => [adult] };
     const hidden = await resolveAnime("aot final season movie", "add", withHidden, "ENGLISH");
     expect(hidden).toMatchObject({ kind: "none", hidden: true });
+  });
+
+  test("an adult title named with the short form still explains the miss", async () => {
+    const adult = show(4, "JJK 0", "MOVIE");
+    const source = {
+      listMedia: async () => [],
+      search: async () => [],
+      getRelated: async () => [],
+      searchHidden: async () => [adult],
+    };
+    const r = await resolveAnime("jjk 0", "add", source, "ENGLISH");
+    expect(r).toMatchObject({ kind: "none", hidden: true });
   });
 });
 
