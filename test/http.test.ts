@@ -411,14 +411,36 @@ describe("authorization checks", () => {
 
     // Another site posting the form for the user (no cookie, or someone else's) gets nowhere.
     expect((await answer(pending, "approve")).status).toBe(403);
-    expect((await answer(pending, "approve", "aniconnect_consent=guess")).status).toBe(403);
-    // Cancel goes back to the app with access_denied.
+    expect((await answer(pending, "approve", "aniconnect_consent_guess=1")).status).toBe(403);
+    // Cancel goes back to the app with access_denied, and forgets this page's cookie.
     const denied = await answer(pending, "deny", cookie);
+    expect(denied.headers.getSetCookie()).toContain(`${cookie.split("=")[0]}=; Path=/authorize; Max-Age=0; HttpOnly; SameSite=Strict`);
     const back = new URL(denied.headers.get("Location")!);
     expect(back.origin).toBe("https://evil.example");
     expect(back.searchParams.get("error")).toBe("access_denied");
     expect(back.searchParams.get("state")).toBe("s");
     expect(back.searchParams.get("code")).toBeNull();
+  });
+
+  test("opening the consent page twice leaves both pages able to approve", async () => {
+    const { body } = await register();
+    const url = `${base}/authorize?${new URLSearchParams({
+      client_id: body.client_id!,
+      response_type: "code",
+      code_challenge: "x",
+      code_challenge_method: "S256",
+    })}`;
+    const first = await consent(url);
+    const second = await consent(url);
+    expect(first.cookie).not.toBe(second.cookie);
+    // The browser holds both pages' cookies, and each page is checked against its own.
+    const jar = `${first.cookie}; ${second.cookie}`;
+    const one = await answer(first.pending, "approve", jar);
+    expect(one.status).toBe(302);
+    expect(new URL(one.headers.get("Location")!).origin).toBe("https://anilist.co");
+    expect((await answer(second.pending, "approve", jar)).status).toBe(302);
+    // One page's cookie doesn't approve the other page.
+    expect((await answer(first.pending, "approve", second.cookie)).status).toBe(403);
   });
 
   test("a code works once, with the right verifier, for the client it was issued to", async () => {
