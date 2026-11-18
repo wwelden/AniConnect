@@ -85,12 +85,46 @@ describe("parsePeriod", () => {
     expect(range("yesterday", "America/Santiago", Date.parse("2026-09-06T12:00:00Z"))[1]).toBe("2026-09-06T04:00:00.000Z");
   });
 
+  test("everyday phrases: weekends, nights, days ago, number words, ordinal dates", () => {
+    // NOW is Tuesday, Nov 17: the weekend just gone is Nov 14-15.
+    expect(range("this weekend")).toEqual(["2026-11-14T00:00:00.000Z", "2026-11-16T00:00:00.000Z"]);
+    expect(range("last weekend")).toEqual(["2026-11-14T00:00:00.000Z", "2026-11-16T00:00:00.000Z"]);
+    // On Sunday, "this weekend" is the one under way and "last weekend" the one before.
+    const sunday = Date.parse("2026-11-22T12:00:00Z");
+    expect(range("this weekend", "UTC", sunday)).toEqual(["2026-11-21T00:00:00.000Z", "2026-11-23T00:00:00.000Z"]);
+    expect(range("last weekend", "UTC", sunday)).toEqual(["2026-11-14T00:00:00.000Z", "2026-11-16T00:00:00.000Z"]);
+    expect(range("past weekend", "UTC", sunday)).toEqual(["2026-11-14T00:00:00.000Z", "2026-11-16T00:00:00.000Z"]);
+    // Monday is yesterday; the range ends on the first Wednesday after it.
+    expect(range("monday to wednesday")).toEqual(["2026-11-16T00:00:00.000Z", "2026-11-19T00:00:00.000Z"]);
+    expect(range("last friday")).toEqual(["2026-11-13T00:00:00.000Z", "2026-11-14T00:00:00.000Z"]);
+    expect(range("on Tuesday")).toEqual(["2026-11-10T00:00:00.000Z", "2026-11-11T00:00:00.000Z"]);
+    expect(range("last night")).toEqual(["2026-11-16T00:00:00.000Z", "2026-11-18T00:00:00.000Z"]);
+    expect(range("tonight")).toEqual(["2026-11-17T00:00:00.000Z", "2026-11-18T00:00:00.000Z"]);
+    expect(range("last 24 hours")).toEqual(["2026-11-16T12:00:00.000Z", "2026-11-18T00:00:00.000Z"]);
+    expect(range("past few hours")).toEqual(["2026-11-17T09:00:00.000Z", "2026-11-18T00:00:00.000Z"]);
+    expect(range("2 days ago")).toEqual(["2026-11-15T00:00:00.000Z", "2026-11-16T00:00:00.000Z"]);
+    expect(range("a week ago")).toEqual(["2026-11-10T00:00:00.000Z", "2026-11-11T00:00:00.000Z"]);
+    expect(range("since a couple of days ago")).toEqual(["2026-11-15T00:00:00.000Z", "2026-11-18T00:00:00.000Z"]);
+    expect(range("last two weeks")).toEqual(["2026-11-04T00:00:00.000Z", "2026-11-18T00:00:00.000Z"]);
+    expect(range("the past couple of weeks")).toEqual(["2026-11-04T00:00:00.000Z", "2026-11-18T00:00:00.000Z"]);
+    expect(range("past few days")).toEqual(["2026-11-15T00:00:00.000Z", "2026-11-18T00:00:00.000Z"]);
+    expect(range("for the last week")).toEqual(["2026-11-11T00:00:00.000Z", "2026-11-18T00:00:00.000Z"]);
+    expect(range("March 5th")).toEqual(["2026-03-05T00:00:00.000Z", "2026-03-06T00:00:00.000Z"]);
+    expect(range("5 March")).toEqual(["2026-03-05T00:00:00.000Z", "2026-03-06T00:00:00.000Z"]);
+    expect(range("the 21st of December")).toEqual(["2025-12-21T00:00:00.000Z", "2025-12-22T00:00:00.000Z"]);
+    expect(range("1st March to 3rd March 2025")).toEqual(["2025-03-01T00:00:00.000Z", "2025-03-04T00:00:00.000Z"]);
+  });
+
   test("rejects what it can't read, with examples", () => {
     expect(() => parsePeriod("whenever", NOW, "UTC")).toThrow('Couldn\'t read the time range "whenever"');
     expect(() => parsePeriod("Feb 30", NOW, "UTC")).toThrow("Couldn't read");
     expect(() => parsePeriod("2026-13", NOW, "UTC")).toThrow("Couldn't read");
     expect(() => parsePeriod("2027", NOW, "UTC")).toThrow("hasn't started yet");
     expect(() => parsePeriod("last 0 days", NOW, "UTC")).toThrow("hasn't started yet");
+    expect(() => parsePeriod("someday", NOW, "UTC")).toThrow("Couldn't read");
+    expect(() => parsePeriod("last 0 hours", NOW, "UTC")).toThrow("empty range");
+    expect(() => parsePeriod("2 sundays ago", NOW, "UTC")).toThrow("Couldn't read");
+    expect(() => parsePeriod("31st of June", NOW, "UTC")).toThrow("Couldn't read");
     expect(() => parsePeriod("2026-03-15 to 2026-03-01", NOW, "UTC")).toThrow("ends before it starts");
   });
 });

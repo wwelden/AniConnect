@@ -544,7 +544,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
           .string()
           .optional()
           .describe(
-            'Time range in the user\'s words or as dates: "today", "this week", "last week", "last month", "March", "March 2025", "last 30 days", "since June", "2026-03-01 to 2026-03-15", "all time". Weeks start on Monday. Defaults to the last 7 days, or all time when `anime` is given.',
+            'Time range in the user\'s words or as dates: "today", "last night", "this weekend", "last friday", "3 days ago", "this week", "last week", "last month", "March", "March 5th", "March 2025", "last 30 days", "since June", "2026-03-01 to 2026-03-15", "all time". Weeks start on Monday. Defaults to the last 7 days, or all time when `anime` is given.',
           ),
         anime: anime.optional(),
         timeZone: z
