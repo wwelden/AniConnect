@@ -21,7 +21,7 @@ Every tool that changes your list takes the show the way you'd say it: "jjk", "t
 | `update_shows` | Several changes in one call: several shows ("watched eps 3–5 of JJK and the Dandadan finale") or several things about one ("finished Frieren, 9/10"). Each update can set the status, episodes, episodes watched since last time, score, start and finish dates ("I actually finished it last March"), and your private notes on a show (replaced, or added to). Shows it can't resolve are listed with the reason, and the rest are saved. For imports, `addOnly` adds only shows that aren't on your list yet and never touches the ones that are, and `dryRun` shows what each name matches (up to 50 at a time) before anything is saved. |
 | `remove_from_list` | Delete a show from your list. |
 | `undo` | Take back the last change, or the last few, exactly: a removed show comes back with its progress, score, dates and notes, and a show just added is removed again. |
-| `whats_next` | What to watch next: aired episodes you haven't seen and how long they take, when the next ones air, shows on hold with episodes left, and the next season or sequel movie of shows you've finished. Or ask about one show ("when's the next Apothecary Diaries episode?", "where can I watch Frieren?"), which also lists where it streams. |
+| `whats_next` | What to watch next: aired episodes you haven't seen and how long they take, when the next ones air, shows on hold with episodes left, and the next season or sequel movie of shows you've finished. On a long list each section lists the first few (what just aired, then the shows closest to done) and says how many more it has; `all` lists every show. Or ask about one show ("when's the next Apothecary Diaries episode?", "where can I watch Frieren?"), which also lists where it streams. |
 
 Project goals and requirements: [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md).
 
@@ -101,7 +101,7 @@ AniConnect can also run as a remote server that people add by URL, signing in wi
 | `AUTH_SECRET` | 32 or more random characters. AniConnect keeps no database: it seals sign-ins with this. Changing it signs everyone out. |
 | `PORT` | Port to listen on (default 3000). |
 
-A sign-in lasts as long as the AniList token behind it, a year; then the client asks the user to sign in again. If you revoke AniConnect on AniList, the client asks you to sign in again. A user's conversations share one undo history, until they've been idle for an hour. AniList's limit of 30 requests a minute applies per server IP, so it is shared by everyone using one server. For a user with no time zone in their AniList settings, the server can't tell their date: unless the assistant passes `timeZone`, it fills in today's date in UTC and says so, and accepts a date up to a day ahead of UTC.
+A sign-in lasts as long as the AniList token behind it, a year; then the client asks the user to sign in again. If you revoke AniConnect on AniList, the client asks you to sign in again. A user's conversations share one undo history, until they've been idle for an hour. AniList's limit of 30 requests a minute applies per server IP, so it is shared by everyone using one server. For a user with no time zone in their AniList settings, the server can't tell their date: unless the assistant passes `timeZone`, it fills in today's date in UTC and says so, and accepts a date up to a day ahead of UTC. Air times and activity days are shown in UTC then, with a note saying so whenever an answer has one.
 
 ## Notes
 
