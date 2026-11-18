@@ -668,7 +668,8 @@ async function resolveRelative(
   if (!("root" in picked)) return picked;
   const { root } = picked;
 
-  const chain = (await seasonChain(root, Number.POSITIVE_INFINITY, source, fetched)).map((e) => e.media);
+  const entries = await seasonChain(root, Number.POSITIVE_INFINITY, source, fetched);
+  const chain = entries.map((e) => e.media);
 
   if (q.hint.latest) {
     const aired = chain.filter(hasAired).filter((m) => q.hint.part === undefined || (titlePart(m) ?? 1) === q.hint.part);
@@ -682,13 +683,26 @@ async function resolveRelative(
   chain.forEach((m, i) => {
     if (m.mediaListEntry && m.mediaListEntry.status !== "PLANNING") anchor = i;
   });
-  const next = chain[anchor >= 0 ? anchor + 1 : 1];
-  if (!next) {
-    const after = anchor >= 0 ? chain[anchor]! : root;
-    return { kind: "none", why: `AniList doesn't list a season after ${displayTitle(after.title, language)} yet.` };
-  }
   const why = anchor >= 0 ? `it's the season after ${displayTitle(chain[anchor]!.title, language)}` : "it's the sequel to the first season";
-  return { kind: "match", media: next, why };
+  const part = q.hint.part;
+  if (part === undefined) {
+    const next = chain[anchor >= 0 ? anchor + 1 : 1];
+    if (!next) {
+      const after = anchor >= 0 ? chain[anchor]! : root;
+      return { kind: "none", why: `AniList doesn't list a season after ${displayTitle(after.title, language)} yet.` };
+    }
+    return { kind: "match", media: next, why };
+  }
+  // "Next season part 2": that part of the season after the one started, or after season 1,
+  // never another part or season (#63).
+  const from = entries[Math.max(anchor, 0)]!;
+  const next = entries.find((e, i) => i > Math.max(anchor, 0) && e.season > from.season);
+  if (!next) return { kind: "none", why: `AniList doesn't list a season after ${displayTitle(from.media.title, language)} yet.` };
+  const wanted = entries.find((e) => e.season === next.season && e.part === part);
+  if (!wanted) {
+    return { kind: "none", why: `AniList doesn't list a part ${part} of ${displayTitle(next.media.title, language)}.` };
+  }
+  return { kind: "match", media: wanted.media, why: part === next.part ? why : `${why}, part ${part}` };
 }
 
 interface SeasonEntry {
@@ -782,6 +796,8 @@ async function resolveSeason(
     .filter((e) => titleSeason(e.media) !== undefined || wantSeason === 1)
     .filter((e) => fits(e.season, e.part));
   let how = "its title";
+  // Seasons from the sequel chain are one show's by construction; titles may name different shows.
+  let oneShow = false;
 
   // 2. Otherwise walk the sequel chain from season 1 ("Shingeki no Kyojin: The Final Season" is season 4).
   if (matches.length === 0 || wantSeason === 1) {
@@ -794,6 +810,7 @@ async function resolveSeason(
       if (fromChain.length) {
         matches = fromChain;
         how = "the sequel order on AniList";
+        oneShow = true;
       }
     }
   }
@@ -858,7 +875,23 @@ async function resolveSeason(
   // Several parts of the same season: prefer the one the intent points at, else the first part.
   const ranks = STATUS_RANK[intent];
   matches.sort((a, b) => ranks[status(a.media)] - ranks[status(b.media)] || a.part - b.part || dateKey(a.media) - dateKey(b.media));
-  const best = matches[0]!;
+  let best = matches[0]!;
+  // "Love Live! 2nd Season" and "Love Live! Sunshine!! 2nd Season" are both season 2 of
+  // something, not two parts of one season: ask which show (#62), unless only one is
+  // titled as asked ("Sword Art Online II", not "Sword Art Online Alternative: ... II").
+  if (!oneShow) {
+    const likeliest = matches.filter((e) => ranks[status(e.media)] === ranks[status(best.media)]).map((e) => e.media);
+    const shows = likeliest.length > 1 ? await showGroups(likeliest, source, fetched) : [];
+    const titled = shows.filter((g) => g.some((m) => titledAs(m, q)));
+    if (titled.length === 1) best = matches.find((e) => e.media === titled[0]![0])!;
+    else if (shows.length > 1) {
+      return {
+        kind: "ambiguous",
+        candidates: shows.slice(0, MAX_CANDIDATES).map((g) => g[0]!),
+        why: `${label[0]!.toUpperCase()}${label.slice(1)} of "${q.exact}" matches ${shows.length} shows.`,
+      };
+    }
+  }
   const why =
     status(best.media) === "NONE"
       ? partOnly
@@ -866,6 +899,55 @@ async function resolveSeason(
         : `it's the first part of ${label}`
       : `it's ${label} and ${STATUS_WHY[status(best.media)]}`;
   return { kind: "match", media: best.media, why };
+}
+
+/** Relations that keep two anime within one show: its seasons and parts, and side stories of them. */
+const SAME_SHOW = new Set(["SEQUEL", "PREQUEL", "SIDE_STORY", "PARENT"]);
+
+/**
+ * `items` grouped by show: anime joined, directly or through each other, by `SAME_SHOW` edges
+ * (the parts of one season, a season's side story), in the order each group first appears.
+ * Each group's anime keep their order in `items`. A remake or spin-off is a different show.
+ */
+async function showGroups(items: Media[], source: AnimeSource, fetched: Media[]): Promise<Media[][]> {
+  const { full } = relationLookup(source, fetched);
+  const ids = new Set(items.map((m) => m.id));
+  const linked = new Map<number, Set<number>>(items.map((m) => [m.id, new Set<number>()]));
+  for (const m of items) {
+    for (const e of (await full(m.id))?.relations?.edges ?? []) {
+      if (!SAME_SHOW.has(e.relationType) || !ids.has(e.node.id)) continue;
+      linked.get(m.id)!.add(e.node.id);
+      linked.get(e.node.id)!.add(m.id);
+    }
+  }
+  const group = new Map<number, number>();
+  for (const m of items) {
+    if (group.has(m.id)) continue;
+    const stack = [m.id];
+    while (stack.length) {
+      const id = stack.pop()!;
+      if (group.has(id)) continue;
+      group.set(id, m.id);
+      stack.push(...linked.get(id)!);
+    }
+  }
+  const groups = new Map<number, Media[]>();
+  for (const m of items) {
+    const key = group.get(m.id)!;
+    if (groups.has(key)) groups.get(key)!.push(m);
+    else groups.set(key, [m]);
+  }
+  return [...groups.values()];
+}
+
+/**
+ * A title with the query's words once season and part words are left out ("My Hero Academia
+ * Season 2", "Mob Psycho 100 II"). Words, not `exact`, so "the second season of sword art
+ * online" compares like "sword art online season 2".
+ */
+function titledAs(m: Media, q: ParsedQuery): boolean {
+  const asked = q.words.join(" ");
+  return names(m).some((name) => parseQuery(name.replace(/ (?:ii|iii|iv|v|vi)$/, "")).words.join(" ") === asked);
 }
 
 /** True when one of the show's titles is, or starts with, this number ("86", "86 Part 2"), not just contains it. */
