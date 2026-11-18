@@ -680,7 +680,13 @@ async function resolveSeason(
     }
   }
 
-  const label = `season ${wantSeason}${q.hint.part ? ` part ${q.hint.part}` : ""}`;
+  // Name only what was asked: "part 5" alone is not "season 1 part 5".
+  const label = [
+    q.hint.season !== undefined ? `season ${q.hint.season}` : "",
+    q.hint.part !== undefined ? `part ${q.hint.part}` : "",
+  ].filter(Boolean).join(" ") || `season ${wantSeason}`;
+  // "the part of part 2" and "the first part of part 2" read wrong: a part-only request already names the part.
+  const partOnly = q.hint.season === undefined && q.hint.part !== undefined;
   if (matches.length === 0) {
     return { kind: "none", why: `Couldn't find ${label} of "${q.exact}" on AniList.` };
   }
@@ -693,14 +699,14 @@ async function resolveSeason(
   if (intent === "remove") {
     const listed = matches.filter((e) => e.media.mediaListEntry);
     if (listed.length === 1) {
-      return { kind: "match", media: listed[0]!.media, why: `it's the part of ${label} on your list` };
+      return { kind: "match", media: listed[0]!.media, why: partOnly ? `it's ${label}, the one on your list` : `it's the part of ${label} on your list` };
     }
     if (listed.length > 1) {
       listed.sort((a, b) => a.part - b.part || dateKey(a.media) - dateKey(b.media));
       return {
         kind: "ambiguous",
         candidates: listed.slice(0, MAX_CANDIDATES).map((e) => e.media),
-        why: `S${label.slice(1)} of "${q.exact}" matches ${listed.length} entries on your list.`,
+        why: `${label[0]!.toUpperCase()}${label.slice(1)} of "${q.exact}" matches ${listed.length} entries on your list.`,
       };
     }
   }
@@ -711,7 +717,9 @@ async function resolveSeason(
   const best = matches[0]!;
   const why =
     status(best.media) === "NONE"
-      ? `it's the first part of ${label}`
+      ? partOnly
+        ? `it's ${label}, the earliest that fits`
+        : `it's the first part of ${label}`
       : `it's ${label} and ${STATUS_WHY[status(best.media)]}`;
   return { kind: "match", media: best.media, why };
 }
