@@ -220,6 +220,7 @@ function consentPage(name: string | undefined, redirectUri: string, pending: str
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Connect AniConnect</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <style>body{font:16px/1.5 system-ui,sans-serif;max-width:32rem;margin:3rem auto;padding:0 1rem}code{word-break:break-all}button{font:inherit;padding:.5rem 1rem;margin-right:.5rem}</style>
 </head><body>
 <h1>Connect AniConnect to your AniList?</h1>
@@ -401,7 +402,7 @@ export class OAuthServer {
         // The cookie only comes back on a same-site request, so another site can't post the form for the user.
         // Named after this page, so a second consent page doesn't replace the first one's cookie.
         "Set-Cookie": `aniconnect_consent_${consent}=1; Path=/authorize; Max-Age=${PENDING_MS / 1000}; HttpOnly; SameSite=Strict${this.secure}`,
-        "Content-Security-Policy": `default-src 'none'; style-src 'unsafe-inline'; form-action ${formAction(redirectUri)}; frame-ancestors 'none'`,
+        "Content-Security-Policy": `default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; form-action ${formAction(redirectUri)}; frame-ancestors 'none'`,
         "X-Frame-Options": "DENY",
       },
     });

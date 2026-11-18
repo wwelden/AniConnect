@@ -211,6 +211,10 @@ export async function createHttpApp(config: OAuthConfig, options: HttpOptions = 
     if (pathname === "/mcp") return mcp(req);
     if (req.method === "GET") {
       switch (pathname) {
+        case "/favicon.svg":
+          return new Response(Bun.file(new URL("../assets/icon.svg", import.meta.url)), {
+            headers: { "Content-Type": "image/svg+xml" },
+          });
         case "/.well-known/oauth-protected-resource":
         case "/.well-known/oauth-protected-resource/mcp":
           return oauth.resourceMetadata();
