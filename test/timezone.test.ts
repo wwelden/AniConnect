@@ -14,10 +14,10 @@ import { FakeAniList } from "./support/fake-anilist";
 const EP8_AIRS = 1795183200; // Apothecary Diaries S3 episode 8: 2026-11-20 14:00 UTC
 const APOTHECARY_S3 = "Kusuriya no Hitorigoto 3rd Season";
 
-async function connect(timeZone: string | null, now: number) {
+async function connect(timeZone: string | null, now: number, hosted = false) {
   const fake = new FakeAniList();
   fake.timeZone = timeZone;
-  const server = createServer(new AniListClient("t", fake.fetch), { now: () => now });
+  const server = createServer(new AniListClient("t", fake.fetch), { now: () => now, hosted });
   const [a, b] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "t", version: "0" });
   await Promise.all([server.connect(b), client.connect(a)]);
@@ -86,6 +86,59 @@ describe("start and finish dates use the AniList time zone", () => {
     const { fake, call } = await connect(null, now);
     await call("mark_episodes_watched", { anime: 16498 });
     expect(fake.entries.get(16498)!.startedAt).toEqual(todayFuzzy(new Date(now)));
+  });
+});
+
+describe("the hosted server's clock says nothing about the user's day (#38)", () => {
+  const CHAINSAW_MAN = 127230;
+  const NOV_17 = { year: 2026, month: 11, day: 17 };
+  const NOV_18 = { year: 2026, month: 11, day: 18 };
+  // 02:00 UTC on Nov 18 is 9 PM on Nov 17 in New York; 23:30 UTC on Nov 17 is 8:30 AM on Nov 18 in Tokyo.
+  const NY_9PM = Date.parse("2026-11-18T02:00:00Z");
+  const TOKYO_MORNING = Date.parse("2026-11-17T23:30:00Z");
+
+  test("a timeZone argument gives the user's day", async () => {
+    const { fake, call } = await connect(null, NY_9PM, true);
+    const r = await call("set_status", { anime: CHAINSAW_MAN, status: "COMPLETED", timeZone: "America/New_York" });
+    expect(r.text).toContain("Start date set to 2026-11-17, finish date set to 2026-11-17.");
+    expect(r.text).not.toContain("UTC");
+    expect(fake.entries.get(CHAINSAW_MAN)!.completedAt).toEqual(NOV_17);
+  });
+
+  test("the argument wins over the AniList zone", async () => {
+    const { fake, call } = await connect("+09:00", NY_9PM, true);
+    await call("update_shows", { updates: [{ anime: CHAINSAW_MAN, status: "CURRENT" }], timeZone: "America/New_York" });
+    expect(fake.entries.get(CHAINSAW_MAN)!.startedAt).toEqual(NOV_17);
+  });
+
+  test("an unknown zone takes UTC and says so", async () => {
+    const { fake, call } = await connect(null, NY_9PM, true);
+    const r = await call("mark_episodes_watched", { anime: CHAINSAW_MAN });
+    expect(r.text).toContain("Start date set to 2026-11-18. That's today in UTC");
+    expect(fake.entries.get(CHAINSAW_MAN)!.startedAt).toEqual(NOV_18);
+  });
+
+  test("an unknown zone allows the date where it's already tomorrow", async () => {
+    const { fake, call } = await connect(null, TOKYO_MORNING, true);
+    const r = await call("update_shows", { updates: [{ anime: CHAINSAW_MAN, status: "COMPLETED", completedAt: "2026-11-18" }] });
+    expect(r.isError).toBe(false);
+    expect(fake.entries.get(CHAINSAW_MAN)!.completedAt).toEqual(NOV_18);
+    const later = await call("update_shows", { updates: [{ anime: CHAINSAW_MAN, completedAt: "2026-11-19" }] });
+    expect(later.text).toContain("2026-11-19 is in the future (today is 2026-11-17)");
+  });
+
+  test("a known zone gets no leeway", async () => {
+    const { call } = await connect("UTC", TOKYO_MORNING, true);
+    const r = await call("update_shows", { updates: [{ anime: CHAINSAW_MAN, completedAt: "2026-11-18" }] });
+    expect(r.text).toContain("2026-11-18 is in the future (today is 2026-11-17)");
+  });
+
+  test("an unknown time zone name is refused", async () => {
+    const { fake, call } = await connect(null, NY_9PM, true);
+    const r = await call("set_status", { anime: CHAINSAW_MAN, status: "CURRENT", timeZone: "Mars/Olympus" });
+    expect(r.isError).toBe(true);
+    expect(r.text).toContain("Unknown time zone");
+    expect(fake.entries.has(CHAINSAW_MAN)).toBe(false);
   });
 });
 
