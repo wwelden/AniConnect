@@ -4,7 +4,7 @@
  * genuinely ambiguous. See docs/REQUIREMENTS.md, R1.
  */
 import type { ListStatus, Media, RelationEdge, TitleLanguage } from "./anilist";
-import { bothTitles, displayTitle, normalize } from "./logic";
+import { bothTitles, displayTitle, literalTitle, normalize } from "./logic";
 
 /**
  * What the caller wants to do with the show; it decides which season is most likely meant.
@@ -51,6 +51,8 @@ export interface ParsedQuery {
   /** Meaningful words, for containment matching. */
   words: string[];
   hint: SeasonHint;
+  /** The query as written (see `literalTitle`), to tell apart titles that differ only in punctuation. */
+  typed?: string;
   /**
    * Set when "new"/"next" was read as a season word but sits apart from "season"
    * ("the new Frieren season"). The words might instead be part of a title
@@ -130,8 +132,12 @@ export function parseQuery(raw: string): ParsedQuery {
   }
   const parsed = finish(q, hint);
   // Both readings kept: "next jjk 0 season" tries "next jjk 0", then "jjk 0" (next season).
-  if (literal) return { ...parsed, literal: { ...literal, literal: parsed.literal } };
-  return parsed;
+  const result = literal ? { ...parsed, literal: { ...literal, literal: parsed.literal } } : parsed;
+  // Only readings that compare the whole query, with nothing read as a season or expanded.
+  for (let r: ParsedQuery | undefined = result; r; r = r.literal) {
+    if (r.exact === normalize(raw)) r.typed = literalTitle(raw);
+  }
+  return result;
 }
 
 const isAlias = (w: string) => Object.hasOwn(ALIASES, w);
@@ -154,11 +160,12 @@ function finish(q: string, hint: SeasonHint, expand = true): ParsedQuery {
   return parsed;
 }
 
+function rawNames(m: Media): string[] {
+  return [m.title.romaji, m.title.english, m.title.native, ...m.synonyms].filter((n): n is string => Boolean(n));
+}
+
 function names(m: Media): string[] {
-  return [m.title.romaji, m.title.english, m.title.native, ...m.synonyms]
-    .filter((n): n is string => Boolean(n))
-    .map(normalize)
-    .filter(Boolean);
+  return rawNames(m).map(normalize).filter(Boolean);
 }
 
 function levenshtein(a: string, b: string): number {
@@ -334,6 +341,14 @@ function dedupe(items: Media[]): Media[] {
 
 function score(items: Media[], q: ParsedQuery): Scored[] {
   const scored = items.map((media) => ({ media, score: matchScore(media, q) }));
+  // "Kaguya-sama: Love is War?" and "Kaguya-sama: Love is War" normalize alike (#61): when a
+  // title is written exactly as asked, the others that only match once normalized rank below it.
+  if (q.typed) {
+    const exact = scored
+      .filter((s) => s.score === EXACT)
+      .map((s) => ({ s, typed: rawNames(s.media).some((n) => literalTitle(n) === q.typed) }));
+    if (exact.some((e) => e.typed)) for (const e of exact) if (!e.typed) e.s.score = NORMALIZED_EXACT;
+  }
   const strong = scored.filter((s) => s.score >= 2);
   return strong.length ? strong : scored.filter((s) => s.score === 1);
 }
@@ -487,6 +502,9 @@ async function resolveParsed(
 
 /** matchScore for an exact title or synonym. */
 const EXACT = 4;
+
+/** Below EXACT: an exact match only once normalized, when another title matches as written (see `score`). */
+const NORMALIZED_EXACT = EXACT - 0.5;
 
 /** Intents that, without a season named, mean the show titled as asked over listed shows that only contain the words. */
 function exactOnly(intent: Intent): boolean {

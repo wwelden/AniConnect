@@ -12,6 +12,21 @@ export function normalize(text: string): string {
     .trim();
 }
 
+/**
+ * A title as written, ignoring only case, spacing and typographic variants of the same mark
+ * (curly quotes, dashes, ×): "Love is War?" stays apart from "Love is War".
+ */
+export function literalTitle(text: string): string {
+  return text
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[‘’ʼ′]/g, "'")
+    .replace(/[“”″]/g, '"')
+    .replace(/[‐‑‒–—―−]/g, "-")
+    .replace(/[×✕]/g, "x")
+    .replace(/\s+/g, "");
+}
+
 /** True when every word of the query appears in one of the media's titles or synonyms. */
 export function matchesTitle(media: Pick<Media, "title" | "synonyms">, query: string): boolean {
   const words = normalize(query).split(" ").filter(Boolean);
