@@ -208,7 +208,7 @@ describe("whats_next tool", () => {
   });
 
   test("searches with the one-show fields go 6 to a request, to stay under AniList's complexity limit", async () => {
-    // Measured on AniList: 7 searches count 7 × 58 = 406 of the 500 allowed, but 7 × 76 = 532 with these fields.
+    // Measured on AniList: 7 searches count 7 × 58 = 406 of the 500 allowed, but 7 × 77 = 539 with these fields.
     const anilist = new AniListClient("t", fake.fetch);
     const names = ["frieren", "jjk", "dandadan", "one piece", "bocchi", "oshi no ko", "haikyuu"];
     const before = fake.calls.length;
@@ -491,6 +491,21 @@ describe("plainSynopsis", () => {
     expect(plainSynopsis("The story.<br><br>\nNote: Episodes 11 and 12 adapt a novel.")).toBe("The story.");
   });
 
+  test("keeps story text that only looks like a credit", () => {
+    expect(plainSynopsis("He found the (source of his power) at last.")).toBe("He found the (source of his power) at last.");
+  });
+
+  test("markdown italics and headings come out as plain words", () => {
+    expect(plainSynopsis("# The Story\n_Frieren_ meets *Fern*. Snake_case and 5 * 3 stay.")).toBe(
+      "The Story Frieren meets Fern. Snake_case and 5 * 3 stay.",
+    );
+  });
+
+  test("abbreviations and initials don't end a sentence", () => {
+    const text = `${"A".repeat(60)} met him. Then he meets Mr. Satan and J. Smith, who are strong and loud and fast.`;
+    expect(plainSynopsis(text, 100)).toBe(`${"A".repeat(60)} met him.`);
+  });
+
   test("a long synopsis ends at the last whole sentence that fits", () => {
     const sentence = "Short sentence here."; // 20 characters, so 4 and their spaces fit in 100
     const text = Array.from({ length: 40 }, () => sentence).join(" ");
@@ -508,6 +523,23 @@ describe("aboutLines", () => {
   test("nothing for a show fetched without the one-show fields", () => {
     const { title, id, format, seasonYear } = findMedia("Sousou no Frieren");
     expect(aboutLines({ title, id, format, seasonYear } as unknown as Media)).toEqual([]);
+  });
+
+  test("tags: the highest ranked, without spoilers, and adult ones only with the 18+ setting", () => {
+    const tag = (name: string, rank: number, extra: Record<string, boolean> = {}) => ({
+      name, rank, isAdult: false, isMediaSpoiler: false, isGeneralSpoiler: false, ...extra,
+    });
+    const m = {
+      genres: ["Comedy"],
+      tags: [tag("Low", 20), tag("Twist", 95, { isMediaSpoiler: true }), tag("Nudity", 90, { isAdult: true }), tag("High", 80)],
+    } as unknown as Media;
+    expect(aboutLines(m)).toContain("Tags: High, Low.");
+    expect(aboutLines(m, true)).toContain("Tags: Nudity, High, Low.");
+  });
+
+  test("names every main studio and the source in words", () => {
+    const m = { format: "TV", genres: [], studios: { nodes: [{ name: "A" }, { name: "B" }, { name: "C" }] }, source: "LIVE_ACTION" };
+    expect(aboutLines(m as unknown as Media)).toEqual(["TV, by A, B and C, based on a live-action work."]);
   });
 
   test("leaves out what AniList doesn't know", () => {

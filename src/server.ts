@@ -624,7 +624,8 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
             ? media
             : ((await client.getMany([media.id], { oneShow: true }))[0] ?? media);
         const sequels = nextSeasons([show], listStatus, await client.getMany(moviesBesideSeries([show])));
-        return text(`${note}${formatShow(show, sequels, listStatus, at, zone, titleLanguage)}${zoneNote}`);
+        const { displayAdultContent } = await client.getViewer(); // cached
+        return text(`${note}${formatShow(show, sequels, listStatus, at, zone, titleLanguage, displayAdultContent)}${zoneNote}`);
       }
 
       const finished = list

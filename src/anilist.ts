@@ -89,7 +89,6 @@ export interface Media {
   season?: string | null;
   /** Only the main studios: the ones that animated it, not the producers. */
   studios?: { nodes: { name: string }[] } | null;
-  /** By rank, highest first. */
   tags?: MediaTag[] | null;
 }
 
@@ -97,6 +96,8 @@ export interface MediaTag {
   name: string;
   /** How relevant the tag is to the show, 0-100. */
   rank: number | null;
+  /** An 18+ tag, which AniList hides unless the user's settings show adult content. */
+  isAdult: boolean | null;
   /** Spoils this show, or spoils anything (a plot twist as a tag). */
   isMediaSpoiler: boolean | null;
   isGeneralSpoiler: boolean | null;
@@ -130,7 +131,7 @@ function oneShowFields(options: MediaOptions): string {
       source(version: 3)
       season
       studios(isMain: true) { nodes { name } }
-      tags { name rank isMediaSpoiler isGeneralSpoiler }`
+      tags { name rank isAdult isMediaSpoiler isGeneralSpoiler }`
     : "";
 }
 
@@ -224,10 +225,10 @@ const RATE_LIMIT_RETRIES = 1;
 
 /**
  * Title searches sent in one request (aliased Page queries). AniList refuses a query over 500
- * complexity; each search of 15 results with relations counts 58, or 76 with the one-show
- * fields (streaming links 6, details 12; measured 2026-11-18), so 7 fit, or 6 with them.
+ * complexity; each search of 15 results with relations counts 58, or 77 with the one-show
+ * fields (streaming links 6, details 13; measured 2026-11-18), so 7 fit, or 6 with them.
  */
-export const SEARCH_BATCH = 7;
+const SEARCH_BATCH = 7;
 const ONE_SHOW_SEARCH_BATCH = 6;
 
 /** How many title searches one request carries, with these options. */

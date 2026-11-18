@@ -383,7 +383,7 @@ describe("adding many shows (addOnly, dryRun)", () => {
         (anime) => ({ anime }),
       ),
     });
-    expect(searches()).toBe(2); // SEARCH_BATCH (7), then 1
+    expect(searches()).toBe(2); // 7 searches to a request, then 1
   });
 
   test("shows given by ID are fetched in one request", async () => {

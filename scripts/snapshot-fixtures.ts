@@ -62,14 +62,11 @@ const FIELDS = `
   description
   source(version: 3)
   studios { edges { isMain node { id name } } }
-  tags { name rank isMediaSpoiler isGeneralSpoiler }
+  tags { name rank isAdult isMediaSpoiler isGeneralSpoiler }
   relations { edges { relationType node { id type } } }
 `;
 
-/**
- * Tags kept per show, the highest ranked (AniList sends them by rank). Answers use a few of
- * the top ones; every tag would double the fixture.
- */
+/** Tags kept per show, the highest ranked. Answers use a few of the top ones; every tag would double the fixture. */
 const MAX_TAGS = 10;
 
 async function gql<T>(query: string, variables: Record<string, unknown>): Promise<T> {
@@ -96,7 +93,7 @@ async function gql<T>(query: string, variables: Record<string, unknown>): Promis
 type Media = {
   id: number;
   format: string | null;
-  tags: unknown[];
+  tags: { rank: number | null }[];
   relations: { edges: { relationType: string; node: { id: number; type: string } }[] };
   [key: string]: unknown;
 };
@@ -142,7 +139,10 @@ for (const seed of SEEDS) {
   console.error(`${seed}: ${seen.size} entries`);
 }
 
-const out = [...all.values()].sort((a, b) => a.id - b.id).map((m) => ({ ...m, tags: m.tags.slice(0, MAX_TAGS) }));
+const out = [...all.values()].sort((a, b) => a.id - b.id).map((m) => ({
+  ...m,
+  tags: [...m.tags].sort((a, b) => (b.rank ?? 0) - (a.rank ?? 0)).slice(0, MAX_TAGS),
+}));
 await Bun.write(
   new URL("../test/fixtures/media.json", import.meta.url),
   JSON.stringify(out, null, 1) + "\n",
