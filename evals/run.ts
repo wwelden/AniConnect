@@ -1,12 +1,13 @@
 #!/usr/bin/env bun
 /**
  * Runs the end-to-end evals: each case's request goes to a real model through the
- * `claude` CLI, with only the AniConnect MCP server attached (backed by the fake
- * AniList), and is graded on the list it leaves behind.
+ * `claude` CLI, with only one MCP server attached (AniConnect, or another AniList server
+ * to compare against), backed by the fake AniList, and is graded on the list it leaves behind.
  *
  *   bun evals/run.ts                      # all cases, CLI's default model
  *   bun evals/run.ts --model sonnet       # pick a model
  *   bun evals/run.ts --filter progress    # only cases whose id contains "progress"
+ *   bun evals/run.ts --server ani-mcp     # another server, from evals/servers.ts (R6.4)
  *   bun evals/run.ts --concurrency 2 --budget 0.5
  *
  * Each case is a separate model run and uses your Claude usage (or API credits when
@@ -19,11 +20,15 @@ import { parseArgs } from "node:util";
 import { HISTORY, PERSONA } from "../test/fixtures/persona";
 import { FakeAniList } from "../test/support/fake-anilist";
 import { CASES, type EvalCase } from "./cases";
+import { NOW } from "./clock";
+import { serveFake } from "./fake-http";
 import { diff, gradeCase } from "./grade";
+import { SERVERS } from "./servers";
 
 const { values: args } = parseArgs({
   options: {
     model: { type: "string" },
+    server: { type: "string", default: "aniconnect" },
     filter: { type: "string" },
     concurrency: { type: "string", default: "4" },
     budget: { type: "string", default: "1" },
@@ -34,7 +39,12 @@ const { values: args } = parseArgs({
 const SYSTEM_PROMPT =
   "You are a helpful assistant. The user keeps track of the anime they watch on AniList, and you can manage their list with the tools provided. Today is 2026-11-17 and the user is in the UTC time zone.";
 
-const SERVER = join(import.meta.dir, "fake-server.ts");
+if (!SERVERS[args.server!]) {
+  console.error(`Unknown server "${args.server}"; pick one of ${Object.keys(SERVERS).join(", ")}.`);
+  process.exit(1);
+}
+const server = SERVERS[args.server!]!;
+const ownServer = args.server === "aniconnect";
 
 interface RunResult {
   id: string;
@@ -47,24 +57,22 @@ interface RunResult {
   model: string;
   /** Tool calls with their inputs and results, for diagnosing failures. */
   transcript: { tool: string; input: unknown; result?: string; isError?: boolean }[];
-}
-
-function seedState() {
-  const fake = new FakeAniList("POINT_10_DECIMAL", "tester").seed(PERSONA).seedActivity(HISTORY);
-  return { scoreFormat: fake.scoreFormat, viewerName: fake.viewerName, ...fake.exportState() };
+  /** Fields and arguments the server asked AniList for that the fake has no data for. */
+  unmodeled: string[];
 }
 
 async function runCase(c: EvalCase): Promise<RunResult> {
   const dir = await mkdtemp(join(tmpdir(), "aniconnect-eval-"));
+  const fake = new FakeAniList("POINT_10_DECIMAL", "tester").seed(PERSONA).seedActivity(HISTORY);
+  fake.clock = () => NOW;
+  const initial = structuredClone(fake.exportState().entries);
+  const anilist = serveFake(fake);
   try {
-    const statePath = join(dir, "state.json");
-    const initial = seedState();
-    await Bun.write(statePath, JSON.stringify(initial));
     const mcpPath = join(dir, "mcp.json");
     await Bun.write(
       mcpPath,
       JSON.stringify({
-        mcpServers: { aniconnect: { command: "bun", args: [SERVER], env: { EVAL_STATE: statePath } } },
+        mcpServers: { [server.key]: { command: server.command, args: server.args, env: server.env(anilist.url) } },
       }),
     );
 
@@ -73,7 +81,7 @@ async function runCase(c: EvalCase): Promise<RunResult> {
       "--output-format", "stream-json", "--verbose",
       "--mcp-config", mcpPath, "--strict-mcp-config",
       "--tools", "",
-      "--allowedTools", "mcp__aniconnect",
+      "--allowedTools", `mcp__${server.key}`,
       "--system-prompt", SYSTEM_PROMPT,
       "--setting-sources", "",
       "--disable-slash-commands",
@@ -106,7 +114,7 @@ async function runCase(c: EvalCase): Promise<RunResult> {
       } else if (event.type === "assistant") {
         for (const block of event.message?.content ?? []) {
           if (block.type !== "tool_use") continue;
-          const tool = block.name.replace(/^mcp__aniconnect__/, "");
+          const tool = block.name.replace(`mcp__${server.key}__`, "");
           toolCalls.push(tool);
           const step = { tool, input: block.input };
           transcript.push(step);
@@ -125,15 +133,16 @@ async function runCase(c: EvalCase): Promise<RunResult> {
         costUsd = event.total_cost_usd ?? 0;
       }
     }
-    const base = { id: c.id, toolCalls, costUsd, durationMs: Date.now() - started, reply, model, transcript };
+    const unmodeled = [...fake.unmodeled];
+    const base = { id: c.id, toolCalls, costUsd, durationMs: Date.now() - started, reply, model, transcript, unmodeled };
     if (proc.exitCode !== 0) {
       return { ...base, passed: false, detail: `claude exited ${proc.exitCode}: ${err.trim().slice(0, 300)}` };
     }
 
-    const final = await Bun.file(statePath).json();
-    const problem = gradeCase(c, diff(initial.entries, final.entries), reply, toolCalls);
+    const problem = gradeCase(c, diff(initial, fake.exportState().entries), reply, toolCalls, { anyTool: !ownServer });
     return { ...base, passed: problem === null, detail: problem ?? "" };
   } finally {
+    anilist.stop();
     if (!args["keep-temp"]) await rm(dir, { recursive: true, force: true });
   }
 }
@@ -145,7 +154,9 @@ async function main() {
     process.exit(1);
   }
   const concurrency = Math.max(1, Number(args.concurrency));
-  console.error(`Running ${cases.length} cases, ${concurrency} at a time${args.model ? ` on ${args.model}` : ""}...`);
+  console.error(
+    `Running ${cases.length} cases against ${args.server}, ${concurrency} at a time${args.model ? ` on ${args.model}` : ""}...`,
+  );
 
   const results: RunResult[] = [];
   const queue = [...cases];
@@ -172,6 +183,10 @@ async function main() {
   console.log(`\nPassed ${passed}/${results.length} (${Math.round((100 * passed) / results.length)}%)`);
   console.log(`In the ideal number of tool calls: ${efficient}/${ideal.length}`);
   console.log(`Average tool calls: ${calls.toFixed(2)}   Total cost: $${cost.toFixed(2)}`);
+  const unmodeled = [...new Set(results.flatMap((r) => r.unmodeled))].sort();
+  if (unmodeled.length) {
+    console.log(`The fake had no data for (returned null): ${unmodeled.join(", ")}`);
+  }
   for (const r of results.filter((x) => !x.passed)) {
     console.log(`\nFAIL ${r.id}: ${r.detail}\n  calls: ${r.toolCalls.join(", ") || "none"}\n  reply: ${r.reply.slice(0, 400).replace(/\n/g, " ")}`);
   }
@@ -179,10 +194,14 @@ async function main() {
   const outDir = join(import.meta.dir, "results");
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   await Bun.write(
-    join(outDir, `${stamp}.json`),
-    JSON.stringify({ model: results[0]?.model || args.model || "default", passed, total: results.length, efficient, results }, null, 2),
+    join(outDir, `${args.server}-${stamp}.json`),
+    JSON.stringify(
+      { server: args.server, model: results[0]?.model || args.model || "default", passed, total: results.length, efficient, results },
+      null,
+      2,
+    ),
   );
-  console.log(`\nSaved to evals/results/${stamp}.json`);
+  console.log(`\nSaved to evals/results/${args.server}-${stamp}.json`);
   process.exit(passed === results.length ? 0 : 1);
 }
 

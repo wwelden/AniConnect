@@ -117,9 +117,10 @@ describe("fake AniList", () => {
 
   test("logs fields it has no data for, and refuses writes it doesn't keep", async () => {
     const fake = new FakeAniList();
-    const r = await gql(fake, `query { Media(id: ${DANDADAN}) { id coverImage { large } } }`);
-    expect(r.body.data.Media).toEqual({ id: DANDADAN, coverImage: null });
-    expect([...fake.unmodeled]).toEqual(["Media.coverImage"]);
+    const r = await gql(fake, `query { Media(id: ${DANDADAN}) { id trailer { id } characters { nodes { id } } tags { name } } }`);
+    // Empty the way AniList's "none" is: no trailer, but an empty connection and list.
+    expect(r.body.data.Media).toEqual({ id: DANDADAN, trailer: null, characters: { nodes: [] }, tags: [] });
+    expect([...fake.unmodeled]).toEqual(["Media.trailer", "Media.characters", "CharacterConnection.nodes", "Media.tags"]);
 
     const fav = await gql(fake, `mutation { ToggleFavourite(animeId: ${DANDADAN}) { anime { nodes { id } } } }`);
     expect(fav.status).toBe(400);

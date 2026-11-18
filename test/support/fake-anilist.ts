@@ -12,12 +12,19 @@ import {
   buildSchema,
   defaultFieldResolver,
   execute,
+  getNullableType,
   GraphQLError,
+  isEnumType,
+  isListType,
+  isNonNullType,
+  isObjectType,
+  isScalarType,
   parse,
   validate,
   type DocumentNode,
   type GraphQLFieldResolver,
   type GraphQLObjectType,
+  type GraphQLOutputType,
 } from "graphql";
 import type { ListStatus, ScoreFormat, TitleLanguage } from "../../src/anilist";
 import { normalize } from "../../src/logic";
@@ -535,10 +542,29 @@ for (const [name, field] of Object.entries(schema.getMutationType()!.getFields()
   };
 }
 
+/**
+ * Object types AniList always fills in, even when there's nothing in them (a show with no
+ * characters still has `characters { nodes: [] }`). Other objects, like a trailer, are null when absent.
+ */
+const ALWAYS_PRESENT =
+  /Connection$|^(Favourites|FuzzyDate|MediaTitle|MediaCoverImage|MediaStats|UserAvatar|UserOptions|MediaListOptions|MediaListTypeOptions|UserStatisticTypes|UserStatistics|StaffName|StaffImage|CharacterName|CharacterImage)$/;
+
+/** What a field the fake has no data for holds: what AniList returns for "none", as near as the type says. */
+function blank(type: GraphQLOutputType): unknown {
+  const inner = getNullableType(type);
+  if (isListType(inner)) return [];
+  if (isObjectType(inner) && ALWAYS_PRESENT.test(inner.name)) return {};
+  if (!isNonNullType(type)) return null;
+  if (isEnumType(inner)) return inner.getValues()[0]!.value;
+  if (isScalarType(inner)) return { Boolean: false, Int: 0, Float: 0, String: "" }[inner.name] ?? null;
+  return {};
+}
+
 /** Reads a field as stored, logging fields the fake has no data for. */
 const fieldResolver: GraphQLFieldResolver<any, Context> = (source, args, ctx, info) => {
   if (source && typeof source === "object" && !(info.fieldName in source)) {
     ctx.fake.unmodeled.add(`${info.parentType.name}.${info.fieldName}`);
+    return blank(info.returnType);
   }
   return defaultFieldResolver(source, args, ctx, info);
 };

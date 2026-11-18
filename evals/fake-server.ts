@@ -1,42 +1,18 @@
 #!/usr/bin/env bun
 /**
- * The real AniConnect MCP server, wired to the fake AniList instead of the network.
- * The eval runner starts one per case; list state lives in the JSON file named by
- * EVAL_STATE so the runner can inspect it afterwards.
+ * The real AniConnect MCP server, sending its AniList requests to the fake AniList that
+ * the eval runner serves at ANILIST_URL.
  */
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { AniListClient } from "../src/anilist";
 import { createServer } from "../src/server";
-import { FakeAniList } from "../test/support/fake-anilist";
+import { NOW } from "./clock";
 
-const statePath = process.env.EVAL_STATE;
-if (!statePath) {
-  console.error("EVAL_STATE must point at a state file written by evals/run.ts");
+const url = process.env.ANILIST_URL;
+if (!url) {
+  console.error("ANILIST_URL must point at the fake AniList served by evals/run.ts");
   process.exit(1);
 }
 
-// The fixture's airing schedule was captured on 2026-11-17; keep the clock there.
-const NOW = Date.parse("2026-11-17T12:00:00Z");
-
-const state = await Bun.file(statePath).json();
-const fake = new FakeAniList(state.scoreFormat, state.viewerName);
-fake.importState(state);
-fake.clock = () => NOW;
-
-// Writes queue behind each other, so parallel tool calls can't leave an older snapshot last.
-let persisting: Promise<unknown> = Promise.resolve();
-
-const fetchAndPersist = async (url: string, init: RequestInit) => {
-  const res = await fake.fetch(url, init);
-  if (/^\s*mutation/.test(JSON.parse(init.body as string).query)) {
-    const write = persisting.then(() =>
-      Bun.write(statePath, JSON.stringify({ ...state, ...fake.exportState() }, null, 1)),
-    );
-    persisting = write.catch(() => {});
-    await write;
-  }
-  return res;
-};
-
-const server = createServer(new AniListClient("eval", fetchAndPersist), { now: () => NOW });
+const server = createServer(new AniListClient("eval", (_endpoint, init) => fetch(url, init)), { now: () => NOW });
 await server.connect(new StdioServerTransport());

@@ -1,6 +1,8 @@
 /** Checks the eval cases and grader themselves, without running a model. */
 import { describe, expect, test } from "bun:test";
+import { join } from "node:path";
 import { CASES, type Change } from "../evals/cases";
+import { serveFake } from "../evals/fake-http";
 import { diff, gradeCase, mentions } from "../evals/grade";
 import { PERSONA } from "./fixtures/persona";
 import { FakeAniList, findMedia } from "./support/fake-anilist";
@@ -79,5 +81,37 @@ describe("eval cases", () => {
       { anime: "Dandadan", progress: 8 },
     ]);
     expect(gradeCase(c, changed, "Done.")).toContain("also changed Dandadan");
+  });
+});
+
+describe("grading other servers (R6.4)", () => {
+  const c = { id: "x", prompt: "", expect: { readOnly: true as const, tools: ["whats_next"] } };
+
+  test("a read-only case's tools need only some tool call, since other servers name theirs differently", () => {
+    expect(gradeCase(c, new Map(), "Sure.", ["anilist_list"])).toBe("didn't call whats_next");
+    expect(gradeCase(c, new Map(), "Sure.", ["anilist_list"], { anyTool: true })).toBeNull();
+    expect(gradeCase(c, new Map(), "Sure.", [], { anyTool: true })).toBe("didn't call any tool");
+  });
+});
+
+describe("sending another server's AniList requests to the fake (R6.4)", () => {
+  test.skipIf(!Bun.which("node"))("redirects Node's fetch to the fake", async () => {
+    const fake = new FakeAniList();
+    const http = serveFake(fake);
+    try {
+      const proc = Bun.spawn(
+        [
+          "node",
+          "-e",
+          `fetch("https://graphql.anilist.co", { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer x" },
+            body: JSON.stringify({ query: "query { Viewer { name } }" }) }).then((r) => r.json()).then((b) => console.log(b.data.Viewer.name))`,
+        ],
+        { env: { ...process.env, FAKE_ANILIST_URL: http.url, NODE_OPTIONS: `--require ${join(import.meta.dir, "../evals/anilist-redirect.cjs")}` }, stdout: "pipe" },
+      );
+      expect((await new Response(proc.stdout).text()).trim()).toBe("tester");
+      expect(fake.calls).toHaveLength(1);
+    } finally {
+      http.stop();
+    }
   });
 });
