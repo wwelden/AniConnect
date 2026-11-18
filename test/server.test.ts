@@ -562,6 +562,36 @@ describe("set_status COMPLETED on a show still airing", () => {
   });
 });
 
+describe("add_to_list as COMPLETED on a show still airing", () => {
+  test("notes how many episodes have aired, as set_status does", async () => {
+    await connect({ now: () => NOW });
+    const r = await call("add_to_list", { anime: 195516, status: "COMPLETED" });
+    expect(r.isError).toBe(false);
+    expect(fake.entries.get(195516)!.progress).toBe(12);
+    expect(r.text).toBe(
+      `Added: [195516] The Apothecary Diaries Season 3 (TV, 2026): Completed, 12/12 episodes, unrated. Start date set to ${TODAY}, finish date set to ${TODAY}. Note: AniList says only 7 episodes have aired so far.`,
+    );
+  });
+
+  test("notes a show that hasn't premiered", async () => {
+    await connect({ now: () => NOW });
+    const r = await call("add_to_list", { anime: 186712, status: "COMPLETED" });
+    expect(r.text).toContain("hasn't started airing yet");
+  });
+
+  test("says nothing for a plain add", async () => {
+    await connect({ now: () => NOW });
+    const r = await call("add_to_list", { anime: 195516 });
+    expect(r.text).toBe("Added: [195516] The Apothecary Diaries Season 3 (TV, 2026): Plan to watch, 0/12 episodes, unrated");
+  });
+});
+
+test("set_status puts a full stop between the entry and what else changed", async () => {
+  await connect({ now: () => NOW });
+  const r = await call("set_status", { anime: 16498, status: "CURRENT" });
+  expect(r.text).toBe(`not on list -> Watching: [16498] Attack on Titan (TV, 2013): Watching, 0/25 episodes, unrated. Start date set to ${TODAY}.`);
+});
+
 describe("parts without a season number", () => {
   test("a part that fits two seasons goes to the one the intent points at", async () => {
     fake.seed([...PERSONA.filter((e) => e.anime !== "Shingeki no Kyojin Season 3 Part 2"), { anime: "Shingeki no Kyojin Season 3 Part 2", status: "CURRENT", progress: 2 }]);
