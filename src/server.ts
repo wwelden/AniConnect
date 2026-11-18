@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ElicitRequestFormParams, ElicitResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
@@ -114,6 +115,12 @@ function entryThen(entry: string, after: string): string {
 }
 
 /**
+ * The tool call being handled, so a form it shows the user goes out with it (see `ask`).
+ * Tracked across awaits, since the form is asked for deep inside the call.
+ */
+const currentCall = new AsyncLocalStorage<string | number | undefined>();
+
+/**
  * Makes the wrapper for every tool handler: it turns thrown errors into tool errors the model
  * can read and recover from, fails before any request once the token has expired, and adds a
  * one-line warning when it expires soon.
@@ -121,18 +128,19 @@ function entryThen(entry: string, after: string): string {
 function safeFor(client: AniListClient, now: () => number, user: UserState) {
   const watch = (user.watch ??= tokenWatch(client.tokenExpiresAt, client.renew ?? undefined));
   return <A>(fn: (args: A) => Promise<ToolResult>) =>
-    async (args: A): Promise<ToolResult> => {
-      const token = watch(now());
-      if (token && "expired" in token) return { content: [{ type: "text", text: token.expired }], isError: true };
-      let result: ToolResult;
-      try {
-        result = await fn(args);
-      } catch (err) {
-        result = { content: [{ type: "text", text: (err as Error).message }], isError: true };
-      }
-      if (token) result.content.push({ type: "text", text: token.warning });
-      return result;
-    };
+    async (args: A, extra?: { requestId?: string | number }): Promise<ToolResult> =>
+      currentCall.run(extra?.requestId, async () => {
+        const token = watch(now());
+        if (token && "expired" in token) return { content: [{ type: "text", text: token.expired }], isError: true };
+        let result: ToolResult;
+        try {
+          result = await fn(args);
+        } catch (err) {
+          result = { content: [{ type: "text", text: (err as Error).message }], isError: true };
+        }
+        if (token) result.content.push({ type: "text", text: token.warning });
+        return result;
+      });
 }
 
 /**
@@ -415,8 +423,13 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
   let asking: Promise<unknown> = Promise.resolve();
   const ask: Ask = (params) => {
     if (!canAsk()) return Promise.resolve(null);
-    // People take a while to choose: allow longer than the usual request timeout.
-    const answer = asking.then(() => server.server.elicitInput(params, { timeout: ASK_TIMEOUT_MS }).catch(() => null));
+    // People take a while to choose: allow longer than the usual request timeout. Sent with the
+    // tool call: over HTTP, a form not tied to a call goes on the client's separate GET stream,
+    // and a client that holds none never gets it while the call waits for an answer.
+    const relatedRequestId = currentCall.getStore();
+    const answer = asking.then(() =>
+      server.server.elicitInput(params, { timeout: ASK_TIMEOUT_MS, relatedRequestId }).catch(() => null),
+    );
     asking = answer;
     return answer;
   };

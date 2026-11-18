@@ -689,6 +689,68 @@ describe("sessions", () => {
   });
 });
 
+describe("forms", () => {
+  /** A client that sends only POSTs and reads each answer's own stream, with no GET stream open. */
+  async function postOnlyClient() {
+    const { body } = await register();
+    const code = await codeFor(body.client_id!);
+    const token = (await (await swap({ client_id: body.client_id!, code, code_verifier: "verifier-0123456789-0123456789-0123456789" })).json()) as { access_token: string };
+    let session = "";
+    const post = (message: unknown) =>
+      fetch(`${base}/mcp`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token.access_token}`,
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+          ...(session ? { "Mcp-Session-Id": session, "Mcp-Protocol-Version": "2025-06-18" } : {}),
+        },
+        body: JSON.stringify(message),
+      });
+    const init = await post({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: { protocolVersion: "2025-06-18", capabilities: { elicitation: {} }, clientInfo: { name: "post-only", version: "0" } },
+    });
+    session = init.headers.get("Mcp-Session-Id")!;
+    await init.text();
+    await (await post({ jsonrpc: "2.0", method: "notifications/initialized" })).text();
+    return post;
+  }
+
+  /** Reads server-sent messages off a response until `stop` says so. */
+  async function* messages(res: Response) {
+    const reader = res.body!.getReader();
+    let buffer = "";
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) return;
+      buffer += new TextDecoder().decode(value);
+      let end: number;
+      while ((end = buffer.indexOf("\n\n")) >= 0) {
+        const event = buffer.slice(0, end);
+        buffer = buffer.slice(end + 2);
+        const data = event.split("\n").find((l) => l.startsWith("data: "));
+        if (data) yield JSON.parse(data.slice(6)) as { id?: number | string; method?: string; result?: { content: { text: string }[] } };
+      }
+    }
+  }
+
+  test("a removal's confirmation goes out on the tool call's own stream, so a client without a GET stream gets it", async () => {
+    const post = await postOnlyClient();
+    const res = await post({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "remove_from_list", arguments: { anime: DANDADAN } } });
+    const stream = messages(res);
+    const form = (await stream.next()).value!;
+    expect(form.method).toBe("elicitation/create");
+    await (await post({ jsonrpc: "2.0", id: form.id, result: { action: "accept", content: { confirm: true } } })).text();
+    const done = (await stream.next()).value!;
+    expect(done.id).toBe(2);
+    expect(done.result!.content[0]!.text).toBe("Removed DAN DA DAN from your list.");
+    expect(fake.entries.has(DANDADAN)).toBe(false);
+  });
+});
+
 describe("settings", () => {
   const env = {
     PUBLIC_URL: "https://aniconnect.example.com",
