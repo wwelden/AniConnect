@@ -168,6 +168,17 @@ function names(m: Media): string[] {
   return rawNames(m).map(normalize).filter(Boolean);
 }
 
+/**
+ * A format AniList appends to a title to tell it from another anime of the same name:
+ * "SPRIGGAN (ONA)", the 2022 series, beside "SPRIGGAN", the 1998 movie.
+ */
+const FORMAT_TAG = /\s*\((?:TV|ONA|OVA|OAD|Movie|Special)\)\s*$/i;
+
+/** Titles with a format tag, without it: the name the show goes by. */
+function untagged(m: Media): string[] {
+  return rawNames(m).filter((n) => FORMAT_TAG.test(n)).map((n) => n.replace(FORMAT_TAG, ""));
+}
+
 function levenshtein(a: string, b: string): number {
   const prev = Array.from({ length: b.length + 1 }, (_, i) => i);
   for (let i = 1; i <= a.length; i++) {
@@ -207,6 +218,7 @@ function typoHit(word: string, nameWords: string[]): boolean {
  */
 export function matchScore(m: Media, q: ParsedQuery): number {
   if (q.words.length === 0) return 0;
+  if (untagged(m).some((n) => normalize(n) === q.exact)) return 4;
   let best = 0;
   for (const name of names(m)) {
     if (name === q.exact) return 4;
@@ -346,16 +358,23 @@ function score(items: Media[], q: ParsedQuery): Scored[] {
   if (q.typed) {
     const exact = scored
       .filter((s) => s.score === EXACT)
-      .map((s) => ({ s, typed: rawNames(s.media).some((n) => literalTitle(n) === q.typed) }));
+      .map((s) => ({ s, typed: [...rawNames(s.media), ...untagged(s.media)].some((n) => literalTitle(n) === q.typed) }));
     if (exact.some((e) => e.typed)) for (const e of exact) if (!e.typed) e.s.score = NORMALIZED_EXACT;
   }
   const strong = scored.filter((s) => s.score >= 2);
   return strong.length ? strong : scored.filter((s) => s.score === 1);
 }
 
-/** Drop movies/OVAs/specials unless asked for, or unless they match clearly better than any series. */
+/**
+ * Drop movies/OVAs/specials unless asked for, or unless they match clearly better than any
+ * series. Music videos not on the list only count when nothing else matches: an MV titled
+ * after its song ("Idol") is never the show someone means when a show matches too.
+ */
 function preferSeries(items: Scored[], hint: SeasonHint): Scored[] {
   if (hint.movie) return items.filter((s) => s.media.format === "MOVIE");
+  // One on the user's list is theirs to name, so it stays.
+  const music = (s: Scored) => s.media.format === "MUSIC" && !s.media.mediaListEntry;
+  if (items.some((s) => !music(s))) items = items.filter((s) => !music(s));
   const bestSeries = Math.max(-1, ...items.filter((s) => isSeries(s.media)).map((s) => s.score));
   if (bestSeries < 0) return items;
   return items.filter((s) => isSeries(s.media) || s.score > bestSeries);
@@ -594,6 +613,20 @@ function pick(query: string, intent: Intent, pool: Scored[]): Resolution {
       candidates: [top.media, ...remakes.map((s) => s.media)],
       why: `"${query}" has more than one version.`,
     };
+  }
+
+  // Shows that only contain the words, equally likely but for their format, are different
+  // shows when they aren't one franchise ("Idol Jihen" and "Idol Ace" for "idol"): the format
+  // decides between seasons and a movie of one show, not between shows.
+  if (useScore && top.score < NORMALIZED_EXACT) {
+    const alike = sorted.filter((s) => ranks[status(s.media)] === ranks[status(top.media)] && s.score === top.score);
+    if (alike.length > 1 && !sameFranchise(alike.map((s) => s.media))) {
+      return {
+        kind: "ambiguous",
+        candidates: alike.slice(0, MAX_CANDIDATES).map((s) => s.media),
+        why: `"${query}" matches ${alike.length} shows equally well.`,
+      };
+    }
   }
 
   if (tied.length === 1) return { kind: "match", media: top.media, why: STATUS_WHY[status(top.media)] };

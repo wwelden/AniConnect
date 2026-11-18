@@ -182,6 +182,22 @@ export const LIST_TTL_MS = 60_000;
 export const REQUEST_TIMEOUT_MS = 15_000;
 
 /**
+ * The longest wait AniList can ask for after a rate-limited request that is still made, once:
+ * AniList allows 30 requests a minute (90 when it isn't degraded), so a large update_shows call
+ * can hit the limit, and one short wait finishes it instead of failing the shows left (R5.1).
+ * Longer waits are reported instead: MCP clients commonly give a tool call 60 seconds.
+ */
+export const RATE_LIMIT_WAIT_MS = 30_000;
+const RATE_LIMIT_RETRIES = 1;
+
+/**
+ * Title searches sent in one request (aliased Page queries). AniList refuses a query over 500
+ * complexity; each search of 15 results with relations counts 58, or 64 with streaming links
+ * (measured 2026-11-18), so 7 fit either way.
+ */
+export const SEARCH_BATCH = 7;
+
+/**
  * Reads AniList's time zone setting, documented as an offset ("-05:00", "+05:30"), into a
  * zone `Intl` accepts: a canonical "+HH:MM" offset, or an IANA name if that's what is stored.
  * Returns null for an empty or unreadable value, so callers fall back to the server's zone.
@@ -256,6 +272,8 @@ export class AniListClient {
   now: () => number = Date.now;
   /** How long one request may take; tests shorten it. */
   requestTimeoutMs = REQUEST_TIMEOUT_MS;
+  /** How waits for the rate limit pass; tests replace it. */
+  sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
   /** How to get a new token: set by the hosted server, which signs users in itself (R7.2). */
   renew: string | null = null;
   /** Set once AniList has rejected the token (revoked, or expired early). */
@@ -269,6 +287,25 @@ export class AniListClient {
   }
 
   async request<T>(query: string, variables: Record<string, unknown> = {}): Promise<T> {
+    for (let retries = 0; ; retries++) {
+      const result = await this.attempt<T>(query, variables);
+      if (!("retryAfterMs" in result)) return result.data;
+      // A rate-limited request wasn't run, so even a write is safe to send again.
+      const wait = result.retryAfterMs;
+      if (retries >= RATE_LIMIT_RETRIES || wait === null || wait > RATE_LIMIT_WAIT_MS) {
+        throw new AniListError(
+          `AniList rate limit hit (30 requests a minute).${wait !== null ? ` Try again in ${Math.ceil(wait / 1000)} seconds.` : ""}`,
+        );
+      }
+      await this.sleep(wait);
+    }
+  }
+
+  /** One try at a request: its data, or how long AniList says to wait when rate-limited. */
+  private async attempt<T>(
+    query: string,
+    variables: Record<string, unknown>,
+  ): Promise<{ data: T } | { retryAfterMs: number | null }> {
     const signal = AbortSignal.timeout(this.requestTimeoutMs);
     const timedOut = () =>
       new AniListError(
@@ -296,10 +333,10 @@ export class AniListClient {
     }
 
     if (res.status === 429) {
-      const retry = res.headers.get("Retry-After");
-      throw new AniListError(
-        `AniList rate limit hit (30 requests a minute).${retry ? ` Try again in ${retry} seconds.` : ""}`,
-      );
+      const header = res.headers.get("Retry-After");
+      const seconds = header === null ? Number.NaN : Number(header);
+      // Without a usable Retry-After there's no telling how long to wait, so it isn't retried.
+      return { retryAfterMs: Number.isFinite(seconds) && seconds >= 0 ? seconds * 1000 : null };
     }
 
     let body: {
@@ -333,7 +370,7 @@ export class AniListClient {
     if (!res.ok || !body.data) {
       throw new AniListError(`AniList returned HTTP ${res.status}.`);
     }
-    return body.data;
+    return { data: body.data };
   }
 
   private rejectToken(reason: string): never {
@@ -386,20 +423,38 @@ export class AniListClient {
    * leaving it out returns both, as AniList does when the argument is omitted.
    */
   async searchAnime(search: string, perPage: number, options: LinkOptions = {}, isAdult?: boolean): Promise<Media[]> {
-    const data = await this.request<{ Page: { media: Media[] } }>(
-      `query ($search: String, $perPage: Int, $isAdult: Boolean) {
-        Page(perPage: $perPage) {
-          media(search: $search, type: ANIME, sort: SEARCH_MATCH, isAdult: $isAdult) {
-            ${MEDIA_FIELDS}
-            ${linkFields(options)}
-            mediaListEntry { ${ENTRY_FIELDS} }
-            relations { edges { ${RELATION_EDGE} } }
-          }
-        }
-      }`,
-      { search, perPage, isAdult },
-    );
-    return data.Page.media;
+    return (await this.searchMany([search], perPage, options, isAdult))[0]!;
+  }
+
+  /**
+   * Several title searches in one request, as aliased Page queries (SEARCH_BATCH per request),
+   * so resolving a batch of names costs one request instead of one each against AniList's
+   * rate limit. Results are in the order of `searches`, each as searchAnime would return it.
+   */
+  async searchMany(searches: string[], perPage: number, options: LinkOptions = {}, isAdult?: boolean): Promise<Media[][]> {
+    const results: Media[][] = [];
+    for (let i = 0; i < searches.length; i += SEARCH_BATCH) {
+      const chunk = searches.slice(i, i + SEARCH_BATCH);
+      const pages = chunk
+        .map(
+          (_, j) => `s${j}: Page(perPage: $perPage) {
+            media(search: $search${j}, type: ANIME, sort: SEARCH_MATCH, isAdult: $isAdult) {
+              ${MEDIA_FIELDS}
+              ${linkFields(options)}
+              mediaListEntry { ${ENTRY_FIELDS} }
+              relations { edges { ${RELATION_EDGE} } }
+            }
+          }`,
+        )
+        .join("\n");
+      const params = chunk.map((_, j) => `$search${j}: String`).join(", ");
+      const data = await this.request<Record<string, { media: Media[] }>>(
+        `query (${params}, $perPage: Int, $isAdult: Boolean) {\n${pages}\n}`,
+        { ...Object.fromEntries(chunk.map((search, j) => [`search${j}`, search])), perPage, isAdult },
+      );
+      results.push(...chunk.map((_, j) => data[`s${j}`]!.media));
+    }
+    return results;
   }
 
   /**

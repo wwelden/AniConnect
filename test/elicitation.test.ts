@@ -102,24 +102,37 @@ describe("picking between ambiguous shows (R2.7)", () => {
     expect(fake.writes).toHaveLength(0);
   });
 
-  test("update_shows asks one question at a time", async () => {
-    let open = 0;
-    let most = 0;
-    answer = async (params) => {
-      most = Math.max(most, ++open);
-      await new Promise((r) => setTimeout(r, 5));
-      open--;
-      return { action: "accept", content: { anime: optionsOf(params)[0]!.const } };
+  test("update_shows asks about one show", async () => {
+    answer = (params) => ({ action: "accept", content: { anime: optionsOf(params)[0]!.const } });
+    const r = await call("update_shows", { updates: [{ anime: "attack on titan", score: 10 }] });
+    expect(r.isError).toBe(false);
+    expect(forms).toHaveLength(1);
+  });
+
+  test("a batch doesn't stop to ask: the names that need a choice come back together", async () => {
+    answer = () => {
+      throw new Error("a batch shouldn't show a form");
     };
     const r = await call("update_shows", {
       updates: [
         { anime: "attack on titan", score: 10 },
         { anime: "hunter x hunter", score: 9 },
+        { anime: "dandadan", score: 8 },
       ],
     });
+    expect(forms).toHaveLength(0);
     expect(r.isError).toBe(false);
-    expect(forms).toHaveLength(2);
-    expect(most).toBe(1);
+    expect(r.text).toContain("Saved 1 of 3 updates.");
+    expect(r.text).toContain(`Not changed: "attack on titan"`);
+    expect(r.text).toContain(`[${AOT}]`);
+    expect(r.text).toContain(`Not changed: "hunter x hunter"`);
+    expect(r.text).toContain("Ask the user which one they mean");
+  });
+
+  test("a dry run never asks", async () => {
+    const r = await call("update_shows", { updates: [{ anime: "attack on titan", score: 10 }], dryRun: true });
+    expect(forms).toHaveLength(0);
+    expect(r.text).toContain(`[${AOT}]`);
   });
 });
 

@@ -591,6 +591,8 @@ export class FakeAniList {
   nextEntryId = 1000;
   calls: { query: string; variables: Record<string, any> }[] = [];
   rateLimited = false;
+  /** Retry-After on a rate-limited answer, in seconds. */
+  retryAfter = "30";
   /** The viewer's AniList title language setting. */
   titleLanguage: TitleLanguage = "ENGLISH";
   /** The viewer's AniList time zone setting, as AniList returns it (e.g. "-05:00"). */
@@ -841,7 +843,7 @@ export class FakeAniList {
     if (this.rateLimited) {
       return Response.json({ errors: [{ message: "Too Many Requests.", status: 429 }], data: null }, {
         status: 429,
-        headers: { "Retry-After": "30" },
+        headers: { "Retry-After": this.retryAfter },
       });
     }
 

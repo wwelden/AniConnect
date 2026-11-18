@@ -646,3 +646,49 @@ describe("\"next season ... part N\" resolves that part of the next season (#63)
     expect(part2.kind === "match" && part2.media.title.romaji).toBe("Shingeki no Kyojin: The Final Season Part 2");
   });
 });
+
+describe("anime that share a name with a movie or a music video", () => {
+  const media = (id: number, romaji: string, format: string, year: number): Media => ({
+    id, title: { romaji, english: romaji, native: null }, synonyms: [], episodes: null, duration: null, format,
+    status: "FINISHED", seasonYear: year, startDate: { year, month: 1, day: 1 }, averageScore: null,
+    siteUrl: "", nextAiringEpisode: null, mediaListEntry: null, relations: { edges: [] },
+  });
+  const from = (all: Media[]): AnimeSource => ({ listMedia: async () => [], search: async () => all, getRelated: async () => [] });
+
+  // AniList search results for "Spriggan", in its order.
+  const SPRIGGAN = [media(420, "SPRIGGAN", "MOVIE", 1998), media(108353, "SPRIGGAN (ONA)", "ONA", 2022)];
+
+  test("a series whose title only adds its format matches its name exactly, so it wins as a series", async () => {
+    for (const intent of ["add", "status", "progress"] as const) {
+      const r = await resolveAnime("Spriggan", intent, from(SPRIGGAN), "ENGLISH");
+      expect(r.kind === "match" && r.media.id).toBe(108353);
+    }
+  });
+
+  test("the movie is still there when asked for", async () => {
+    const r = await resolveAnime("spriggan movie", "add", from(SPRIGGAN), "ENGLISH");
+    expect(r.kind === "match" && r.media.id).toBe(420);
+  });
+
+  test("a music video titled as asked doesn't stand in for the shows with that word in their title", async () => {
+    // AniList search results for "Idol": the MV for the Oshi no Ko song comes first.
+    const idol = [media(164117, "Idol", "MUSIC", 2023), media(97618, "Idol Jihen", "TV", 2017), media(7569, "Idol Ace", "ONA", 1997)];
+    const r = await resolveAnime("Idol", "add", from(idol), "ENGLISH");
+    expect(r.kind).toBe("ambiguous");
+    if (r.kind === "ambiguous") expect(r.candidates.map((m) => m.id)).not.toContain(164117);
+  });
+
+  test("a music video on the user's list can still be named", async () => {
+    const mv = { ...media(164117, "Idol", "MUSIC", 2023), mediaListEntry: { status: "COMPLETED" } as Media["mediaListEntry"] };
+    const source: AnimeSource = { listMedia: async () => [mv], search: async () => [mv, media(97618, "Idol Jihen", "TV", 2017)], getRelated: async () => [] };
+    for (const intent of ["rate", "remove"] as const) {
+      const r = await resolveAnime("Idol", intent, source, "ENGLISH");
+      expect(r.kind === "match" && r.media.id).toBe(164117);
+    }
+  });
+
+  test("a music video still matches when nothing else does", async () => {
+    const r = await resolveAnime("Idol", "add", from([media(164117, "Idol", "MUSIC", 2023)]), "ENGLISH");
+    expect(r.kind === "match" && r.media.id).toBe(164117);
+  });
+});

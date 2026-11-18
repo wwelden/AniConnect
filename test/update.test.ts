@@ -261,3 +261,136 @@ describe("private notes (R0.11)", () => {
     expect(fake.entries.get(DANDADAN)!.notes).toBe("keep me");
   });
 });
+
+describe("adding many shows (addOnly, dryRun)", () => {
+  const CHAINSAW = findMedia("Chainsaw Man").id;
+  const STEINS = findMedia("Steins;Gate").id;
+  const searches = () => fake.calls.filter((c) => /media\(search:/.test(c.query)).length;
+
+  test("addOnly adds new shows and never changes ones already on the list", async () => {
+    const r = await call("update_shows", {
+      addOnly: true,
+      updates: [
+        { anime: "chainsaw man" },
+        { anime: "dandadan", status: "COMPLETED" },
+        { anime: "steins gate", status: "COMPLETED", score: 9 },
+        { anime: "frieren", status: "PLANNING" },
+      ],
+    });
+    expect(r.isError).toBe(false);
+    expect(r.text).toStartWith("Saved 2 of 4 updates; 2 already on your list, left unchanged.\n");
+    expect(r.text).toContain("Already on your list, unchanged: [171018] DAN DA DAN (TV, 2024): Watching, 7/12 episodes, unrated");
+    expect(fake.entries.get(CHAINSAW)).toMatchObject({ status: "PLANNING" });
+    expect(fake.entries.get(STEINS)).toMatchObject({ status: "COMPLETED", scoreRaw: 90 });
+    expect(fake.entries.get(DANDADAN)).toMatchObject({ status: "CURRENT", progress: 7 });
+    expect(fake.entries.get(FRIEREN)).toMatchObject({ status: "COMPLETED", scoreRaw: 95 });
+  });
+
+  test("addOnly with episodes starts the show as watching", async () => {
+    await call("update_shows", { addOnly: true, updates: [{ anime: "chainsaw man", episodes: 3 }] });
+    expect(fake.entries.get(CHAINSAW)).toMatchObject({ status: "CURRENT", progress: 3 });
+  });
+
+  test("everything already on the list isn't an error, and writes nothing", async () => {
+    const r = await call("update_shows", { addOnly: true, updates: [{ anime: "dandadan" }, { anime: "jjk", status: "DROPPED" }] });
+    expect(r.isError).toBe(false);
+    expect(r.text).toStartWith("Saved 0 of 2 updates; 2 already on your list, left unchanged.");
+    expect(fake.writes).toHaveLength(0);
+  });
+
+  test("undo takes back the shows an addOnly call added", async () => {
+    await call("update_shows", { addOnly: true, updates: [{ anime: "chainsaw man" }, { anime: "dandadan" }] });
+    await call("undo");
+    expect(fake.entries.has(CHAINSAW)).toBe(false);
+    expect(fake.entries.get(DANDADAN)).toMatchObject({ status: "CURRENT", progress: 7 });
+  });
+
+  test("a dry run saves nothing and says what each name matches", async () => {
+    const r = await call("update_shows", {
+      dryRun: true,
+      updates: [{ anime: "chainsaw man", status: "PLANNING" }, { anime: "jjk", episodes: 5 }, { anime: "frieren", score: 7 }],
+    });
+    expect(r.isError).toBe(false);
+    expect(fake.writes).toHaveLength(0);
+    expect(r.text).toStartWith("Dry run, nothing was saved: 3 of 3 updates would be saved.\n");
+    expect(r.text).toContain(`Chainsaw Man: not on list -> Plan to watch.\n[${CHAINSAW}] Chainsaw Man (TV, 2022): not on your list`);
+    expect(r.text).toContain("JUJUTSU KAISEN Season 2: episode 3 -> 5.\n[145064]");
+    expect(r.text).toContain("score 9.5/10 -> 7/10.");
+    expect(r.text).toContain("call again without dryRun, passing the ID");
+    expect(r.text).not.toContain("addOnly");
+  });
+
+  test("a dry run with addOnly lists the shows already on the list", async () => {
+    const r = await call("update_shows", { dryRun: true, addOnly: true, updates: [{ anime: "chainsaw man" }, { anime: "dandadan" }] });
+    expect(r.text).toStartWith("Dry run, nothing was saved: 1 of 2 updates would be saved; 1 already on your list, left unchanged.\n");
+    expect(r.text).toContain("Chainsaw Man: not on list -> Plan to watch.");
+    // Saving the IDs without addOnly would change the listed shows too.
+    expect(r.text).toContain("call again without dryRun but still with addOnly");
+    expect(fake.writes).toHaveLength(0);
+  });
+
+  test("addOnly with a finish date adds the show as completed, and with a start date as watching", async () => {
+    await call("update_shows", {
+      addOnly: true,
+      updates: [{ anime: "steins gate", score: 9, completedAt: "2023" }, { anime: "chainsaw man", startedAt: "2026-11" }],
+    });
+    expect(fake.entries.get(STEINS)).toMatchObject({ status: "COMPLETED", scoreRaw: 90, completedAt: { year: 2023 } });
+    expect(fake.entries.get(CHAINSAW)).toMatchObject({ status: "CURRENT", startedAt: { year: 2026, month: 11 } });
+  });
+
+  test("when fetching the shows given by ID fails, each is looked up on its own", async () => {
+    let failed = 0;
+    const anilist = new AniListClient("t", async (url, init) => {
+      if (!/id_in/.test(JSON.parse(init.body as string).query)) return fake.fetch(url, init);
+      failed++;
+      return new Response("oops", { status: 500 });
+    });
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    const own = new Client({ name: "test", version: "0" });
+    await Promise.all([createServer(anilist, { now: () => NOW }).connect(st), own.connect(ct)]);
+    const r = (await own.callTool({ name: "update_shows", arguments: { addOnly: true, updates: [{ anime: CHAINSAW }, { anime: STEINS }] } })) as {
+      isError?: boolean;
+    };
+    expect(failed).toBe(1);
+    expect(r.isError).toBeFalsy();
+    expect(fake.entries.get(CHAINSAW)).toMatchObject({ status: "PLANNING" });
+    expect(fake.entries.get(STEINS)).toMatchObject({ status: "PLANNING" });
+  });
+
+  test("a dry run checks up to 50 names; saving takes 10 at a time", async () => {
+    const names = Array.from({ length: 11 }, () => ({ anime: "chainsaw man", status: "PLANNING" }));
+    const dry = await call("update_shows", { dryRun: true, updates: names });
+    expect(dry.text).toStartWith("Dry run, nothing was saved: 11 of 11 updates would be saved.");
+    const save = await call("update_shows", { updates: names });
+    expect(save.isError).toBe(true);
+    expect(save.text).toContain("Up to 10 updates are saved per call");
+    expect(fake.writes).toHaveLength(0);
+  });
+
+  test("a batch's title searches go to AniList as one request", async () => {
+    await call("update_shows", {
+      addOnly: true,
+      updates: ["chainsaw man", "steins gate", "naruto", "mushoku tensei", "vinland saga"].map((anime) => ({ anime })),
+    });
+    expect(searches()).toBe(1);
+  });
+
+  test("more searches than AniList's query complexity allows in one request are split", async () => {
+    await call("update_shows", {
+      addOnly: true,
+      dryRun: true,
+      updates: ["chainsaw man", "steins gate", "naruto", "mushoku tensei", "vinland saga", "demon slayer", "monogatari", "re zero"].map(
+        (anime) => ({ anime }),
+      ),
+    });
+    expect(searches()).toBe(2); // SEARCH_BATCH (7), then 1
+  });
+
+  test("shows given by ID are fetched in one request", async () => {
+    await call("update_shows", { addOnly: true, updates: [{ anime: CHAINSAW }, { anime: STEINS }, { anime: DANDADAN }] });
+    expect(fake.calls.filter((c) => /id_in/.test(c.query))).toHaveLength(1);
+    expect(fake.calls.filter((c) => /Media\(id:/.test(c.query))).toHaveLength(0);
+    expect(fake.entries.get(CHAINSAW)).toMatchObject({ status: "PLANNING" });
+    expect(fake.entries.get(DANDADAN)).toMatchObject({ status: "CURRENT" });
+  });
+});
