@@ -11,7 +11,7 @@ Every tool that changes your list takes the show the way you'd say it: "jjk", "t
 | Tool | What it does |
 |---|---|
 | `search_anime` | Search all of AniList by title, or browse it by season, year, genre, format and airing status ("what's airing this season?", "best-rated romance from 2023"), sorted by popularity, score or newest. Shows IDs, whether each show is already on your list, and which ones continue a show you've completed. |
-| `search_my_list` | Search your own list by title words and/or status (watching, planning, completed, ...), with your private notes on each show. |
+| `search_my_list` | Search your own list by title words and/or status (watching, planning, completed, ...), with your private notes on each show. Sorts by title, your score ("my top-rated shows"), finish or start date, or episodes watched, and pages through long lists 50 at a time (up to 200). |
 | `watch_history` | What you watched and when, from your AniList activity feed: "what did I watch this week?", "what did I finish in March?", "when did I finish Frieren?". Times are in your time zone. Reads up to 150 updates; for what you finished, it also uses the finish dates on your list, so "what did I finish this year?" is one call. |
 | `add_to_list` | Add a show, as "plan to watch" unless you pick another status. Never overwrites an existing entry. |
 | `set_status` | Move a show to watching, completed, paused, dropped, planning, or rewatching. |

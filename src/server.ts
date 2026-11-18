@@ -567,11 +567,16 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       inputSchema: {
         query: z.string().optional().describe("Words that must all appear in the title"),
         status: status.optional(),
+        sort: z
+          .enum(["title", "score", "finished", "started", "progress"])
+          .optional()
+          .describe("score: highest first; finished, started: latest first; progress: most episodes first"),
         limit: z.number().int().min(1).max(200).default(50),
+        offset: z.number().int().min(0).default(0),
       },
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
-    safe(async ({ query, status, limit }) => {
+    safe(async ({ query, status, sort = "title", limit, offset }) => {
       const viewer = await client.getViewer();
       const entries = (await client.getMyList(status)).filter(
         (e) => !query || matchesTitle(e.media, query),
@@ -580,11 +585,37 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       if (entries.length === 0) {
         return text(`Nothing on ${viewer.name}'s list${filter ? ` matching ${filter}` : ""}.`);
       }
-      const title = (e: (typeof entries)[number]) => displayTitle(e.media.title, viewer.titleLanguage);
-      entries.sort((a, b) => title(a).localeCompare(title(b)));
-      const shown = entries.slice(0, limit);
-      const lines = shown.map((e) => `${describeEntry(e.media, e, viewer)}${e.notes ? `. Note: ${quoteNote(e.notes)}` : ""}`);
-      const header = `${entries.length} match${entries.length === 1 ? "" : "es"} on ${viewer.name}'s list${filter ? ` for ${filter}` : ""}${entries.length > limit ? ` (showing ${limit})` : ""}:`;
+      type Entry = (typeof entries)[number];
+      const title = (e: Entry) => displayTitle(e.media.title, viewer.titleLanguage);
+      // Largest first; unrated and undated entries (0) go last, and ties fall back to title order.
+      const orders = {
+        title: { label: "", key: () => 0 },
+        score: { label: "highest score first", key: (e: Entry) => e.score },
+        finished: { label: "latest finish first", key: (e: Entry) => dateNum(e.completedAt) },
+        started: { label: "latest start first", key: (e: Entry) => dateNum(e.startedAt) },
+        progress: { label: "most episodes first", key: (e: Entry) => e.progress },
+      };
+      const order = orders[sort];
+      entries.sort((a, b) => order.key(b) - order.key(a) || title(a).localeCompare(title(b)));
+      // Sorting by a date shows it, so the order can be read off the lines.
+      const date = (e: Entry) =>
+        sort === "finished"
+          ? `, ${e.completedAt?.year ? `finished ${showDate(e.completedAt)}` : "no finish date"}`
+          : sort === "started"
+            ? `, ${e.startedAt?.year ? `started ${showDate(e.startedAt)}` : "no start date"}`
+            : "";
+      const shown = entries.slice(offset, offset + limit);
+      const lines = shown.map(
+        (e) => `${describeEntry(e.media, e, viewer)}${date(e)}${e.notes ? `. Note: ${quoteNote(e.notes)}` : ""}`,
+      );
+      const end = offset + shown.length;
+      const page =
+        shown.length === 0
+          ? ` (offset ${offset} is past the end)`
+          : offset > 0 || end < entries.length
+            ? ` (showing ${offset + 1}-${end}${end < entries.length ? `; offset ${end} for more` : ""})`
+            : "";
+      const header = `${entries.length} match${entries.length === 1 ? "" : "es"} on ${viewer.name}'s list${filter ? ` for ${filter}` : ""}${order.label ? `, ${order.label}` : ""}${page}:`;
       return text([header, ...lines].join("\n"));
     }),
   );
