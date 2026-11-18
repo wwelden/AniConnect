@@ -345,8 +345,11 @@ export function formatFinished(list: ListItem[], activities: ListActivity[], o: 
   /** When each dated show on the list was finished, by the list. */
   const dated = new Map<number, Range>();
   for (const e of list) {
+    // A finish date counts whatever the status now: status changes keep it, so a show
+    // finished and then rewatched and paused or dropped, or put back in Plan to watch for
+    // a rewatch, was still finished then.
     const d = e.completedAt;
-    const r = (e.status === "COMPLETED" || e.status === "REPEATING") && d ? dateRange(d, o.timeZone) : null;
+    const r = d ? dateRange(d, o.timeZone) : null;
     if (!r) continue;
     dated.set(e.media.id, r);
     // A full date counts when its day overlaps the range; a month or year only when all of

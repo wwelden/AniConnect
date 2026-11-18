@@ -332,6 +332,24 @@ describe("watch_history tool", () => {
     expect((await call("watch_history", { period: "since January", finished: true, timeZone: "UTC" })).text).toMatch(/- 2026: Haikyu/i);
   });
 
+  test("a finish date counts after the show is paused, dropped or planned again", async () => {
+    // Finished in January, with no activity left in the feed for it, then a rewatch paused,
+    // another dropped and a third put back in Plan to watch.
+    for (const [anime, status] of [
+      ["Jujutsu Kaisen", "PAUSED"],
+      ["SPY×FAMILY", "DROPPED"],
+      ["Mob Psycho 100", "PLANNING"],
+    ] as const) {
+      const e = fake.entries.get(findMedia(anime).id)!;
+      e.status = status;
+      e.completedAt = { year: 2026, month: 1, day: 20 };
+    }
+    const r = await call("watch_history", { period: "this year", finished: true, timeZone: "UTC" });
+    expect(r.text).toMatch(/- Tue, Jan 20: JUJUTSU KAISEN\n/);
+    expect(r.text).toMatch(/- Tue, Jan 20: SPY x FAMILY\n/);
+    expect(r.text).toMatch(/- Tue, Jan 20: Mob Psycho 100\n/);
+  });
+
   test("a partial finish date doesn't hide the feed's exact time for it", async () => {
     // Finished on Mar 14 by the feed; the list only says 2026.
     fake.entries.get(findMedia("Bocchi the Rock!").id)!.completedAt = { year: 2026, month: null, day: null };
