@@ -421,7 +421,57 @@ async function resolveParsed(
   if (q.hint.season !== undefined || q.hint.part !== undefined) {
     return resolveSeason(q, intent, pool, source, fetched);
   }
+  if (intent === "progress") pool = await keepCompleted(pool, source, fetched);
   return pick(query, intent, pool);
+}
+
+/**
+ * After finishing a show, an episode update means its next season, but only a sequel that
+ * has started airing. Shows not on the list that match no better than the completed one
+ * (a show sharing a word, an unaired sequel, the other version of a remake) are dropped,
+ * so the update goes to the completed show and the episode rules say what happens (#35).
+ */
+async function keepCompleted(pool: Scored[], source: AnimeSource, fetched: Media[]): Promise<Scored[]> {
+  const ranks = STATUS_RANK.progress;
+  const completed = pool.filter((s) => status(s.media) === "COMPLETED");
+  if (!completed.length || pool.some((s) => ranks[status(s.media)] < ranks.NONE)) return pool;
+  const best = Math.max(...completed.map((s) => s.score));
+  const remake = (s: Scored) => completed.some((c) => isRemake(s.media, c.media));
+  const rivals = pool.filter((s) => status(s.media) === "NONE" && (s.score <= best || remake(s)));
+  // Only an aired rival that isn't another version could be the next season: walk chains just for those.
+  if (!rivals.some((s) => hasAired(s.media) && !remake(s))) return pool.filter((s) => !rivals.includes(s));
+  // Only the best completed matches vouch for a sequel: a weaker one ("Alpha Side Story" when
+  // "Alpha" is exact) can't hand the update to its own sequel.
+  const anchors = completed.filter((s) => s.score === best).map((s) => s.media);
+  const wanted = rivals.filter((s) => hasAired(s.media) && !remake(s)).map((s) => s.media.id);
+  const sequels = await sequelsReached(anchors, wanted, source, fetched);
+  return pool.filter((s) => !rivals.includes(s) || sequels.has(s.media.id));
+}
+
+/** Formats a sequel chain passes through when checking what follows what: series and movies. */
+const CHAIN_FORMATS = new Set([...SERIES_FORMATS, "MOVIE"]);
+
+/**
+ * Which of `wanted` follow `from` through SEQUEL edges, movies included (season 1, the movie,
+ * season 2). Stops once all are found or after 15 anime, fetching only what isn't known yet.
+ */
+async function sequelsReached(from: Media[], wanted: number[], source: AnimeSource, fetched: Media[]): Promise<Set<number>> {
+  const { learn, full } = relationLookup(source, fetched);
+  from.forEach(learn);
+  const found = new Set<number>();
+  const seen = new Set(from.map((m) => m.id));
+  const queue = from.map((m) => m.id);
+  while (queue.length && found.size < wanted.length && seen.size < 15) {
+    const edges: RelationEdge[] = (await full(queue.shift()!))?.relations?.edges ?? [];
+    for (const e of edges) {
+      if (e.relationType !== "SEQUEL" || e.node.type !== "ANIME" || !CHAIN_FORMATS.has(e.node.format ?? "")) continue;
+      if (seen.has(e.node.id)) continue;
+      seen.add(e.node.id);
+      queue.push(e.node.id);
+      if (wanted.includes(e.node.id)) found.add(e.node.id);
+    }
+  }
+  return found;
 }
 
 function pick(query: string, intent: Intent, pool: Scored[]): Resolution {
@@ -563,11 +613,10 @@ interface SeasonEntry {
 }
 
 /**
- * Seasons in sequel order from `root`, stopping after the first one past season `upTo`.
- * Walks what this call already fetched (`fetched`: the list and search results, which carry
- * relations) and fetches only the anime it lacks, two sequel steps per request.
+ * Anime with their relations: what this call already fetched (the list and search results,
+ * which carry relations), fetching only the anime it lacks, two sequel steps per request.
  */
-async function seasonChain(root: Media, upTo: number, source: AnimeSource, fetched: Media[]): Promise<SeasonEntry[]> {
+function relationLookup(source: AnimeSource, fetched: Media[]) {
   const known = new Map<number, Media>();
   const learn = (m: Media) => {
     const had = known.get(m.id);
@@ -576,7 +625,6 @@ async function seasonChain(root: Media, upTo: number, source: AnimeSource, fetch
     known.set(m.id, { ...keep, mediaListEntry: m.mediaListEntry ?? had?.mediaListEntry ?? null });
   };
   fetched.forEach(learn);
-  learn(root);
   /** The anime with its relations, fetching it (and its related anime, in full) if needed. */
   const full = async (id: number): Promise<Media | undefined> => {
     if (known.get(id)?.relations) return known.get(id);
@@ -589,6 +637,17 @@ async function seasonChain(root: Media, upTo: number, source: AnimeSource, fetch
     }
     return known.get(id)?.relations ? known.get(id) : undefined;
   };
+  return { known, learn, full };
+}
+
+/**
+ * Seasons in sequel order from `root`, stopping after the first one past season `upTo`.
+ * Walks what this call already fetched (`fetched`: the list and search results, which carry
+ * relations) and fetches only the anime it lacks, two sequel steps per request.
+ */
+async function seasonChain(root: Media, upTo: number, source: AnimeSource, fetched: Media[]): Promise<SeasonEntry[]> {
+  const { known, learn, full } = relationLookup(source, fetched);
+  learn(root);
 
   const chain: SeasonEntry[] = [];
   let current: Media | undefined = known.get(root.id);

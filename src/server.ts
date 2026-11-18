@@ -914,7 +914,9 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
             if (!counts && !dated && !noted && u.status === undefined && u.score === undefined) {
               throw new Error("Nothing to change: give status, episodes, watched, score, a date or a note.");
             }
-            const intent: Intent = counts ? "progress" : u.status || dated || noted ? "status" : "rate";
+            // A rewatch is of a show already on the list, never the next season (#35).
+            const intent: Intent =
+              counts && u.status !== "REPEATING" ? "progress" : u.status || dated || noted ? "status" : "rate";
             const resolved = await find(u.anime, intent, source, false);
             return await inTurn(resolved.media.id, readAt, async (stale) => {
               const result = await saveUpdate(viewer, resolved, stale, u);
