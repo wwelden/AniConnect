@@ -302,22 +302,40 @@ describe("an episode of a completed show stays with it unless an aired sequel fo
     expect(r.kind === "match" && r.media.id).toBe(findMedia("Kizumonogatari II: Nekketsu-hen").id);
   });
 
-  /** A completed show plus an unrelated one that shares a word, as AniList search returns them. */
-  function sharedWord(listed: [number, string], other: [number, string]): AnimeSource {
+  interface Show {
+    id: number;
+    title: string;
+    format?: string;
+    completed?: boolean;
+    /** The ID of the show this one is the sequel of. */
+    after?: number;
+  }
+
+  /** Hand-made shows, all aired, as AniList search returns them with their sequel relations. */
+  function shows(...items: Show[]): AnimeSource {
     const base = findMedia("Dandadan");
     const noDate = { year: null, month: null, day: null };
-    const media = (id: number, romaji: string, onList: boolean): Media => ({
-      ...base,
-      id,
-      title: { romaji, english: null, native: null },
-      synonyms: [],
-      status: "FINISHED",
-      relations: { edges: [] },
-      mediaListEntry: onList
-        ? { id, status: "COMPLETED", progress: 12, score: 0, displayScore: 0, startedAt: noDate, completedAt: noDate }
-        : null,
+    const edge = (relationType: string, id: number) => ({
+      relationType,
+      node: { id, type: "ANIME", format: items.find((s) => s.id === id)!.format ?? "TV" },
     });
-    const all = [media(listed[0], listed[1], true), media(other[0], other[1], false)];
+    const all: Media[] = items.map((s) => ({
+      ...base,
+      id: s.id,
+      title: { romaji: s.title, english: null, native: null },
+      synonyms: [],
+      format: s.format ?? "TV",
+      status: "FINISHED",
+      relations: {
+        edges: [
+          ...(s.after ? [edge("PREQUEL", s.after)] : []),
+          ...items.filter((n) => n.after === s.id).map((n) => edge("SEQUEL", n.id)),
+        ],
+      },
+      mediaListEntry: s.completed
+        ? { id: s.id, status: "COMPLETED", progress: 12, score: 0, displayScore: 0, startedAt: noDate, completedAt: noDate }
+        : null,
+    }));
     return {
       listMedia: async () => all.filter((m) => m.mediaListEntry),
       search: async () => all,
@@ -325,12 +343,45 @@ describe("an episode of a completed show stays with it unless an aired sequel fo
     };
   }
 
+  const progress = async (query: string, source: AnimeSource) => {
+    const r = await resolveAnime(query, "progress", source, "ENGLISH");
+    if (r.kind !== "match") throw new Error(`expected a match, got ${r.kind}: ${r.why}`);
+    return r.media.id;
+  };
+
   test.each([
     ["monster", [19, "Monster"], [1469, "Monster Farm: Enbanseki no Himitsu"]],
     ["another", [11111, "Another"], [1745, "Wild 7 another Bouryaku Unga"]],
-  ] as const)("%s", async (query, listed, other) => {
-    const r = await resolveAnime(query, "progress", sharedWord([...listed], [...other]), "ENGLISH");
-    expect(r.kind === "match" && r.media.id).toBe(listed[0]);
+  ] as const)("not to a show that shares a word: %s", async (query, [id, title], [otherId, otherTitle]) => {
+    expect(await progress(query, shows({ id, title, completed: true }, { id: otherId, title: otherTitle }))).toBe(id);
+  });
+
+  test("a weaker completed match can't vouch for its own sequel", async () => {
+    const source = shows(
+      { id: 1, title: "Alpha", completed: true },
+      { id: 2, title: "Alpha Side Story", completed: true },
+      { id: 3, title: "Alpha Side Story II", after: 2 },
+    );
+    expect(await progress("alpha", source)).toBe(1);
+  });
+
+  test("a later completed season leads on to the aired season after it", async () => {
+    const source = shows(
+      { id: 1, title: "Alpha", completed: true },
+      { id: 2, title: "Alpha 2nd Season", completed: true, after: 1 },
+      { id: 3, title: "Alpha 3rd Season", after: 2 },
+    );
+    expect(await progress("alpha", source)).toBe(3);
+  });
+
+  test("the next season after a movie in between still wins", async () => {
+    // Made in Abyss: season 1, then the movie Dawn of the Deep Soul, then season 2.
+    const source = shows(
+      { id: 1, title: "Made in Abyss", completed: true },
+      { id: 2, title: "Made in Abyss Movie 3: Fukaki Tamashii no Reimei", format: "MOVIE", after: 1 },
+      { id: 3, title: "Made in Abyss: Retsujitsu no Ougonkyou", after: 2 },
+    );
+    expect(await progress("made in abyss", source)).toBe(3);
   });
 });
 
