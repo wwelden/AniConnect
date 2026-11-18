@@ -67,15 +67,27 @@ function checkChange(want: Change, got: { before?: StoredEntry; after?: StoredEn
   return null;
 }
 
-export function grade(outcome: Outcome, changed: Changes, reply: string, toolCalls: string[] = []): string | null {
+export interface GradeOptions {
+  /**
+   * For servers other than AniConnect, whose tools have other names: a read-only case's
+   * `tools` only require that some tool was called.
+   */
+  anyTool?: boolean;
+}
+
+export function grade(outcome: Outcome, changed: Changes, reply: string, toolCalls: string[] = [], options: GradeOptions = {}): string | null {
   if ("asks" in outcome) {
     if (changed.size) return `changed ${changed.size} entries instead of asking`;
     return reply.includes("?") ? null : "didn't ask the user anything";
   }
   if ("readOnly" in outcome) {
     if (changed.size) return `changed ${changed.size} entries on a read-only request`;
-    const unused = (outcome.tools ?? []).filter((t) => !toolCalls.includes(t));
-    if (unused.length) return `didn't call ${unused.join(", ")}`;
+    if (options.anyTool) {
+      if (outcome.tools?.length && toolCalls.length === 0) return "didn't call any tool";
+    } else {
+      const unused = (outcome.tools ?? []).filter((t) => !toolCalls.includes(t));
+      if (unused.length) return `didn't call ${unused.join(", ")}`;
+    }
     const missing = (outcome.mentions ?? []).filter((m) => !mentions(reply, m));
     return missing.length ? `reply doesn't mention ${missing.join(", ")}` : null;
   }
@@ -90,8 +102,14 @@ export function grade(outcome: Outcome, changed: Changes, reply: string, toolCal
 }
 
 /** null when any acceptable outcome matches, else why none did. */
-export function gradeCase(c: EvalCase, changed: Changes, reply: string, toolCalls: string[] = []): string | null {
+export function gradeCase(
+  c: EvalCase,
+  changed: Changes,
+  reply: string,
+  toolCalls: string[] = [],
+  options: GradeOptions = {},
+): string | null {
   const outcomes = Array.isArray(c.expect) ? c.expect : [c.expect];
-  const problems = outcomes.map((o) => grade(o, changed, reply, toolCalls));
+  const problems = outcomes.map((o) => grade(o, changed, reply, toolCalls, options));
   return problems.some((p) => p === null) ? null : problems.filter(Boolean).join(" / ");
 }

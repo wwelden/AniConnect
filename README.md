@@ -120,7 +120,7 @@ bun test           # unit, resolver and tool tests against a fake AniList (no ne
 bun run typecheck
 ```
 
-Tests run against `test/fixtures/media.json`, a snapshot of real AniList data for franchises that are hard to resolve by name. Refresh it with `bun run snapshot`.
+Tests run against a fake AniList (`test/support/fake-anilist.ts`) holding `test/fixtures/media.json`, a snapshot of real AniList data for franchises that are hard to resolve by name. Refresh it with `bun run snapshot`. The fake runs every request against AniList's own GraphQL schema (`test/fixtures/anilist.graphql`, refreshed with `bun run snapshot:schema`), so a query AniList would reject fails the tests too, and other AniList servers' queries work against it as well. Fields it has no data for come back null.
 
 ### Evals
 
@@ -130,6 +130,8 @@ Tests run against `test/fixtures/media.json`, a snapshot of real AniList data fo
 bun run eval -- --filter progress   # just the episode-progress cases
 bun run eval -- --model sonnet --concurrency 2
 ```
+
+To compare, run the same cases against another AniList MCP server: `--server ani-mcp` or `--server anilist-mcp` (pinned versions, fetched with `npx`; see [evals/servers.ts](evals/servers.ts)). Their AniList requests go to the same fake, through a preload that redirects `graphql.anilist.co`. A read-only case then only needs some tool call, since their tools have other names. The summary lists fields a server asked for that the fake has no data for (descriptions, cover images, ...); those come back empty. `bun evals/probe.ts --server ani-mcp` starts a server against the fake without a model, to list its tools or call one.
 
 ## License
 

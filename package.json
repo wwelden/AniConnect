@@ -15,7 +15,8 @@
     "test": "bun test",
     "typecheck": "tsc --noEmit -p .",
     "eval": "bun evals/run.ts",
-    "snapshot": "bun scripts/snapshot-fixtures.ts"
+    "snapshot": "bun scripts/snapshot-fixtures.ts",
+    "snapshot:schema": "bun scripts/snapshot-schema.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
@@ -23,6 +24,7 @@
   },
   "devDependencies": {
     "@types/bun": "^1.4.4",
+    "graphql": "16",
     "typescript": "^7.0.2"
   }
 }

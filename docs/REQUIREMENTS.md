@@ -109,7 +109,7 @@ Every tool that targets a show accepts a title (or an ID) and picks the right An
 | R6.1 | A fixture of real AniList data for franchises that are hard to resolve (many seasons, split cours, movies, sequels with unrelated titles). | Done (197 entries, 25 franchises, one adult title) |
 | R6.2 | Deterministic resolver tests: request text + user list → expected entry or "ambiguous". Run in `bun test`. | Done (69 cases) |
 | R6.3 | End-to-end evals with a real model: natural-language request → tool calls → final list state, scored on correctness and number of calls. | Done. 2026-11-17, 53 cases (now grading dates and notes too): 53/53 correct on Sonnet 5.5, 1.06 tool calls per request, $0.47 per run. Earlier, 36 cases: 36/36 correct on Opus 5.5 and Sonnet 5.5, 1.14 and 1.11 tool calls per request, $0.68 and $0.35 per run. Haiku 5.5, two runs on 2026-11-17: 34/36 and 36/36 correct, 1.17 and 1.06 tool calls per request, $0.02 per run. Its misses were its own: it searched first and rated the wrong Kaguya-sama season by ID, and it listed the Attack on Titan candidates without asking a question. Earlier Haiku runs found that "finished the season" requests logged one episode or took two calls; the progress tools now point those to `set_status` COMPLETED |
-| R6.4 | Run the same evals against competing servers for a side-by-side score. | Later |
+| R6.4 | Run the same evals against competing servers for a side-by-side score. | In progress: `bun run eval -- --server ani-mcp` (or `anilist-mcp`). The fake AniList runs any query against AniList's real schema, so their own queries work, and their requests are redirected to it. Still to do: a full side-by-side run |
 
 ### R7: Distribution
 
