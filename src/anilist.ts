@@ -78,8 +78,28 @@ export interface Media {
   mediaListEntry: ListEntry | null;
   /** Present when fetched with getMany, getRelated or searchAnime. */
   relations?: { edges: RelationEdge[] };
-  /** Present when fetched with `{ links: true }`. */
+  /** The fields below are present when fetched with `{ oneShow: true }`. */
   externalLinks?: ExternalLink[] | null;
+  /** AniList's synopsis: HTML (`<br>`, `<i>`) with markdown spoilers (`~!...!~`); see plainSynopsis. */
+  description?: string | null;
+  genres?: string[] | null;
+  /** What it adapts: MANGA, LIGHT_NOVEL, ORIGINAL, ... (AniList's version 3 list). */
+  source?: string | null;
+  /** WINTER, SPRING, SUMMER or FALL. */
+  season?: string | null;
+  /** Only the main studios: the ones that animated it, not the producers. */
+  studios?: { nodes: { name: string }[] } | null;
+  /** By rank, highest first. */
+  tags?: MediaTag[] | null;
+}
+
+export interface MediaTag {
+  name: string;
+  /** How relevant the tag is to the show, 0-100. */
+  rank: number | null;
+  /** Spoils this show, or spoils anything (a plot twist as a tag). */
+  isMediaSpoiler: boolean | null;
+  isGeneralSpoiler: boolean | null;
 }
 
 /** A link from AniList's "External & Streaming links" section of a show. */
@@ -93,13 +113,25 @@ export interface ExternalLink {
   isDisabled: boolean | null;
 }
 
-/** Asks a media query for streaming links too: only for answers about one show. */
-export interface LinkOptions {
-  links?: boolean;
+/**
+ * Asks a media query for the fields only an answer about one show uses: where it streams
+ * and what it's about. Never for the list or for batches of searches, where they'd cost
+ * bytes and query complexity for shows nobody asked about.
+ */
+export interface MediaOptions {
+  oneShow?: boolean;
 }
 
-function linkFields(options: LinkOptions): string {
-  return options.links ? "externalLinks { site url type notes isDisabled }" : "";
+function oneShowFields(options: MediaOptions): string {
+  return options.oneShow
+    ? `externalLinks { site url type notes isDisabled }
+      description
+      genres
+      source(version: 3)
+      season
+      studios(isMain: true) { nodes { name } }
+      tags { name rank isMediaSpoiler isGeneralSpoiler }`
+    : "";
 }
 
 export interface RelationEdge {
@@ -192,10 +224,16 @@ const RATE_LIMIT_RETRIES = 1;
 
 /**
  * Title searches sent in one request (aliased Page queries). AniList refuses a query over 500
- * complexity; each search of 15 results with relations counts 58, or 64 with streaming links
- * (measured 2026-11-18), so 7 fit either way.
+ * complexity; each search of 15 results with relations counts 58, or 76 with the one-show
+ * fields (streaming links 6, details 12; measured 2026-11-18), so 7 fit, or 6 with them.
  */
 export const SEARCH_BATCH = 7;
+const ONE_SHOW_SEARCH_BATCH = 6;
+
+/** How many title searches one request carries, with these options. */
+export function searchBatch(options: MediaOptions): number {
+  return options.oneShow ? ONE_SHOW_SEARCH_BATCH : SEARCH_BATCH;
+}
 
 /**
  * Reads AniList's time zone setting, documented as an offset ("-05:00", "+05:30"), into a
@@ -422,25 +460,26 @@ export class AniListClient {
    * `isAdult: false` leaves out adult (18+) titles and `true` returns only them;
    * leaving it out returns both, as AniList does when the argument is omitted.
    */
-  async searchAnime(search: string, perPage: number, options: LinkOptions = {}, isAdult?: boolean): Promise<Media[]> {
+  async searchAnime(search: string, perPage: number, options: MediaOptions = {}, isAdult?: boolean): Promise<Media[]> {
     return (await this.searchMany([search], perPage, options, isAdult))[0]!;
   }
 
   /**
-   * Several title searches in one request, as aliased Page queries (SEARCH_BATCH per request),
+   * Several title searches in one request, as aliased Page queries (searchBatch per request),
    * so resolving a batch of names costs one request instead of one each against AniList's
    * rate limit. Results are in the order of `searches`, each as searchAnime would return it.
    */
-  async searchMany(searches: string[], perPage: number, options: LinkOptions = {}, isAdult?: boolean): Promise<Media[][]> {
+  async searchMany(searches: string[], perPage: number, options: MediaOptions = {}, isAdult?: boolean): Promise<Media[][]> {
     const results: Media[][] = [];
-    for (let i = 0; i < searches.length; i += SEARCH_BATCH) {
-      const chunk = searches.slice(i, i + SEARCH_BATCH);
+    const size = searchBatch(options);
+    for (let i = 0; i < searches.length; i += size) {
+      const chunk = searches.slice(i, i + size);
       const pages = chunk
         .map(
           (_, j) => `s${j}: Page(perPage: $perPage) {
             media(search: $search${j}, type: ANIME, sort: SEARCH_MATCH, isAdult: $isAdult) {
               ${MEDIA_FIELDS}
-              ${linkFields(options)}
+              ${oneShowFields(options)}
               mediaListEntry { ${ENTRY_FIELDS} }
               relations { edges { ${RELATION_EDGE} } }
             }
@@ -509,14 +548,14 @@ export class AniListClient {
   }
 
   /** Fetches several anime at once, with their relations (sequels, prequels, ...). */
-  async getMany(ids: number[], options: LinkOptions = {}): Promise<Media[]> {
+  async getMany(ids: number[], options: MediaOptions = {}): Promise<Media[]> {
     if (ids.length === 0) return [];
     const data = await this.request<{ Page: { media: Media[] } }>(
       `query ($ids: [Int]) {
         Page(perPage: 50) {
           media(id_in: $ids, type: ANIME) {
             ${MEDIA_FIELDS}
-            ${linkFields(options)}
+            ${oneShowFields(options)}
             mediaListEntry { ${ENTRY_FIELDS} }
             relations { edges { ${RELATION_EDGE} } }
           }
@@ -532,14 +571,14 @@ export class AniListClient {
    * and with its own relations, so one request covers two steps of a sequel chain.
    * AniList fills in relations only two levels deep; a third level comes back empty.
    */
-  async getRelated(ids: number[], options: LinkOptions = {}): Promise<Media[]> {
+  async getRelated(ids: number[], options: MediaOptions = {}): Promise<Media[]> {
     if (ids.length === 0) return [];
     const data = await this.request<{ Page: { media: Media[] } }>(
       `query ($ids: [Int]) {
         Page(perPage: 50) {
           media(id_in: $ids, type: ANIME) {
             ${MEDIA_FIELDS}
-            ${linkFields(options)}
+            ${oneShowFields(options)}
             mediaListEntry { ${ENTRY_FIELDS} }
             relations {
               edges {
@@ -547,7 +586,7 @@ export class AniListClient {
                 node {
                   type
                   ${MEDIA_FIELDS}
-                  ${linkFields(options)}
+                  ${oneShowFields(options)}
                   mediaListEntry { ${ENTRY_FIELDS} }
                   relations { edges { ${RELATION_EDGE} } }
                 }

@@ -451,6 +451,21 @@ resolveFields("Page", {
 
 resolveFields("Media", {
   type: (m: MediaValue) => m.type,
+  // The fixture keeps every studio, as edges; `isMain` picks the ones that animated the show.
+  studios: (m: MediaValue, args, ctx) => {
+    if (!m.studios) {
+      ctx.fake.unmodeled.add("Media.studios");
+      return null;
+    }
+    if (args.sort) ctx.fake.unmodeled.add("Media.studios(sort)");
+    const edges = m.studios.edges.filter((e) => args.isMain == null || e.isMain === args.isMain);
+    return { edges, nodes: edges.map((e) => e.node) };
+  },
+  // Stored as AniList sends it by default; the HTML form isn't kept.
+  description: (m: MediaValue, args, ctx) => {
+    if (args.asHtml) ctx.fake.unmodeled.add("Media.description(asHtml)");
+    return m.description ?? null;
+  },
   mediaListEntry: (m: MediaValue, _args, ctx) => (ctx.authed ? (ctx.fake.entries.get(m.id) ?? null) : null),
   nextAiringEpisode: (m: MediaValue, _args, ctx) => {
     const next = m.nextAiringEpisode;

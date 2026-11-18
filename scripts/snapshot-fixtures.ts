@@ -59,8 +59,18 @@ const FIELDS = `
   siteUrl
   nextAiringEpisode { episode airingAt }
   externalLinks { site url type notes isDisabled }
+  description
+  source(version: 3)
+  studios { edges { isMain node { id name } } }
+  tags { name rank isMediaSpoiler isGeneralSpoiler }
   relations { edges { relationType node { id type } } }
 `;
+
+/**
+ * Tags kept per show, the highest ranked (AniList sends them by rank). Answers use a few of
+ * the top ones; every tag would double the fixture.
+ */
+const MAX_TAGS = 10;
 
 async function gql<T>(query: string, variables: Record<string, unknown>): Promise<T> {
   for (let attempt = 0; ; attempt++) {
@@ -86,6 +96,7 @@ async function gql<T>(query: string, variables: Record<string, unknown>): Promis
 type Media = {
   id: number;
   format: string | null;
+  tags: unknown[];
   relations: { edges: { relationType: string; node: { id: number; type: string } }[] };
   [key: string]: unknown;
 };
@@ -131,7 +142,7 @@ for (const seed of SEEDS) {
   console.error(`${seed}: ${seen.size} entries`);
 }
 
-const out = [...all.values()].sort((a, b) => a.id - b.id);
+const out = [...all.values()].sort((a, b) => a.id - b.id).map((m) => ({ ...m, tags: m.tags.slice(0, MAX_TAGS) }));
 await Bun.write(
   new URL("../test/fixtures/media.json", import.meta.url),
   JSON.stringify(out, null, 1) + "\n",

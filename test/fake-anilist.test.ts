@@ -125,12 +125,22 @@ describe("fake AniList", () => {
     expect(r.body.data.Page.activities).toEqual([{ __typename: "ListActivity", status: "watched episode", progress: "1", media: { id: DANDADAN } }]);
   });
 
+  test("lists a show's studios, or only its main ones when asked", async () => {
+    const studios = async (args: string) =>
+      (await gql(new FakeAniList(), `query { Media(id: ${findMedia("Sousou no Frieren").id}) { studios${args} { nodes { name } edges { isMain } } } }`))
+        .body.data.Media.studios;
+    expect((await studios("(isMain: true)")).nodes).toEqual([{ name: "MADHOUSE" }]);
+    const all = await studios("");
+    expect(all.nodes.length).toBeGreaterThan(1);
+    expect(all.edges.filter((e: { isMain: boolean }) => e.isMain).length).toBe(1);
+  });
+
   test("logs fields it has no data for, and refuses writes it doesn't keep", async () => {
     const fake = new FakeAniList();
-    const r = await gql(fake, `query { Media(id: ${DANDADAN}) { id trailer { id } characters { nodes { id } } tags { name } } }`);
+    const r = await gql(fake, `query { Media(id: ${DANDADAN}) { id trailer { id } characters { nodes { id } } rankings { rank } } }`);
     // Empty the way AniList's "none" is: no trailer, but an empty connection and list.
-    expect(r.body.data.Media).toEqual({ id: DANDADAN, trailer: null, characters: { nodes: [] }, tags: [] });
-    expect([...fake.unmodeled]).toEqual(["Media.trailer", "Media.characters", "CharacterConnection.nodes", "Media.tags"]);
+    expect(r.body.data.Media).toEqual({ id: DANDADAN, trailer: null, characters: { nodes: [] }, rankings: [] });
+    expect([...fake.unmodeled]).toEqual(["Media.trailer", "Media.characters", "CharacterConnection.nodes", "Media.rankings"]);
 
     const fav = await gql(fake, `mutation { ToggleFavourite(animeId: ${DANDADAN}) { anime { nodes { id } } } }`);
     expect(fav.status).toBe(400);

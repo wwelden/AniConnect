@@ -329,7 +329,7 @@ export function formatShow(
 ): string {
   const entry = m.mediaListEntry;
   const aired = airedEpisodes(m, now);
-  const lines = [`${displayTitle(m.title, language)} [${m.id}]`];
+  const lines = [`${displayTitle(m.title, language)} [${m.id}]`, ...aboutLines(m)];
   for (const edge of m.relations?.edges ?? []) {
     const status = listStatus.get(edge.node.id);
     if (edge.relationType === "PREQUEL" && status && SERIES_FORMATS.has(edge.node.format ?? "")) {
@@ -367,4 +367,90 @@ export function streamingLines(links: ExternalLink[]): string[] {
     lines.push(`- ${l.site}${l.notes ? ` (${l.notes})` : ""}: ${l.url}`);
   }
   return lines.length ? ["Stream on (availability varies by region):", ...lines] : [];
+}
+
+/** The longest synopsis shown, in characters: most of AniList's fit (the median is about 480). */
+export const SYNOPSIS_LENGTH = 600;
+
+const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", hellip: "…", mdash: "—", ndash: "–", rsquo: "’", lsquo: "‘", rdquo: "”", ldquo: "“" };
+
+/**
+ * AniList's description as plain text, without spoilers, cut to about `max` characters at the
+ * end of a sentence. AniList stores HTML (`<br>`, `<i>`) with markdown of its own: spoilers
+ * as `~!...!~`, centering, links, images. Credits such as "(Source: Crunchyroll)" and notes
+ * about the adaptation aren't the story, so they go too.
+ */
+export function plainSynopsis(raw: string | null | undefined, max = SYNOPSIS_LENGTH): string {
+  if (!raw) return "";
+  const text = raw
+    // A spoiler left open runs to the end, so it's dropped whole.
+    .replace(/~!([\s\S]*?)(!~|$)/g, "")
+    .replace(/<span class=["']markdown_spoiler["']>[\s\S]*?<\/span><\/span>/gi, "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/?(p|div|h\d)\b[^>]*>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/\b(img|youtube|webm)\d*%?\([^)]*\)/gi, "")
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/~~~|__|\*\*|~~/g, "")
+    .replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (whole, code: string) => {
+      if (code[0] !== "#") return ENTITIES[code.toLowerCase()] ?? whole;
+      const n = code[1] === "x" || code[1] === "X" ? parseInt(code.slice(2), 16) : Number(code.slice(1));
+      return Number.isFinite(n) && n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : whole;
+    })
+    .replace(/\(\s*(source|sources|written by)\b[^)]*\)|\[\s*(source|written by)\b[^\]]*\]/gi, "");
+  const story = text
+    .split(/\n/)
+    .map((p) => p.replace(/\s+/g, " ").trim())
+    // Notes about the adaptation ("Note: Episodes 11 and 12 ...") come after the story.
+    .filter((p) => p && !/^(notes?|source|sources)\s*:/i.test(p))
+    .join(" ");
+  if (story.length <= max) return story;
+  const cut = story.slice(0, max + 1);
+  // The last sentence that ends within the limit, if that keeps at least half of it.
+  const end = Math.max(...[...cut.matchAll(/[.!?…]["”’)]?(?=\s)/g)].map((e) => e.index! + e[0].length));
+  if (end >= max / 2) return story.slice(0, end);
+  const space = cut.lastIndexOf(" ");
+  return `${cut.slice(0, space > 0 ? space : max).replace(/[\s,;:]+$/, "")}…`;
+}
+
+/** "based on a manga", "original story", or "" when AniList doesn't say (or says OTHER). */
+function sourceLabel(source: string | null | undefined): string {
+  if (!source || source === "OTHER") return "";
+  if (source === "ORIGINAL") return "original story";
+  if (source === "MULTIMEDIA_PROJECT") return "part of a multimedia project";
+  const name = source.toLowerCase().replace(/_/g, " ");
+  return `based on ${/^[aeiou]/.test(name) ? "an" : "a"} ${name}`;
+}
+
+/** Tags shown for a show: the few that best describe it, leaving out spoilers. */
+const TAGS_SHOWN = 5;
+
+/**
+ * What the show is: format, season, studio, source and genres, its top tags, and the synopsis.
+ * Nothing for a show fetched without the one-show fields.
+ */
+export function aboutLines(m: Media): string[] {
+  const lines: string[] = [];
+  const season = m.season ? `${m.season[0]}${m.season.slice(1).toLowerCase()} ${m.seasonYear ?? ""}`.trim() : m.seasonYear;
+  const studios = (m.studios?.nodes ?? []).map((s) => s.name);
+  const facts = [
+    m.format?.replace(/_/g, " "),
+    season,
+    studios.length ? `by ${studios.join(" and ")}` : "",
+    sourceLabel(m.source),
+  ].filter(Boolean);
+  const genres = m.genres?.length ? `Genres: ${m.genres.join(", ")}.` : "";
+  // Only when one-show fields came back: the list's own copy of a show has none of these.
+  if (m.description !== undefined || m.genres !== undefined) {
+    const line = [facts.length ? `${facts.join(", ")}.` : "", genres].filter(Boolean).join(" ");
+    if (line) lines.push(line);
+  }
+  const tags = (m.tags ?? [])
+    .filter((t) => !t.isMediaSpoiler && !t.isGeneralSpoiler)
+    .slice(0, TAGS_SHOWN)
+    .map((t) => t.name);
+  if (tags.length) lines.push(`Tags: ${tags.join(", ")}.`);
+  const synopsis = plainSynopsis(m.description);
+  if (synopsis) lines.push(`About: ${synopsis}`);
+  return lines;
 }

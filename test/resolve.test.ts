@@ -380,7 +380,8 @@ describe("an episode of a completed show stays with it unless an aired sequel fo
 
   /** Hand-made shows, all aired, as AniList search returns them with their sequel relations. */
   function shows(...items: Show[]): AnimeSource {
-    const base = findMedia("Dandadan");
+    // The fixture keeps every studio, as edges; a Media only has the main ones that were asked for.
+    const { studios: _studios, ...base } = findMedia("Dandadan");
     const noDate = { year: null, month: null, day: null };
     const edge = (relationType: string, id: number) => ({
       relationType,
