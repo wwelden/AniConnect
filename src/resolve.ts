@@ -680,7 +680,11 @@ async function resolveSeason(
     }
   }
 
-  const label = `season ${wantSeason}${q.hint.part ? ` part ${q.hint.part}` : ""}`;
+  // Name only what was asked: "part 5" alone is not "season 1 part 5".
+  const label = [
+    q.hint.season !== undefined ? `season ${q.hint.season}` : "",
+    q.hint.part !== undefined ? `part ${q.hint.part}` : "",
+  ].filter(Boolean).join(" ") || `season ${wantSeason}`;
   if (matches.length === 0) {
     return { kind: "none", why: `Couldn't find ${label} of "${q.exact}" on AniList.` };
   }
@@ -700,7 +704,7 @@ async function resolveSeason(
       return {
         kind: "ambiguous",
         candidates: listed.slice(0, MAX_CANDIDATES).map((e) => e.media),
-        why: `S${label.slice(1)} of "${q.exact}" matches ${listed.length} entries on your list.`,
+        why: `${label[0]!.toUpperCase()}${label.slice(1)} of "${q.exact}" matches ${listed.length} entries on your list.`,
       };
     }
   }

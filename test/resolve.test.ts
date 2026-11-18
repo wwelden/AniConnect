@@ -261,6 +261,26 @@ describe("asks instead of guessing (R1.7)", () => {
   ]);
 });
 
+describe("a part with no season isn't called season 1 (#45)", () => {
+  test("a match names only the part", async () => {
+    const r = await resolve("spy x family part 2", "rate");
+    if (r.kind !== "match") throw new Error(`expected a match, got ${r.kind}: ${r.why}`);
+    expect(r.why).toStartWith("it's part 2, going by ");
+  });
+
+  test("a miss names only the part", async () => {
+    const r = await resolve("spy x family part 5", "rate");
+    expect(r.kind).toBe("none");
+    expect(r.why).toBe('Couldn\'t find part 5 of "spy x family" on AniList.');
+  });
+
+  test("a named season is still in the label", async () => {
+    const r = await resolve("spy x family season 1 part 2", "rate");
+    if (r.kind !== "match") throw new Error(`expected a match, got ${r.kind}: ${r.why}`);
+    expect(r.why).toStartWith("it's season 1 part 2, going by ");
+  });
+});
+
 describe("removing a split season asks which part (#29)", () => {
   run([
     // Season 1 has two parts on the list, both completed: naming the season isn't enough.
