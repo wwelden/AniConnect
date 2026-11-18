@@ -155,7 +155,11 @@ async function main() {
     console.error(`No cases match "${args.filter}".`);
     process.exit(1);
   }
-  const concurrency = Math.max(1, Number(args.concurrency));
+  const concurrency = Number(args.concurrency);
+  if (!Number.isInteger(concurrency) || concurrency < 1) {
+    console.error(`--concurrency must be a positive whole number, got "${args.concurrency}".`);
+    process.exit(1);
+  }
   console.error(
     `Running ${cases.length} cases against ${args.server}, ${concurrency} at a time${args.model ? ` on ${args.model}` : ""}...`,
   );

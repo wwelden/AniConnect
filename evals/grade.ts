@@ -18,9 +18,13 @@ function shownDate(d: StoredEntry["startedAt"]): string {
   return d.year ? formatDate(d) : "";
 }
 
+function customLists(e: StoredEntry): string {
+  return JSON.stringify([...(e.customLists ?? [])].sort());
+}
+
 export type Changes = Map<number, { before?: StoredEntry; after?: StoredEntry }>;
 
-/** What changed between two list states, keyed by AniList media ID. */
+/** What changed between two list states, keyed by AniList media ID: any field the user can edit. */
 export function diff(before: StoredEntry[], after: StoredEntry[]) {
   const b = new Map(before.map((e) => [e.mediaId, e]));
   const a = new Map(after.map((e) => [e.mediaId, e]));
@@ -36,7 +40,11 @@ export function diff(before: StoredEntry[], after: StoredEntry[]) {
       x.scoreRaw !== y.scoreRaw ||
       shownDate(x.startedAt) !== shownDate(y.startedAt) ||
       shownDate(x.completedAt) !== shownDate(y.completedAt) ||
-      (x.notes || "") !== (y.notes || "")
+      (x.notes || "") !== (y.notes || "") ||
+      (x.repeat ?? 0) !== (y.repeat ?? 0) ||
+      (x.private ?? false) !== (y.private ?? false) ||
+      (x.hiddenFromStatusLists ?? false) !== (y.hiddenFromStatusLists ?? false) ||
+      customLists(x) !== customLists(y)
     ) {
       changed.set(id, { before: x, after: y });
     }

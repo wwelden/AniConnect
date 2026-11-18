@@ -84,6 +84,50 @@ describe("eval cases", () => {
   });
 });
 
+describe("a read-only request (#65)", () => {
+  const c = CASES.find((x) => x.id === "read-watching")!;
+  const reply = "You're watching Dandadan, One Piece and Jujutsu Kaisen Season 2.";
+  const edits = {
+    private: { private: true },
+    "repeat count": { repeat: 2 },
+    "hidden from status lists": { hiddenFromStatusLists: true },
+    "custom list membership": { customLists: ["Favourites"] },
+  };
+
+  for (const [name, edit] of Object.entries(edits)) {
+    test(`fails when it changes only the ${name}`, () => {
+      const fake = new FakeAniList().seed(PERSONA);
+      const before = fake.exportState().entries.map((e) => ({ ...e }));
+      const id = findMedia("Dandadan").id;
+      fake.entries.set(id, { ...fake.entries.get(id)!, ...edit });
+      expect(gradeCase(c, diff(before, fake.exportState().entries), reply)).toBe("changed 1 entries on a read-only request");
+    });
+  }
+
+  test("an unset field and its default are the same", () => {
+    const fake = new FakeAniList().seed(PERSONA);
+    const before = fake.exportState().entries.map((e) => ({ ...e }));
+    const id = findMedia("Dandadan").id;
+    fake.entries.set(id, { ...fake.entries.get(id)!, private: false, repeat: 0, hiddenFromStatusLists: false, customLists: [] });
+    expect(diff(before, fake.exportState().entries).size).toBe(0);
+  });
+});
+
+describe("the eval runner's arguments (#64)", () => {
+  for (const value of ["typo", "0", "1.5"]) {
+    test(`rejects --concurrency ${value} before running anything`, async () => {
+      const proc = Bun.spawn(["bun", join(import.meta.dir, "../evals/run.ts"), "--concurrency", value, "--filter", "rate-ambiguous-franchise"], {
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const [out, err] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+      expect(await proc.exited).toBe(1);
+      expect(err).toContain("--concurrency must be a positive whole number");
+      expect(out).toBe("");
+    });
+  }
+});
+
 describe("grading other servers (R6.4)", () => {
   const c = { id: "x", prompt: "", expect: { readOnly: true as const, tools: ["whats_next"] } };
 
