@@ -475,6 +475,15 @@ describe("rewatches", () => {
     const done = fake.entries.get(130003)!;
     expect(done).toMatchObject({ status: "COMPLETED", progress: 12, repeat: 1, startedAt: EARLIER, completedAt: EARLIER });
   });
+
+  test("starting a rewatch and logging episodes in one update counts them from 0", async () => {
+    fake.seed(PERSONA);
+    const r = await call("update_shows", { updates: [{ anime: 130003, status: "REPEATING", watched: 2 }] });
+    expect(r.isError).toBe(false);
+    expect(r.text).toContain("Completed -> Rewatching");
+    expect(r.text).not.toContain("Not changed");
+    expect(fake.entries.get(130003)).toMatchObject({ status: "REPEATING", progress: 2 });
+  });
 });
 
 describe("lowering progress on a completed show", () => {
