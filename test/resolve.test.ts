@@ -720,7 +720,7 @@ describe("a spin-off with the show's name doesn't take a request for the show (R
     list([KONOSUBA, "COMPLETED"], [KONOSUBA_2, "COMPLETED"], [EXPLOSION, "PLANNING"]);
     for (const intent of ["progress", "status", "show"] as const) {
       const r = await expectAsk("konosuba", intent, [KONOSUBA_3, EXPLOSION]);
-      expect(r.why).toBe('"konosuba" is the title of a show you haven\'t finished, and a different show on your list has that name in its title.');
+      expect(r.why).toBe('"konosuba" is the title of a show with more to watch, and a different show on your list has that name in its title.');
     }
     // Unchanged: a rating asks which finished season, a removal never guesses, adding means season 1.
     await expectAsk("konosuba", "rate", [KONOSUBA, KONOSUBA_2]);
@@ -733,6 +733,12 @@ describe("a spin-off with the show's name doesn't take a request for the show (R
     await expectAsk("konosuba", "progress", [KONOSUBA_3, EXPLOSION]);
     const kinds = fake.calls.map((c) => (c.query.includes("MediaListCollection") ? "list" : c.query.includes("search:") ? "search" : c.query.includes("id_in") ? "related" : "other"));
     expect(kinds.filter((k) => k !== "other")).toEqual(["list", "search"]);
+  });
+
+  test("a season missing from the list before one that's on it isn't offered as left to watch", async () => {
+    // Season 2 was never logged, but the movie after it was: what's left is season 3.
+    list([KONOSUBA, "COMPLETED"], [KONOSUBA_MOVIE, "COMPLETED"], [EXPLOSION, "PLANNING"]);
+    await expectAsk("konosuba", "progress", [KONOSUBA_3, EXPLOSION]);
   });
 
   test("the spin-off keeps its status pick when the show has nothing left to watch", async () => {

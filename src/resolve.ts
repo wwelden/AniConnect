@@ -560,15 +560,16 @@ const CHAIN_FORMATS = new Set([...SERIES_FORMATS, "MOVIE"]);
 /** Intents whose pick rests on list status, so a listed spin-off can outrank the show named (see `keepNamedShow`). */
 const BY_STATUS = new Set<Intent>(["progress", "status", "show", "rate"]);
 
-/** How far `keepNamedShow` walks a sequel chain, in anime. */
-const WALK_LIMIT = 15;
+/** How many anime `showOf` takes in, and how many requests it may make for their relations. */
+const SHOW_LIMIT = 25;
+const SHOW_FETCHES = 2;
 
 /**
  * List status chooses a season within one show, not between shows (R1.10). When the pick only
- * has the name in its title and isn't joined by sequels to the show titled exactly as asked (a
- * spin-off or side story: "KONOSUBA -An Explosion on This Wonderful World!" for "konosuba"),
- * its status settles it only when the named show has nothing left to watch, or when the pick
- * is the one being watched and the request isn't a rating. Otherwise ask.
+ * has the name in its title and isn't joined by sequels or prequels to the show titled exactly
+ * as asked (a spin-off or side story: "KONOSUBA -An Explosion on This Wonderful World!" for
+ * "konosuba"), its status settles it only when the named show has nothing left to watch, or when
+ * the pick is the one being watched and the request isn't a rating. Otherwise ask.
  */
 async function keepNamedShow(
   query: string,
@@ -590,87 +591,70 @@ async function keepNamedShow(
   const named = pool.filter((s) => s.score === best).map((s) => s.media);
   // The list carries no relations; one search does, for every anime with the name in its title.
   const lookup = relationLookup(source, [...fetched, ...(await source.search(q.words.join(" ")))]);
-  if (await joinedBySequels(chosen.media, named, lookup)) return r;
-  const left = await leftToWatch(named, chosen.media, intent, source, lookup);
-  if (left === "joined" || !left) return r;
+  const show = await showOf(named, lookup);
+  // A walk cut short can't tell what the named show has left, so the pick stands.
+  if (!show || show.some((m) => m.id === chosen.media.id)) return r;
+  const listed = new Map((await source.listMedia()).map((m) => [m.id, status(m)]));
+  const left = leftToWatch(show, (m) => listed.get(m.id) ?? status(m), intent);
+  if (!left) return r;
   return {
     kind: "ambiguous",
     candidates: [left, chosen.media],
-    why: `"${query}" is the title of a show you haven't finished, and a different show on your list has that name in its title.`,
+    why: `"${query}" is the title of a show with more to watch, and a different show on your list has that name in its title.`,
   };
 }
 
 /**
- * Whether `from` reaches one of `targets` through SEQUEL and PREQUEL edges: seasons, parts and
- * movies of one show, not its spin-offs. A walk cut short by the limit counts as joined, which
- * leaves the pick as it was.
+ * The named show: `named` and every aired anime joined to it through SEQUEL and PREQUEL edges
+ * (its seasons, parts, movies, OVAs and specials, not its spin-offs). Relations come from what
+ * this call already fetched, else one request per step of the walk that lacks them. Undefined
+ * when the walk would take in more than SHOW_LIMIT anime or SHOW_FETCHES requests.
  */
-async function joinedBySequels(
-  from: Media,
-  targets: Media[],
-  lookup: ReturnType<typeof relationLookup>,
-): Promise<boolean> {
-  const wanted = new Set(targets.map((m) => m.id));
-  const seen = new Set([from.id]);
-  const queue = [from.id];
-  while (queue.length) {
-    if (seen.size > WALK_LIMIT) return true;
-    for (const e of (await lookup.full(queue.shift()!))?.relations?.edges ?? []) {
-      if ((e.relationType !== "SEQUEL" && e.relationType !== "PREQUEL") || e.node.type !== "ANIME") continue;
-      if (wanted.has(e.node.id)) return true;
-      if (seen.has(e.node.id)) continue;
-      seen.add(e.node.id);
-      queue.push(e.node.id);
+async function showOf(named: Media[], lookup: ReturnType<typeof relationLookup>): Promise<Media[] | undefined> {
+  const seen = new Set(named.map((m) => m.id));
+  let frontier = named.map((m) => m.id);
+  const show: Media[] = [];
+  let fetches = 0;
+  while (frontier.length) {
+    const missing = frontier.filter((id) => !lookup.known.get(id)?.relations);
+    if (missing.length) {
+      if (fetches++ >= SHOW_FETCHES) return undefined;
+      await lookup.load(missing);
     }
+    const next: number[] = [];
+    for (const id of frontier) {
+      const m = lookup.known.get(id);
+      if (!m) continue;
+      show.push(m);
+      for (const e of m.relations?.edges ?? []) {
+        if ((e.relationType !== "SEQUEL" && e.relationType !== "PREQUEL") || e.node.type !== "ANIME") continue;
+        if (seen.has(e.node.id)) continue;
+        seen.add(e.node.id);
+        // Nothing past an unaired entry has aired either; status unknown counts as aired.
+        if (e.node.status !== undefined && !hasAired({ status: e.node.status, startDate: e.node.startDate ?? null })) continue;
+        if (seen.size > SHOW_LIMIT) return undefined;
+        next.push(e.node.id);
+      }
+    }
+    frontier = next;
   }
-  return false;
+  return show;
 }
 
 /**
- * What the named show has left to watch, the likeliest for `intent` first: an entry of it on the
- * list that isn't completed, else the first aired season after the ones completed that isn't on
- * the list, looking past movies, OVAs and specials (Tensura's season 2 follows an OVA). Undefined
- * when everything is watched; "joined" when the chain leads to `chosen` after all.
+ * What the named show has left to watch, the likeliest for `intent` first: an aired entry of it
+ * on the list that isn't completed, else the first aired season that isn't on the list and
+ * started after every entry that is (a gap in the list isn't a season left). Undefined when
+ * everything that has aired is watched.
  */
-async function leftToWatch(
-  named: Media[],
-  chosen: Media,
-  intent: Intent,
-  source: AnimeSource,
-  lookup: ReturnType<typeof relationLookup>,
-): Promise<Media | "joined" | undefined> {
-  const listed = new Map((await source.listMedia()).map((m) => [m.id, status(m)]));
-  type Node = Pick<Media, "id" | "format" | "status" | "startDate">;
-  const left: Node[] = [];
-  const seen = new Set(named.map((m) => m.id));
-  const queue: Node[] = [...named];
-  while (queue.length && seen.size <= WALK_LIMIT) {
-    const node = queue.shift()!;
-    const onList = listed.get(node.id);
-    if (onList && onList !== "COMPLETED") {
-      left.push(node);
-      continue;
-    }
-    if (!onList) {
-      if (!hasAired(node)) continue;
-      if (isSeries(node)) {
-        left.push(node);
-        continue;
-      }
-    }
-    // Completed, or an aired movie, OVA or special not on the list: what follows it.
-    for (const e of (await lookup.full(node.id))?.relations?.edges ?? []) {
-      if (e.relationType !== "SEQUEL" || e.node.type !== "ANIME") continue;
-      if (e.node.id === chosen.id) return "joined";
-      if (seen.has(e.node.id)) continue;
-      seen.add(e.node.id);
-      queue.push({ id: e.node.id, format: e.node.format, status: e.node.status ?? null, startDate: e.node.startDate ?? null });
-    }
-  }
+function leftToWatch(show: Media[], statusOf: (m: Media) => Status, intent: Intent): Media | undefined {
+  const aired = show.filter(hasAired);
   const ranks = STATUS_RANK[intent];
-  const rank = (n: Node) => ranks[listed.get(n.id) ?? "NONE"];
-  const first = left.sort((a, b) => rank(a) - rank(b) || dateKey(a) - dateKey(b))[0];
-  return first && (await lookup.full(first.id));
+  const listed = aired.filter((m) => statusOf(m) !== "NONE");
+  const unfinished = listed.filter((m) => statusOf(m) !== "COMPLETED");
+  if (unfinished.length) return unfinished.sort((a, b) => ranks[statusOf(a)] - ranks[statusOf(b)] || dateKey(a) - dateKey(b))[0];
+  const after = Math.max(-1, ...listed.map(dateKey));
+  return aired.filter((m) => statusOf(m) === "NONE" && isSeries(m) && dateKey(m) > after).sort((a, b) => dateKey(a) - dateKey(b))[0];
 }
 
 /**
@@ -874,19 +858,22 @@ function relationLookup(source: AnimeSource, fetched: Media[]) {
     known.set(m.id, { ...keep, mediaListEntry: m.mediaListEntry ?? had?.mediaListEntry ?? null });
   };
   fetched.forEach(learn);
-  /** The anime with its relations, fetching it (and its related anime, in full) if needed. */
-  const full = async (id: number): Promise<Media | undefined> => {
-    if (known.get(id)?.relations) return known.get(id);
-    for (const m of await source.getRelated([id])) {
+  /** Fetches anime with their relations, and their related anime in full, in one request. */
+  const load = async (ids: number[]) => {
+    for (const m of await source.getRelated(ids)) {
       learn(m);
       for (const edge of m.relations?.edges ?? []) {
         const node = edge.node as RelationEdge["node"] & Partial<Media>;
         if (node.type === "ANIME" && node.relations) learn(node as Media);
       }
     }
+  };
+  /** The anime with its relations, fetching it (and its related anime, in full) if needed. */
+  const full = async (id: number): Promise<Media | undefined> => {
+    if (!known.get(id)?.relations) await load([id]);
     return known.get(id)?.relations ? known.get(id) : undefined;
   };
-  return { known, learn, full };
+  return { known, learn, full, load };
 }
 
 /**
