@@ -180,6 +180,12 @@ export const CASES: EvalCase[] = [
   { id: "next-where-to-watch", prompt: "where can I watch Frieren?", idealCalls: 1,
     expect: { readOnly: true, tools: ["whats_next"], mentions: ["Crunchyroll"] } },
 
+  // What one show is about (whats_next with `anime`). The mentions come from AniList's data, not the model's memory.
+  { id: "about-new-season", prompt: "what's the new frieren season about?", idealCalls: 1,
+    expect: { readOnly: true, tools: ["whats_next"], mentions: ["Northern Plateau"] } },
+  { id: "about-genre-studio", prompt: "what genre is chainsaw man and which studio made it?", idealCalls: 1,
+    expect: { readOnly: true, tools: ["whats_next"], mentions: ["MAPPA", "Horror"] } },
+
   // Watch history (R0.14). The persona's feed is in test/fixtures/persona.ts.
   { id: "history-this-week", prompt: "what did I watch this week?", idealCalls: 1,
     expect: { readOnly: true, tools: ["watch_history"], mentions: ["One Piece", "Dandadan"] } },

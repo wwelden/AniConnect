@@ -6,11 +6,11 @@ import pkg from "../package.json" with { type: "json" };
 import {
   AniListClient,
   LIST_STATUSES,
-  SEARCH_BATCH,
   SEASONS,
+  searchBatch,
   type BrowseFilters,
   type FuzzyDate,
-  type LinkOptions,
+  type MediaOptions,
   type ListEntry,
   type ListStatus,
   type Media,
@@ -157,11 +157,11 @@ function adultFilter(viewer: Viewer): false | undefined {
 
 /**
  * Title searches asked for together go to AniList together: update_shows resolves all its
- * shows at once, and one request per SEARCH_BATCH searches spares AniList's rate limit.
+ * shows at once, and one request per `size` searches spares AniList's rate limit.
  * Searches are collected until the work in progress settles (a timer turn), then sent, each
  * request at once and on its own, so one that fails fails only its own searches.
  */
-function batched(run: (queries: string[]) => Promise<Media[][]>): (query: string) => Promise<Media[]> {
+function batched(size: number, run: (queries: string[]) => Promise<Media[][]>): (query: string) => Promise<Media[]> {
   let waiting: { query: string; resolve: (media: Media[]) => void; reject: (err: unknown) => void }[] = [];
   return (query) =>
     new Promise((resolve, reject) => {
@@ -169,8 +169,8 @@ function batched(run: (queries: string[]) => Promise<Media[][]>): (query: string
         setTimeout(() => {
           const all = waiting;
           waiting = [];
-          for (let i = 0; i < all.length; i += SEARCH_BATCH) {
-            const batch = all.slice(i, i + SEARCH_BATCH);
+          for (let i = 0; i < all.length; i += size) {
+            const batch = all.slice(i, i + size);
             run(batch.map((w) => w.query)).then(
               (results) => batch.forEach((w, j) => w.resolve(results[j]!)),
               (err) => batch.forEach((w) => w.reject(err)),
@@ -182,8 +182,10 @@ function batched(run: (queries: string[]) => Promise<Media[][]>): (query: string
     });
 }
 
-export function clientSource(client: AniListClient, options: LinkOptions = {}): AnimeSource {
-  const search = batched(async (queries) => client.searchMany(queries, 15, options, adultFilter(await client.getViewer())));
+export function clientSource(client: AniListClient, options: MediaOptions = {}): AnimeSource {
+  const search = batched(searchBatch(options), async (queries) =>
+    client.searchMany(queries, 15, options, adultFilter(await client.getViewer())),
+  );
   return {
     // Shows already on the list come from here, so they resolve whatever the 18+ setting.
     listMedia: async () =>
@@ -632,7 +634,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
     {
       title: "What to watch next",
       description:
-        "What the user can watch next: aired episodes they haven't seen for each show they're watching and how long they take, when the next episodes air, shows on hold with episodes left, and the next season of shows they've finished. Pass `anime` to ask about one show (\"when's the next Apothecary Diaries episode?\", \"is there more Frieren?\", \"where can I watch Frieren?\"); that answer also lists the sites streaming it.",
+        "What the user can watch next: aired episodes they haven't seen for each show they're watching and how long they take, when the next episodes air, shows on hold with episodes left, and the next season of shows they've finished. Pass `anime` to ask about one show (\"what's Frieren about?\", \"when's the next Apothecary Diaries episode?\", \"is there more Frieren?\", \"where can I watch it?\"); that answer also gives its synopsis, genres, studio and the sites streaming it.",
       inputSchema: {
         anime: anime.optional(),
         timeZone: z
@@ -646,8 +648,8 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
     safe(async ({ anime, timeZone, all }) => {
       const { zone, note: zoneNote } = await readZone(timeZone);
       const at = now();
-      // Streaming links are only wanted for one show, so only that path's lookups fetch them.
-      const source = memo(clientSource(client, { links: anime !== undefined }));
+      // Streaming links and what a show is about are only wanted for one show, so only that path's lookups fetch them.
+      const source = memo(clientSource(client, { oneShow: anime !== undefined }));
       const list = await source.listMedia();
       const { titleLanguage } = await client.getViewer(); // fetched with the list, so no extra request
       const listStatus = new Map(list.map((m) => [m.id, m.mediaListEntry!.status]));
@@ -659,11 +661,12 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
         const show =
           media.relations && media.externalLinks !== undefined
             ? media
-            : ((await client.getMany([media.id], { links: true }))[0] ?? media);
+            : ((await client.getMany([media.id], { oneShow: true }))[0] ?? media);
         const sequels = nextSeasons([show], listStatus, await client.getMany(moviesBesideSeries([show])));
+        const { displayAdultContent } = await client.getViewer(); // cached
         // The zone note only matters when an air time is printed: formatShow prints one for the next episode alone.
         const timed = Boolean(upcoming(show, at));
-        return text(`${note}${formatShow(show, sequels, listStatus, at, zone, titleLanguage)}${timed ? zoneNote : ""}`);
+        return text(`${note}${formatShow(show, sequels, listStatus, at, zone, titleLanguage, displayAdultContent)}${timed ? zoneNote : ""}`);
       }
 
       const finished = list
