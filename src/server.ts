@@ -658,8 +658,11 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
         journal.record("set_status", [change(media, entry, saved)]);
         const before = entry ? statusLabel(entry.status) : "not on list";
         const reset = plan.progress === 0 && entry ? ` Episode count reset from ${entry.progress} to 0 for the rewatch.` : "";
+        // Completing an unreleased show is worth flagging even when its episode count is unknown and progress stays 0.
+        const aired =
+          status === "COMPLETED" ? airedNote(media, media.status === "NOT_YET_RELEASED" ? Math.max(saved.progress, 1) : saved.progress) : "";
         return text(
-          `${note}${before} -> ${statusLabel(status as ListStatus)}: ${describeEntry(saved.media, saved, viewer)}${reset}${describePlanDates(plan)}`,
+          `${note}${before} -> ${statusLabel(status as ListStatus)}: ${describeEntry(saved.media, saved, viewer)}${reset}${describePlanDates(plan)}${aired}`,
         );
       });
     }),
