@@ -534,3 +534,24 @@ describe("a show titled as asked isn't taken for a listed one that only contains
     expect(r.kind === "match" && r.media.id).toBe(findMedia("NARUTO").id);
   });
 });
+
+describe("titles that differ only in punctuation (#61)", () => {
+  beforeEach(() => {
+    fake = new FakeAniList().seed([]);
+    client = new AniListClient("test", fake.fetch);
+  });
+
+  test.each([
+    ["Kaguya-sama: Love is War?", 112641],
+    ["kaguya-sama: love is war?", 112641],
+    ["Kaguya-sama:Love is War？", 112641],
+    ["Kaguya-sama wa Kokurasetai?: Tensaitachi no Renai Zunousen", 112641],
+    ["Kaguya-sama: Love is War", 101921],
+    ["Kaguya-sama Love is War", 101921],
+    ["Kaguya-sama: Love is War Season 2", 112641],
+  ])("add \"%s\" on an empty list -> %d", async (query, id) => {
+    const r = await resolve(query, "add");
+    if (r.kind !== "match") throw new Error(`expected a match, got ${r.kind}: ${r.why}`);
+    expect(r.media.id).toBe(id);
+  });
+});
