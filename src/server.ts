@@ -7,6 +7,7 @@ import {
   LIST_STATUSES,
   SEASONS,
   type BrowseFilters,
+  type FuzzyDate,
   type LinkOptions,
   type ListEntry,
   type ListStatus,
@@ -31,6 +32,7 @@ import {
   statusLabel,
   todayFuzzy,
   toRawScore,
+  type EntryPlan,
 } from "./logic";
 import {
   candidateLabel,
@@ -42,7 +44,7 @@ import {
   type Intent,
   type Resolution,
 } from "./resolve";
-import { formatHistory, parsePeriod } from "./history";
+import { formatFinished, formatHistory, parsePeriod } from "./history";
 import { tokenWatch } from "./token";
 import { Journal, snapshot, undoGroups, type EntryChange } from "./undo";
 import {
@@ -67,6 +69,12 @@ const status = z
   .describe(
     "CURRENT = watching, PLANNING = plan to watch, COMPLETED, DROPPED, PAUSED, REPEATING = rewatching",
   );
+
+/** On the tools that can fill in today's date as a start or finish date (#38). */
+const userTimeZone = z
+  .string()
+  .optional()
+  .describe('IANA time zone for today\'s date ("America/New_York"). Defaults to the user\'s AniList one.');
 
 /** Tools that take the show by name and change the list. */
 export const WRITE_TOOLS = [
@@ -300,6 +308,9 @@ function change(media: Pick<Media, "id" | "title">, before: Partial<ListEntry> |
   return { mediaId: media.id, title: media.title, before: snapshot(before), after: snapshot(after) };
 }
 
+/** Activity feed pages (50 updates each) watch_history reads at most: "last month" for someone logging every episode. */
+const HISTORY_PAGES = 3;
+
 function dateNum(d: { year: number | null; month: number | null; day: number | null } | null | undefined): number {
   return d?.year ? d.year * 10000 + (d.month ?? 0) * 100 + (d.day ?? 0) : 0;
 }
@@ -309,6 +320,8 @@ export interface ServerOptions {
   now?: () => number;
   /** State to share between servers for the same user (the hosted server's sessions). */
   user?: UserState;
+  /** Set by the hosted server, whose clock's time zone says nothing about the user's (#38). */
+  hosted?: boolean;
 }
 
 /**
@@ -333,6 +346,10 @@ function userZone(viewer: Viewer): string {
   return viewer.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
 }
 
+/** After dates filled in as today on the hosted server when the user's time zone is unknown (#38). */
+const UTC_NOTE =
+  " Today's date was taken in UTC, as the user's time zone is unknown: if theirs differs, fix the dates with update_shows and pass timeZone.";
+
 /** How many recently finished shows to check for sequels (one AniList request). */
 const SEQUEL_CHECK_LIMIT = 50;
 
@@ -347,8 +364,27 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
   const user = options.user ?? new UserState();
   const safe = safeFor(client, now, user);
   client.now = now;
-  // The user's date in their AniList time zone; without one, the server's local date.
-  const today = (viewer: Viewer) => todayFuzzy(new Date(now()), viewer.timeZone ?? undefined);
+  // The user's date in their AniList time zone (or the one the call gave); without one, the
+  // server's local date, which is theirs on their own machine. The hosted server takes UTC.
+  const today = (viewer: Viewer) => todayFuzzy(new Date(now()), viewer.timeZone ?? (options.hosted ? "UTC" : undefined));
+  const zoneUnknown = (viewer: Viewer) => Boolean(options.hosted && !viewer.timeZone);
+  /** The latest date the user can mean: with no zone known, the date where it's already tomorrow (UTC+14). */
+  const latest = (viewer: Viewer) => (zoneUnknown(viewer) ? todayFuzzy(new Date(now()), "+14:00") : today(viewer));
+  /** The viewer, with the time zone the call gave in place of the AniList one. */
+  const viewerIn = (timeZone: string | undefined): Promise<Viewer> => {
+    const zone = timeZone ? checkTimeZone(timeZone) : undefined;
+    return client.getViewer().then((viewer) => (zone ? { ...viewer, timeZone: zone } : viewer));
+  };
+  /** The dates a plan filled in, saying when "today" was taken in UTC for want of the user's zone. */
+  const planDates = (plan: EntryPlan, viewer: Viewer) =>
+    `${describePlanDates(plan)}${zoneUnknown(viewer) && (plan.startedAt || plan.completedAt) ? UTC_NOTE : ""}`;
+  /**
+   * With no zone known, a start date can be a day past today in UTC: a finish date filled in as
+   * today moves up to `start`, the one it will be saved with, rather than coming before it.
+   */
+  const finishFromStart = (viewer: Viewer, plan: EntryPlan, start: FuzzyDate | null | undefined) => {
+    if (zoneUnknown(viewer) && start && plan.completedAt && after(start, plan.completedAt)) plan.completedAt = start;
+  };
   const server = new McpServer({ name: "aniconnect", version: pkg.version }, { instructions: INSTRUCTIONS });
   /** What this server changed, so it can be undone (R3.1). */
   const { journal, turns, lastSave } = user;
@@ -538,7 +574,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
     {
       title: "Watch history",
       description:
-        "What the user watched and when, from their AniList activity feed: episodes logged, shows finished, started, dropped or put on hold, newest first, in a time range (\"what did I watch this week?\", \"what did I finish last month?\"). Pass `anime` for one show's history (\"when did I finish Frieren?\").",
+        "What the user watched and when, from their AniList activity feed: episodes logged, shows finished, started, dropped or put on hold, newest first, in a time range (\"what did I watch this week?\"). Pass `finished: true` for the shows finished in it (\"what did I finish this year?\"), and `anime` for one show's history (\"when did I finish Frieren?\").",
       inputSchema: {
         period: z
           .string()
@@ -547,6 +583,10 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
             'Time range in the user\'s words or as dates: "today", "last night", "this weekend", "last friday", "3 days ago", "this week", "last week", "last month", "March", "March 5th", "March 2025", "last 30 days", "since June", "2026-03-01 to 2026-03-15", "all time". Weeks start on Monday. Defaults to the last 7 days, or all time when `anime` is given.',
           ),
         anime: anime.optional(),
+        finished: z
+          .boolean()
+          .optional()
+          .describe("Only the shows finished in the range, from the finish dates on the list and the feed; answers long ranges in one call."),
         timeZone: z
           .string()
           .optional()
@@ -554,7 +594,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       },
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
-    safe(async ({ period, anime, timeZone }) => {
+    safe(async ({ period, anime, finished, timeZone }) => {
       const zone = checkTimeZone(timeZone ?? userZone(await client.getViewer()));
       const at = now();
       const range = parsePeriod(period ?? (anime === undefined ? "last 7 days" : "all time"), at, zone);
@@ -564,19 +604,28 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       const show =
         anime === undefined ? undefined : await find(anime, "remove", undefined, false, "lookup");
       const { titleLanguage } = await client.getViewer(); // cached: getMyActivity needs it too
-      const { activities, hasNextPage } = await client.getMyActivity({
-        from: range.start > 0 ? Math.floor(range.start / 1000) : undefined,
-        to: Math.ceil(range.end / 1000),
-        mediaId: show?.media.id,
-      });
-      const body = formatHistory(activities, {
+      // Up to HISTORY_PAGES feed pages, and for finished shows the (usually cached) list,
+      // whose finish dates cover any range: a few requests (R5.2).
+      const [{ activities, hasNextPage }, list] = await Promise.all([
+        client.getMyActivity({
+          from: range.start > 0 ? Math.floor(range.start / 1000) : undefined,
+          to: Math.ceil(range.end / 1000),
+          mediaId: show?.media.id,
+          pages: HISTORY_PAGES,
+        }),
+        finished ? client.getMyList() : [],
+      ]);
+      const options = {
         range,
         now: at,
         timeZone: zone,
         show: show && displayTitle(show.media.title, titleLanguage),
         truncated: hasNextPage,
         language: titleLanguage,
-      });
+      };
+      const body = finished
+        ? formatFinished(show ? list.filter((e) => e.media.id === show.media.id) : list, activities, options)
+        : formatHistory(activities, options);
       return text(`${show?.note ?? ""}${body}`);
     }),
   );
@@ -615,12 +664,12 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       title: "Add to list",
       description:
         "Add an anime to the user's list (plan to watch by default). If it is already on the list, nothing changes; use set_status to move it." + BY_NAME,
-      inputSchema: { anime, status: status.default("PLANNING") },
+      inputSchema: { anime, status: status.default("PLANNING"), timeZone: userTimeZone },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
-    safe(async ({ anime, status }) => {
+    safe(async ({ anime, status, timeZone }) => {
       const readAt = user.saves;
-      const [viewer, resolved] = await Promise.all([client.getViewer(), find(anime, "add")]);
+      const [viewer, resolved] = await Promise.all([viewerIn(timeZone), find(anime, "add")]);
       const { note } = resolved;
       return onTurn(resolved.media, readAt, async (media) => {
         if (media.mediaListEntry) {
@@ -632,7 +681,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
         const saved = await client.saveEntry({ mediaId: media.id, ...plan });
         journal.record("add_to_list", [change(media, null, saved)]);
         return text(
-          `${note}Added: ${describeEntry(saved.media, saved, viewer)}${describePlanDates(plan)}`,
+          `${note}Added: ${describeEntry(saved.media, saved, viewer)}${planDates(plan, viewer)}`,
         );
       });
     }),
@@ -644,16 +693,17 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       title: "Set list status",
       description:
         "Change an anime's status on the user's list (watching, completed, dropped, ...). Adds it to the list if it isn't there yet. COMPLETED also sets progress to the last episode (when the episode count is known), so use it when the user finished a show or season or watched its finale." + BY_NAME,
-      inputSchema: { anime, status },
+      inputSchema: { anime, status, timeZone: userTimeZone },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
-    safe(async ({ anime, status }) => {
+    safe(async ({ anime, status, timeZone }) => {
       const readAt = user.saves;
-      const [viewer, resolved] = await Promise.all([client.getViewer(), find(anime, "status")]);
+      const [viewer, resolved] = await Promise.all([viewerIn(timeZone), find(anime, "status")]);
       const { note } = resolved;
       return onTurn(resolved.media, readAt, async (media) => {
         const entry = media.mediaListEntry;
         const plan = planStatus(media, entry, status, today(viewer));
+        finishFromStart(viewer, plan, plan.startedAt ?? entry?.startedAt);
         const saved = await client.saveEntry({ mediaId: media.id, ...plan });
         journal.record("set_status", [change(media, entry, saved)]);
         const before = entry ? statusLabel(entry.status) : "not on list";
@@ -662,7 +712,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
         const aired =
           status === "COMPLETED" ? airedNote(media, media.status === "NOT_YET_RELEASED" ? Math.max(saved.progress, 1) : saved.progress) : "";
         return text(
-          `${note}${before} -> ${statusLabel(status as ListStatus)}: ${describeEntry(saved.media, saved, viewer)}${reset}${describePlanDates(plan)}${aired}`,
+          `${note}${before} -> ${statusLabel(status as ListStatus)}: ${describeEntry(saved.media, saved, viewer)}${reset}${planDates(plan, viewer)}${aired}`,
         );
       });
     }),
@@ -701,9 +751,9 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
   /** Gives the new episode count from the current one, optionally with a note for the result. */
   type ProgressStep = (current: number, media: Media, language: TitleLanguage) => number | { episodes: number; note: string };
 
-  const applyProgress = async (tool: string, input: string | number, next: ProgressStep) => {
+  const applyProgress = async (tool: string, input: string | number, timeZone: string | undefined, next: ProgressStep) => {
     const readAt = user.saves;
-    const [viewer, resolved] = await Promise.all([client.getViewer(), find(input, "progress")]);
+    const [viewer, resolved] = await Promise.all([viewerIn(timeZone), find(input, "progress")]);
     return inTurn(resolved.media.id, readAt, (stale) => saveProgress(tool, viewer, resolved, stale, next));
   };
 
@@ -731,12 +781,13 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
     const step = next(before, media, viewer.titleLanguage);
     const { episodes, note: stepNote } = typeof step === "number" ? { episodes: step, note: "" } : step;
     const plan = planProgress(media, entry, episodes, today(viewer));
+    finishFromStart(viewer, plan, plan.startedAt ?? entry?.startedAt);
     const saved = await client.saveEntry({ mediaId: media.id, ...plan });
     journal.record(tool, [change(media, entry, saved)]);
     const was = entry ? ` (was ${statusLabel(entry.status)})` : "";
     const statusNote = plan.status ? ` Status is now ${statusLabel(plan.status)}${was}.` : "";
     return text(
-      `${note}${displayTitle(saved.media.title, viewer.titleLanguage)}: episode ${before} -> ${saved.progress}.${statusNote}${stepNote}${describePlanDates(plan)}${airedNote(media, saved.progress)}\n${describeEntry(saved.media, saved, viewer)}`,
+      `${note}${displayTitle(saved.media.title, viewer.titleLanguage)}: episode ${before} -> ${saved.progress}.${statusNote}${stepNote}${planDates(plan, viewer)}${airedNote(media, saved.progress)}\n${describeEntry(saved.media, saved, viewer)}`,
     );
   };
 
@@ -749,10 +800,13 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       inputSchema: {
         anime,
         count: z.number().int().min(1).default(1).describe("How many more episodes were watched"),
+        timeZone: userTimeZone,
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
-    safe(async ({ anime, count }) => applyProgress("mark_episodes_watched", anime, (current) => current + count)),
+    safe(async ({ anime, count, timeZone }) =>
+      applyProgress("mark_episodes_watched", anime, timeZone, (current) => current + count),
+    ),
   );
 
   server.registerTool(
@@ -766,11 +820,12 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
         episodes: z
           .union([z.number().int().min(0), z.literal("latest")])
           .describe('Total episodes watched so far, or "latest" for every episode that has aired (the user is caught up)'),
+        timeZone: userTimeZone,
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
-    safe(async ({ anime, episodes }) =>
-      applyProgress("set_progress", anime, (current, media, language) =>
+    safe(async ({ anime, episodes, timeZone }) =>
+      applyProgress("set_progress", anime, timeZone, (current, media, language) =>
         episodes === "latest" ? caughtUpProgress(media, current, now(), language) : episodes,
       ),
     ),
@@ -818,22 +873,26 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       throw new Error(`${displayTitle(media.title, viewer.titleLanguage)} isn't on your list, so there's nothing to clear.`);
     }
     const current = entry?.progress ?? 0;
+    const day = today(viewer);
     let progress: number | undefined;
     let stepNote = "";
-    if (u.watched !== undefined) progress = current + u.watched;
-    else if (u.episodes === "latest") {
+    if (u.watched !== undefined) {
+      // Starting a rewatch resets the count to 0, so the episodes watched count up from there.
+      const resets = u.status === "REPEATING" && planStatus(media, entry, u.status, day).progress === 0;
+      progress = (resets ? 0 : current) + u.watched;
+    } else if (u.episodes === "latest") {
       ({ episodes: progress, note: stepNote } = caughtUpProgress(media, current, now(), viewer.titleLanguage));
     } else progress = u.episodes;
-    const day = today(viewer);
     const plan = planUpdate(media, entry, { progress, status: u.status }, day);
     // Dates the user gave replace the ones a status change would fill in, and existing ones too.
-    const readDate = (text: string) => (text === "clear" ? NO_DATE : parseFuzzyDate(text, day));
+    const readDate = (text: string) => (text === "clear" ? NO_DATE : parseFuzzyDate(text, day, latest(viewer)));
     const dates = {
       ...(u.startedAt !== undefined && { startedAt: readDate(u.startedAt) }),
       ...(u.completedAt !== undefined && { completedAt: readDate(u.completedAt) }),
     };
     // "Finished it on the 2nd" with Completed: today would be a start date after the finish, so leave it unset.
     if (dates.completedAt && plan.startedAt && after(plan.startedAt, dates.completedAt)) delete plan.startedAt;
+    finishFromStart(viewer, plan, dates.startedAt ?? plan.startedAt ?? entry?.startedAt);
     if (u.startedAt !== undefined || u.completedAt !== undefined) {
       checkDateOrder(
         dates.startedAt ?? plan.startedAt ?? entry?.startedAt,
@@ -862,6 +921,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
     return {
       line: `${resolved.note}${title}: ${parts.join(", ") || "no change"}.${stepNote}${describePlanDates(filled)}${airedNote(media, saved.progress)}\n${describeEntry(saved.media, saved, viewer)}`,
       change: change(media, entry, saved),
+      filled: Boolean(filled.startedAt || filled.completedAt),
     };
   };
 
@@ -872,17 +932,17 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       description:
         "Make several list changes in one call: to several shows (\"watched eps 3-5 of JJK and the Dandadan finale\") or several things about one show (\"finished Frieren, 9/10\"). Also the only way to set or correct start and finish dates (\"I actually finished it last March\") and to write the user's private notes on a show. Each update names a show plus any of status, episodes, watched, score, dates and notes, with the same rules as set_status, set_progress, mark_episodes_watched and rate_anime. Updates that are ambiguous or fail are listed with the reason, and the rest are still saved." +
         BY_NAME,
-      inputSchema: { updates: z.array(updateItem).min(1).max(10).describe("One per show") },
+      inputSchema: { updates: z.array(updateItem).min(1).max(10).describe("One per show"), timeZone: userTimeZone },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
-    safe(async ({ updates }) => {
+    safe(async ({ updates, timeZone }) => {
       const readAt = user.saves;
-      const viewer = await client.getViewer();
+      const viewer = await viewerIn(timeZone);
       const source = memo(clientSource(client));
       // In the order they were saved, so undo can take them back newest first.
       const changes: EntryChange[] = [];
       const results = await Promise.all(
-        updates.map(async (u): Promise<{ line: string; change?: EntryChange }> => {
+        updates.map(async (u): Promise<{ line: string; change?: EntryChange; filled?: boolean }> => {
           const label = typeof u.anime === "number" ? `ID ${u.anime}` : `"${u.anime}"`;
           try {
             if (u.episodes !== undefined && u.watched !== undefined) {
@@ -895,7 +955,9 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
             if (!counts && !dated && !noted && u.status === undefined && u.score === undefined) {
               throw new Error("Nothing to change: give status, episodes, watched, score, a date or a note.");
             }
-            const intent: Intent = counts ? "progress" : u.status || dated || noted ? "status" : "rate";
+            // A rewatch is of a show already on the list, never the next season (#35).
+            const intent: Intent =
+              counts && u.status !== "REPEATING" ? "progress" : u.status || dated || noted ? "status" : "rate";
             const resolved = await find(u.anime, intent, source, false);
             return await inTurn(resolved.media.id, readAt, async (stale) => {
               const result = await saveUpdate(viewer, resolved, stale, u);
@@ -908,7 +970,9 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
         }),
       );
       journal.record("update_shows", changes);
-      const body = results.map((r) => r.line).join("\n");
+      // Said once for the whole batch, not on every line.
+      const utc = zoneUnknown(viewer) && results.some((r) => r.filled) ? `\n${UTC_NOTE.trim()}` : "";
+      const body = results.map((r) => r.line).join("\n") + utc;
       if (changes.length === 0) return { ...text(body), isError: true };
       const failed = results.length - changes.length;
       return text(failed ? `Saved ${changes.length} of ${results.length} updates.\n${body}` : body);

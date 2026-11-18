@@ -432,8 +432,6 @@ describe("authorization checks", () => {
     expect(html).toContain("&#60;b&#62;Evil&#60;/b&#62; app");
     expect(html).not.toContain("<b>Evil</b>");
     expect(res.headers.get("Content-Security-Policy")).toContain("frame-ancestors 'none'");
-    // Browsers check form-action against the post's redirect to AniList, so 'self' would block approving.
-    expect(res.headers.get("Content-Security-Policy")).not.toContain("form-action");
     expect(res.headers.get("Set-Cookie")).toContain("SameSite=Strict");
 
     // Another site posting the form for the user (no cookie, or someone else's) gets nowhere.
@@ -447,6 +445,32 @@ describe("authorization checks", () => {
     expect(back.searchParams.get("error")).toBe("access_denied");
     expect(back.searchParams.get("state")).toBe("s");
     expect(back.searchParams.get("code")).toBeNull();
+  });
+
+  test("the consent page's CSP lets its form go on to AniList or back to the app", async () => {
+    // Chrome checks form-action against the redirect that answers the form, not only the form's own target.
+    const cases: [string, string][] = [
+      ["https://claude.ai/api/mcp/auth_callback", "https://claude.ai"],
+      [REDIRECT, "http://localhost:9999"],
+      ["http://[::1]:9999/callback", "http:"],
+      ["cursor://anysphere.cursor-mcp/oauth/callback", "cursor:"],
+      // A host the URL parser allows but CSP can't spell doesn't get to add directives.
+      ["https://a;sandbox,x.example/cb", "https:"],
+      ["https://a..b/cb", "https:"],
+    ];
+    for (const [redirectUri, app] of cases) {
+      const { body } = await register({ redirect_uris: [redirectUri] });
+      const url = `${base}/authorize?${new URLSearchParams({
+        client_id: body.client_id!,
+        response_type: "code",
+        code_challenge: "x",
+        code_challenge_method: "S256",
+      })}`;
+      const { res } = await consent(url);
+      expect(res.headers.get("Content-Security-Policy")).toBe(
+        `default-src 'none'; style-src 'unsafe-inline'; form-action 'self' https://anilist.co ${app}; frame-ancestors 'none'`,
+      );
+    }
   });
 
   test("opening the consent page twice leaves both pages able to approve", async () => {

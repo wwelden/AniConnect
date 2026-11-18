@@ -350,7 +350,7 @@ export class FakeAniList {
       });
     }
     if (query.includes("activities(")) {
-      const { userId, mediaId, from, to } = variables;
+      const { userId, mediaId, from, to, page = 1 } = variables;
       const matching = this.activities
         .filter(
           (a) =>
@@ -360,11 +360,11 @@ export class FakeAniList {
             (to === undefined || a.createdAt < to),
         )
         .sort((a, b) => b.id - a.id);
-      const activities = matching.slice(0, 50).map((a) => {
+      const activities = matching.slice((page - 1) * 50, page * 50).map((a) => {
         const m = catalog.find((c) => c.id === a.mediaId)!;
         return { id: a.id, status: a.status, progress: a.progress, createdAt: a.createdAt, media: { id: m.id, title: m.title } };
       });
-      return json({ Page: { pageInfo: { hasNextPage: matching.length > 50 }, activities } });
+      return json({ Page: { pageInfo: { hasNextPage: matching.length > page * 50 }, activities } });
     }
     if (query.includes("id_in")) {
       const ids: number[] = variables.ids ?? [];

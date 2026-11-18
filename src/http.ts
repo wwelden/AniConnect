@@ -185,7 +185,7 @@ export async function createHttpApp(config: OAuthConfig, options: HttpOptions = 
     }
 
     const user = account(key, token);
-    const server = createServer(user.client, { now, user: user.user });
+    const server = createServer(user.client, { now, user: user.user, hosted: true });
     const transport: WebStandardStreamableHTTPServerTransport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: () => crypto.randomUUID(),
       onsessioninitialized: (id) => {

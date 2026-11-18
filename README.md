@@ -12,7 +12,7 @@ Every tool that changes your list takes the show the way you'd say it: "jjk", "t
 |---|---|
 | `search_anime` | Search all of AniList by title, or browse it by season, year, genre, format and airing status ("what's airing this season?", "best-rated romance from 2023"), sorted by popularity, score or newest. Shows IDs, whether each show is already on your list, and which ones continue a show you've completed. |
 | `search_my_list` | Search your own list by title words and/or status (watching, planning, completed, ...), with your private notes on each show. |
-| `watch_history` | What you watched and when, from your AniList activity feed: "what did I watch this week?", "what did I finish in March?", "when did I finish Frieren?". Times are in your time zone. |
+| `watch_history` | What you watched and when, from your AniList activity feed: "what did I watch this week?", "what did I finish in March?", "when did I finish Frieren?". Times are in your time zone. Reads up to 150 updates; for what you finished, it also uses the finish dates on your list, so "what did I finish this year?" is one call. |
 | `add_to_list` | Add a show, as "plan to watch" unless you pick another status. Never overwrites an existing entry. |
 | `set_status` | Move a show to watching, completed, paused, dropped, planning, or rewatching. |
 | `rate_anime` | Rate a show out of 10 (decimals OK, 0 clears). AniList shows it in your own scoring format (stars, /100, ...). |
@@ -25,7 +25,7 @@ Every tool that changes your list takes the show the way you'd say it: "jjk", "t
 
 Project goals and requirements: [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md).
 
-Episode tracking keeps your status in sync: watching an episode of something planned, paused or dropped moves it to watching and sets the start date, finishing the last episode marks it completed with today's date, and setting a completed show back to an earlier episode moves it back to watching. Changing the status directly follows the same date rules. Dates that are already set are never overwritten. Shows that are still airing and have no known episode count never auto-complete. Starting a rewatch resets the episode count to 0; finishing it keeps the original finish date and adds one to AniList's rewatch count. Progress past the episodes that have aired is saved, with a note saying how many have aired.
+Episode tracking keeps your status in sync: watching an episode of something planned, paused or dropped moves it to watching and sets the start date, finishing the last episode marks it completed with today's date, and setting a completed show back to an earlier episode moves it back to watching. Changing the status directly follows the same date rules. Dates that are already set are never overwritten. Shows that are still airing and have no known episode count never auto-complete. Starting a rewatch resets the episode count to 0; finishing it keeps the original finish date and adds one to AniList's rewatch count. Progress past the episodes that have aired is saved, with a note saying how many have aired. Today's date is the one in your AniList time zone; the tools that fill in dates also take a `timeZone`, which wins when the assistant passes one.
 
 ## Setup
 
@@ -48,7 +48,7 @@ Treat the token like a password: it can edit your list.
 ### 2. Install
 
 ```sh
-git clone git@github.com:wwelden/aniconnect.git
+git clone https://github.com/wwelden/aniconnect.git
 cd aniconnect
 bun install
 ```
@@ -101,7 +101,7 @@ AniConnect can also run as a remote server that people add by URL, signing in wi
 | `AUTH_SECRET` | 32 or more random characters. AniConnect keeps no database: it seals sign-ins with this. Changing it signs everyone out. |
 | `PORT` | Port to listen on (default 3000). |
 
-A sign-in lasts as long as the AniList token behind it, a year; then the client asks the user to sign in again. If you revoke AniConnect on AniList, the client asks you to sign in again. A user's conversations share one undo history, until they've been idle for an hour. AniList's limit of 30 requests a minute applies per server IP, so it is shared by everyone using one server.
+A sign-in lasts as long as the AniList token behind it, a year; then the client asks the user to sign in again. If you revoke AniConnect on AniList, the client asks you to sign in again. A user's conversations share one undo history, until they've been idle for an hour. AniList's limit of 30 requests a minute applies per server IP, so it is shared by everyone using one server. For a user with no time zone in their AniList settings, the server can't tell their date: unless the assistant passes `timeZone`, it fills in today's date in UTC and says so, and accepts a date up to a day ahead of UTC.
 
 ## Notes
 
@@ -130,3 +130,7 @@ Tests run against `test/fixtures/media.json`, a snapshot of real AniList data fo
 bun run eval -- --filter progress   # just the episode-progress cases
 bun run eval -- --model sonnet --concurrency 2
 ```
+
+## License
+
+[MIT](LICENSE)

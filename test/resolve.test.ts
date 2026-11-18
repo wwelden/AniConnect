@@ -5,7 +5,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { AniListClient, type Media } from "../src/anilist";
 import { normalize } from "../src/logic";
-import { parseQuery, resolveAnime, titleSeason, type Intent } from "../src/resolve";
+import { parseQuery, resolveAnime, titleSeason, type AnimeSource, type Intent } from "../src/resolve";
 import { clientSource } from "../src/server";
 import { PERSONA } from "./fixtures/persona";
 import { FakeAniList, findMedia } from "./support/fake-anilist";
@@ -53,10 +53,77 @@ describe("parseQuery", () => {
     ["next season of oshi no ko", "of oshi no ko", { next: true }],
     ["New Game!", "new game", {}],
     ["Re:Zero 2nd cour", "re zero", { part: 2 }],
+    ["aot final season part 2", "attack on titan final season", { part: 2 }],
   ])("%s", (raw, exact, hint) => {
     const q = parseQuery(raw);
     expect(q.exact).toBe(exact);
     expect(q.hint).toEqual(hint);
+  });
+
+  test("an abbreviation next to other words keeps the unexpanded reading to try first (#36)", () => {
+    expect(parseQuery("aot final season").literal?.exact).toBe("aot final season");
+    expect(parseQuery("aot").literal).toBeUndefined();
+    expect(parseQuery("the aot").literal).toBeUndefined();
+    expect(parseQuery("attack on titan final season").literal).toBeUndefined();
+  });
+
+  test("with a new/next season word, both literal readings are kept (#36)", () => {
+    const q = parseQuery("next jjk 0 season");
+    expect(q.exact).toBe("jujutsu kaisen 0");
+    expect(q.literal?.exact).toBe("next jjk 0");
+    expect(q.literal?.literal?.exact).toBe("jjk 0");
+    expect(q.literal?.literal?.hint).toEqual({ next: true });
+    expect(parseQuery("the new aot season").literal).toEqual({ exact: "the new aot", words: ["new", "aot"], hint: {} });
+  });
+});
+
+describe("abbreviations next to other words (#36)", () => {
+  run([
+    ["aot final season", "status", "Shingeki no Kyojin: The Final Season"],
+    ["aot final season part 2", "status", "Shingeki no Kyojin: The Final Season Part 2"],
+    ["aot final season part 2", "add", "Shingeki no Kyojin: The Final Season Part 2"],
+    ["aot ova", "add", "Shingeki no Kyojin OVA"],
+    ["fma brotherhood", "add", "Hagane no Renkinjutsushi: FULLMETAL ALCHEMIST"],
+    // Names that contain the short form still match it as written.
+    ["jjk 0", "add", "Jujutsu Kaisen 0"],
+    ["csm reze", "add", "Chainsaw Man: Reze-hen"],
+    ["hxh phantom rogue", "add", "HUNTER×HUNTER: Phantom Rouge"],
+  ]);
+
+  const show = (id: number, romaji: string, format: string, synonyms: string[] = []): Media => ({
+    id, title: { romaji, english: null, native: null }, synonyms, episodes: 1, duration: 24, format,
+    status: "FINISHED", seasonYear: 2023, startDate: { year: 2023, month: 1, day: 1 }, averageScore: null,
+    siteUrl: "", nextAiringEpisode: null, mediaListEntry: null, relations: { edges: [] },
+  });
+
+  test("falls back to the expanded reading when the literal one misses the hint", async () => {
+    // The TV entry matches "aot final season" as written, but a movie was asked for.
+    const all = [
+      show(1, "Shingeki no Kyojin: The Final Season", "TV", ["AoT Final Season"]),
+      show(2, "Attack on Titan: The Final Season Movie", "MOVIE"),
+    ];
+    const source = { listMedia: async () => [], search: async () => all, getRelated: async () => [] };
+    const r = await resolveAnime("aot final season movie", "add", source, "ENGLISH");
+    if (r.kind !== "match") throw new Error(`expected a match, got ${r.kind}: ${r.why}`);
+    expect(r.media.id).toBe(2);
+
+    // Only an adult movie fits as written: say so rather than "couldn't find".
+    const adult = show(3, "AoT Final Season Movie", "MOVIE");
+    const withHidden = { ...source, search: async () => [all[0]!], searchHidden: async () => [adult] };
+    const hidden = await resolveAnime("aot final season movie", "add", withHidden, "ENGLISH");
+    expect(hidden).toMatchObject({ kind: "none", hidden: true });
+  });
+
+  test("an adult title named with the short form still explains the miss", async () => {
+    const adult = show(4, "JJK 0", "MOVIE");
+    const source = {
+      listMedia: async () => [],
+      search: async () => [],
+      getRelated: async () => [],
+      searchHidden: async () => [adult],
+    };
+    const r = await resolveAnime("jjk 0", "add", source, "ENGLISH");
+    expect(r).toMatchObject({ kind: "none", hidden: true });
   });
 });
 
@@ -278,6 +345,110 @@ describe("a part with no season isn't called season 1 (#45)", () => {
     const r = await resolve("spy x family season 1 part 2", "rate");
     if (r.kind !== "match") throw new Error(`expected a match, got ${r.kind}: ${r.why}`);
     expect(r.why).toStartWith("it's season 1 part 2, going by ");
+  });
+});
+
+describe("an episode of a completed show stays with it unless an aired sequel follows (#35)", () => {
+  run([
+    // The 2nd Season is a sequel but hasn't aired.
+    ["bocchi the rock", "progress", "Bocchi the Rock!"],
+    ["Bocchi the Rock!", "progress", "Bocchi the Rock!"],
+    // The aired 2nd Season still wins; the unaired 3rd doesn't.
+    ["frieren", "progress", "Sousou no Frieren 2nd Season"],
+  ]);
+
+  test("the other version of a remake isn't picked over the completed one", async () => {
+    fake.seed([{ anime: "HUNTER×HUNTER (2011)", status: "COMPLETED" }]);
+    const r = await resolve("hunter x hunter", "progress");
+    expect(r.kind === "match" && r.media.id).toBe(11061);
+  });
+
+  test("the aired next movie after a completed movie still wins", async () => {
+    fake.seed([{ anime: "Kizumonogatari I: Tekketsu-hen", status: "COMPLETED" }]);
+    const r = await resolve("kizumonogatari movie", "progress");
+    expect(r.kind === "match" && r.media.id).toBe(findMedia("Kizumonogatari II: Nekketsu-hen").id);
+  });
+
+  interface Show {
+    id: number;
+    title: string;
+    format?: string;
+    completed?: boolean;
+    /** The ID of the show this one is the sequel of. */
+    after?: number;
+  }
+
+  /** Hand-made shows, all aired, as AniList search returns them with their sequel relations. */
+  function shows(...items: Show[]): AnimeSource {
+    const base = findMedia("Dandadan");
+    const noDate = { year: null, month: null, day: null };
+    const edge = (relationType: string, id: number) => ({
+      relationType,
+      node: { id, type: "ANIME", format: items.find((s) => s.id === id)!.format ?? "TV" },
+    });
+    const all: Media[] = items.map((s) => ({
+      ...base,
+      id: s.id,
+      title: { romaji: s.title, english: null, native: null },
+      synonyms: [],
+      format: s.format ?? "TV",
+      status: "FINISHED",
+      relations: {
+        edges: [
+          ...(s.after ? [edge("PREQUEL", s.after)] : []),
+          ...items.filter((n) => n.after === s.id).map((n) => edge("SEQUEL", n.id)),
+        ],
+      },
+      mediaListEntry: s.completed
+        ? { id: s.id, status: "COMPLETED", progress: 12, score: 0, displayScore: 0, startedAt: noDate, completedAt: noDate }
+        : null,
+    }));
+    return {
+      listMedia: async () => all.filter((m) => m.mediaListEntry),
+      search: async () => all,
+      getRelated: async (ids) => all.filter((m) => ids.includes(m.id)),
+    };
+  }
+
+  const progress = async (query: string, source: AnimeSource) => {
+    const r = await resolveAnime(query, "progress", source, "ENGLISH");
+    if (r.kind !== "match") throw new Error(`expected a match, got ${r.kind}: ${r.why}`);
+    return r.media.id;
+  };
+
+  test.each([
+    ["monster", [19, "Monster"], [1469, "Monster Farm: Enbanseki no Himitsu"]],
+    ["another", [11111, "Another"], [1745, "Wild 7 another Bouryaku Unga"]],
+  ] as const)("not to a show that shares a word: %s", async (query, [id, title], [otherId, otherTitle]) => {
+    expect(await progress(query, shows({ id, title, completed: true }, { id: otherId, title: otherTitle }))).toBe(id);
+  });
+
+  test("a weaker completed match can't vouch for its own sequel", async () => {
+    const source = shows(
+      { id: 1, title: "Alpha", completed: true },
+      { id: 2, title: "Alpha Side Story", completed: true },
+      { id: 3, title: "Alpha Side Story II", after: 2 },
+    );
+    expect(await progress("alpha", source)).toBe(1);
+  });
+
+  test("a later completed season leads on to the aired season after it", async () => {
+    const source = shows(
+      { id: 1, title: "Alpha", completed: true },
+      { id: 2, title: "Alpha 2nd Season", completed: true, after: 1 },
+      { id: 3, title: "Alpha 3rd Season", after: 2 },
+    );
+    expect(await progress("alpha", source)).toBe(3);
+  });
+
+  test("the next season after a movie in between still wins", async () => {
+    // Made in Abyss: season 1, then the movie Dawn of the Deep Soul, then season 2.
+    const source = shows(
+      { id: 1, title: "Made in Abyss", completed: true },
+      { id: 2, title: "Made in Abyss Movie 3: Fukaki Tamashii no Reimei", format: "MOVIE", after: 1 },
+      { id: 3, title: "Made in Abyss: Retsujitsu no Ougonkyou", after: 2 },
+    );
+    expect(await progress("made in abyss", source)).toBe(3);
   });
 });
 
