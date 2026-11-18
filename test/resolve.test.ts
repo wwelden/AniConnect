@@ -53,11 +53,42 @@ describe("parseQuery", () => {
     ["next season of oshi no ko", "of oshi no ko", { next: true }],
     ["New Game!", "new game", {}],
     ["Re:Zero 2nd cour", "re zero", { part: 2 }],
+    ["aot final season part 2", "attack on titan final season", { part: 2 }],
   ])("%s", (raw, exact, hint) => {
     const q = parseQuery(raw);
     expect(q.exact).toBe(exact);
     expect(q.hint).toEqual(hint);
   });
+
+  test("an abbreviation next to other words keeps the unexpanded reading to try first (#36)", () => {
+    expect(parseQuery("aot final season").literal?.exact).toBe("aot final season");
+    expect(parseQuery("aot").literal).toBeUndefined();
+    expect(parseQuery("the aot").literal).toBeUndefined();
+    expect(parseQuery("attack on titan final season").literal).toBeUndefined();
+  });
+
+  test("with a new/next season word, both literal readings are kept (#36)", () => {
+    const q = parseQuery("next jjk 0 season");
+    expect(q.exact).toBe("jujutsu kaisen 0");
+    expect(q.literal?.exact).toBe("next jjk 0");
+    expect(q.literal?.literal?.exact).toBe("jjk 0");
+    expect(q.literal?.literal?.hint).toEqual({ next: true });
+    expect(parseQuery("the new aot season").literal).toEqual({ exact: "the new aot", words: ["new", "aot"], hint: {} });
+  });
+});
+
+describe("abbreviations next to other words (#36)", () => {
+  run([
+    ["aot final season", "status", "Shingeki no Kyojin: The Final Season"],
+    ["aot final season part 2", "status", "Shingeki no Kyojin: The Final Season Part 2"],
+    ["aot final season part 2", "add", "Shingeki no Kyojin: The Final Season Part 2"],
+    ["aot ova", "add", "Shingeki no Kyojin OVA"],
+    ["fma brotherhood", "add", "Hagane no Renkinjutsushi: FULLMETAL ALCHEMIST"],
+    // Names that contain the short form still match it as written.
+    ["jjk 0", "add", "Jujutsu Kaisen 0"],
+    ["csm reze", "add", "Chainsaw Man: Reze-hen"],
+    ["hxh phantom rogue", "add", "HUNTER×HUNTER: Phantom Rouge"],
+  ]);
 });
 
 describe("episode updates go to the season being watched (R1.4)", () => {
