@@ -51,6 +51,7 @@ export interface ParsedQuery {
    * Set when "new"/"next" was read as a season word but sits apart from "season"
    * ("the new Frieren season"). The words might instead be part of a title
    * ("New Game", "My Next Life as a Villainess"), so this literal reading is tried first.
+   * Also set when an abbreviation was expanded next to other words, holding the unexpanded words.
    */
   literal?: ParsedQuery;
 }
@@ -117,20 +118,36 @@ export function parseQuery(raw: string): ParsedQuery {
   if (hint.season === undefined && !hint.latest && !hint.next && / (?:season|cour) /.test(q)) {
     const split = / (new|newest|latest|recent|current|next) /.exec(q);
     if (split) {
-      literal = finish(q.replace(/ (?:season|cour) /, " "), { ...hint });
+      literal = finish(q.replace(/ (?:season|cour) /, " "), { ...hint }, false);
       if (split[1] === "next") hint.next = true;
       else hint.latest = true;
       q = q.replace(split[0], " ").replace(/ (?:season|cour) /, " ");
     }
   }
-  return { ...finish(q, hint), ...(literal && { literal }) };
+  const parsed = finish(q, hint);
+  // Both readings kept: "next jjk 0 season" tries "next jjk 0", then "jjk 0" (next season).
+  if (literal) return { ...parsed, literal: { ...literal, literal: parsed.literal } };
+  return parsed;
 }
 
-function finish(q: string, hint: SeasonHint): ParsedQuery {
-  let exact = q.replace(/\s+/g, " ").trim();
-  if (ALIASES[exact]) exact = ALIASES[exact]!;
-  const words = exact.split(" ").filter((w) => w && !STOPWORDS.has(w));
-  return { exact, words, hint };
+const isAlias = (w: string) => Object.hasOwn(ALIASES, w);
+const meaningful = (s: string) => s.split(" ").filter((w) => w && !STOPWORDS.has(w));
+
+/** `expand` false keeps abbreviations as written, for a reading that is already literal. */
+function finish(q: string, hint: SeasonHint, expand = true): ParsedQuery {
+  const raw = q.replace(/\s+/g, " ").trim();
+  if (!expand) return { exact: raw, words: meaningful(raw), hint };
+  // Expand an abbreviation wherever it stands as a word: "aot final season".
+  const exact = raw
+    .split(" ")
+    .map((w) => (isAlias(w) ? ALIASES[w]! : w))
+    .join(" ");
+  const parsed: ParsedQuery = { exact, words: meaningful(exact), hint };
+  // Some names really contain the short form ("HxH: Phantom Rogue", "JJK 0"), so with
+  // other words around it the unexpanded reading is tried first.
+  const rawWords = meaningful(raw);
+  if (exact !== raw && !rawWords.every(isAlias)) parsed.literal = { exact: raw, words: rawWords, hint: { ...hint } };
+  return parsed;
 }
 
 function names(m: Media): string[] {
@@ -350,10 +367,29 @@ export async function resolveAnime(
 ): Promise<Resolution> {
   const src = memo(source);
   const q = parseQuery(query);
-  if (q.literal && (await matchesStrongly(q.literal, intent, src))) {
-    return resolveParsed(query, q.literal, intent, src, language);
+  let hidden: Resolution | undefined;
+  const skipped: ParsedQuery[] = [];
+  for (let literal = q.literal; literal; literal = literal.literal) {
+    if (!(await matchesStrongly(literal, intent, src))) {
+      skipped.push(literal);
+      continue;
+    }
+    // A name can match yet miss the hint ("aot final season movie" against a TV synonym):
+    // then the next reading gets its turn.
+    const r = await resolveParsed(query, literal, intent, src, language);
+    if (r.kind !== "none") return r;
+    if (r.hidden) hidden ??= r;
   }
-  return resolveParsed(query, q, intent, src, language);
+  const r = await resolveParsed(query, q, intent, src, language);
+  if (r.kind !== "none" || r.hidden) return r;
+  // Keep "only adult titles match" over a plain "couldn't find", including for an
+  // adult title named with the short form as written ("JJK 0").
+  if (hidden) return hidden;
+  for (const literal of skipped) {
+    const l = await resolveParsed(query, literal, intent, src, language);
+    if (l.kind === "none" && l.hidden) return l;
+  }
+  return r;
 }
 
 async function matchesStrongly(q: ParsedQuery, intent: Intent, source: AnimeSource): Promise<boolean> {

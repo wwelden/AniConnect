@@ -53,10 +53,77 @@ describe("parseQuery", () => {
     ["next season of oshi no ko", "of oshi no ko", { next: true }],
     ["New Game!", "new game", {}],
     ["Re:Zero 2nd cour", "re zero", { part: 2 }],
+    ["aot final season part 2", "attack on titan final season", { part: 2 }],
   ])("%s", (raw, exact, hint) => {
     const q = parseQuery(raw);
     expect(q.exact).toBe(exact);
     expect(q.hint).toEqual(hint);
+  });
+
+  test("an abbreviation next to other words keeps the unexpanded reading to try first (#36)", () => {
+    expect(parseQuery("aot final season").literal?.exact).toBe("aot final season");
+    expect(parseQuery("aot").literal).toBeUndefined();
+    expect(parseQuery("the aot").literal).toBeUndefined();
+    expect(parseQuery("attack on titan final season").literal).toBeUndefined();
+  });
+
+  test("with a new/next season word, both literal readings are kept (#36)", () => {
+    const q = parseQuery("next jjk 0 season");
+    expect(q.exact).toBe("jujutsu kaisen 0");
+    expect(q.literal?.exact).toBe("next jjk 0");
+    expect(q.literal?.literal?.exact).toBe("jjk 0");
+    expect(q.literal?.literal?.hint).toEqual({ next: true });
+    expect(parseQuery("the new aot season").literal).toEqual({ exact: "the new aot", words: ["new", "aot"], hint: {} });
+  });
+});
+
+describe("abbreviations next to other words (#36)", () => {
+  run([
+    ["aot final season", "status", "Shingeki no Kyojin: The Final Season"],
+    ["aot final season part 2", "status", "Shingeki no Kyojin: The Final Season Part 2"],
+    ["aot final season part 2", "add", "Shingeki no Kyojin: The Final Season Part 2"],
+    ["aot ova", "add", "Shingeki no Kyojin OVA"],
+    ["fma brotherhood", "add", "Hagane no Renkinjutsushi: FULLMETAL ALCHEMIST"],
+    // Names that contain the short form still match it as written.
+    ["jjk 0", "add", "Jujutsu Kaisen 0"],
+    ["csm reze", "add", "Chainsaw Man: Reze-hen"],
+    ["hxh phantom rogue", "add", "HUNTER×HUNTER: Phantom Rouge"],
+  ]);
+
+  const show = (id: number, romaji: string, format: string, synonyms: string[] = []): Media => ({
+    id, title: { romaji, english: null, native: null }, synonyms, episodes: 1, duration: 24, format,
+    status: "FINISHED", seasonYear: 2023, startDate: { year: 2023, month: 1, day: 1 }, averageScore: null,
+    siteUrl: "", nextAiringEpisode: null, mediaListEntry: null, relations: { edges: [] },
+  });
+
+  test("falls back to the expanded reading when the literal one misses the hint", async () => {
+    // The TV entry matches "aot final season" as written, but a movie was asked for.
+    const all = [
+      show(1, "Shingeki no Kyojin: The Final Season", "TV", ["AoT Final Season"]),
+      show(2, "Attack on Titan: The Final Season Movie", "MOVIE"),
+    ];
+    const source = { listMedia: async () => [], search: async () => all, getRelated: async () => [] };
+    const r = await resolveAnime("aot final season movie", "add", source, "ENGLISH");
+    if (r.kind !== "match") throw new Error(`expected a match, got ${r.kind}: ${r.why}`);
+    expect(r.media.id).toBe(2);
+
+    // Only an adult movie fits as written: say so rather than "couldn't find".
+    const adult = show(3, "AoT Final Season Movie", "MOVIE");
+    const withHidden = { ...source, search: async () => [all[0]!], searchHidden: async () => [adult] };
+    const hidden = await resolveAnime("aot final season movie", "add", withHidden, "ENGLISH");
+    expect(hidden).toMatchObject({ kind: "none", hidden: true });
+  });
+
+  test("an adult title named with the short form still explains the miss", async () => {
+    const adult = show(4, "JJK 0", "MOVIE");
+    const source = {
+      listMedia: async () => [],
+      search: async () => [],
+      getRelated: async () => [],
+      searchHidden: async () => [adult],
+    };
+    const r = await resolveAnime("jjk 0", "add", source, "ENGLISH");
+    expect(r).toMatchObject({ kind: "none", hidden: true });
   });
 });
 
