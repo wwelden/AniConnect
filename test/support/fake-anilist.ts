@@ -1,8 +1,24 @@
 /**
- * An in-memory stand-in for the parts of AniList's GraphQL API that AniConnect uses,
- * backed by a snapshot of real AniList metadata (test/fixtures/media.json).
- * Used by the unit tests and by the eval harness.
+ * An in-memory stand-in for AniList's GraphQL API, backed by a snapshot of real AniList
+ * metadata (test/fixtures/media.json). Used by the unit tests and by the eval harness.
+ *
+ * Every request runs through a real GraphQL engine against AniList's own schema
+ * (test/fixtures/anilist.graphql), so any query AniList would accept works here, whoever
+ * wrote it: a query AniList would reject fails here too. Fields the fake has no data for
+ * come back null and are logged in `unmodeled`.
  */
+import { readFileSync } from "node:fs";
+import {
+  buildSchema,
+  defaultFieldResolver,
+  execute,
+  GraphQLError,
+  parse,
+  validate,
+  type DocumentNode,
+  type GraphQLFieldResolver,
+  type GraphQLObjectType,
+} from "graphql";
 import type { ListStatus, ScoreFormat, TitleLanguage } from "../../src/anilist";
 import { normalize } from "../../src/logic";
 import catalogJson from "../fixtures/media.json";
@@ -15,10 +31,11 @@ const EMPTY_DATE = { year: null, month: null, day: null };
 /** AniList fills in relations only two levels deep; deeper `relations` come back empty. */
 const RELATION_LEVELS = 2;
 
-/** How many levels of `relations` a query nests. */
-function relationDepth(query: string): number {
-  return query.match(/\brelations\s*\{/g)?.length ?? 0;
-}
+/** AniList's page size when a query doesn't give one, and its maximum. */
+const PER_PAGE = 50;
+
+/** The signed-in user's AniList ID. */
+const VIEWER_ID = 1;
 
 export interface StoredEntry {
   id: number;
@@ -76,7 +93,7 @@ export function findMedia(anime: string | number): CatalogMedia {
   return m;
 }
 
-/** AniList shows raw scores in the user's format; this mirrors that for the formats we test. */
+/** AniList shows raw scores in the user's format; this mirrors that for each format. */
 function displayScore(raw: number, format: ScoreFormat): number {
   switch (format) {
     case "POINT_100":
@@ -92,6 +109,22 @@ function displayScore(raw: number, format: ScoreFormat): number {
   }
 }
 
+/** The other way: a score given in the user's format (SaveMediaListEntry's `score`), as 0-100. */
+function rawScore(score: number, format: ScoreFormat): number {
+  switch (format) {
+    case "POINT_100":
+      return Math.round(score);
+    case "POINT_10_DECIMAL":
+    case "POINT_10":
+      return Math.round(score * 10);
+    case "POINT_5":
+      return Math.round(score * 20);
+    case "POINT_3":
+      return score <= 0 ? 0 : score < 1.5 ? 35 : score < 2.5 ? 60 : 85;
+  }
+}
+
+/** Filters for browsing, in AniConnect's own words (see FakeAniList.search). */
 interface SearchVariables {
   season?: string;
   seasonYear?: number;
@@ -103,14 +136,430 @@ interface SearchVariables {
   isAdult?: boolean;
 }
 
-/** Descending sort keys for the AniList sorts we use. SEARCH_MATCH is imitated by popularity. */
-const SORT_KEYS: Record<string, (m: CatalogMedia) => number> = {
-  SEARCH_MATCH: (m) => m.popularity ?? 0,
-  POPULARITY_DESC: (m) => m.popularity ?? 0,
-  SCORE_DESC: (m) => m.averageScore ?? 0,
-  START_DATE_DESC: (m) =>
+/** Sort keys for the AniList media sorts the fake knows, ascending. SEARCH_MATCH and TRENDING are imitated by popularity. */
+const SORT_KEYS: Record<string, (m: CatalogMedia) => number | string> = {
+  ID: (m) => m.id,
+  SEARCH_MATCH: (m) => -(m.popularity ?? 0),
+  POPULARITY: (m) => m.popularity ?? 0,
+  TRENDING: (m) => m.popularity ?? 0,
+  FAVOURITES: (m) => m.popularity ?? 0,
+  SCORE: (m) => m.averageScore ?? 0,
+  EPISODES: (m) => m.episodes ?? 0,
+  DURATION: (m) => m.duration ?? 0,
+  TITLE_ROMAJI: (m) => m.title.romaji ?? "",
+  TITLE_ENGLISH: (m) => m.title.english ?? "",
+  TITLE_NATIVE: (m) => m.title.native ?? "",
+  FORMAT: (m) => m.format ?? "",
+  STATUS: (m) => m.status ?? "",
+  // Shows with no start date yet count as the newest.
+  START_DATE: (m) =>
     m.startDate?.year ? m.startDate.year * 10000 + (m.startDate.month ?? 0) * 100 + (m.startDate.day ?? 0) : Infinity,
 };
+
+function sortMedia(list: CatalogMedia[], sort: string | undefined): CatalogMedia[] {
+  if (!sort) return list;
+  const desc = sort.endsWith("_DESC");
+  const key = SORT_KEYS[desc ? sort.slice(0, -5) : sort];
+  if (!key) throw new FakeError(`The fake AniList can't sort media by ${sort}.`, 400);
+  return [...list].sort((a, b) => {
+    const x = key(a);
+    const y = key(b);
+    const order = x < y ? -1 : x > y ? 1 : 0;
+    return desc ? -order : order;
+  });
+}
+
+/** Every word of `text` somewhere in one of a show's titles. */
+function titleMatches(m: CatalogMedia, text: string): boolean {
+  const words = normalize(text).split(" ").filter(Boolean);
+  const hay = [m.title.romaji, m.title.english, m.title.native, ...(m.synonyms ?? [])]
+    .filter(Boolean)
+    .map((n) => normalize(n!))
+    .join(" | ");
+  return words.every((w) => hay.includes(w));
+}
+
+/** A FuzzyDate as AniList's FuzzyDateInt (YYYYMMDD, missing parts as 0). */
+function dateInt(d: { year: number | null; month: number | null; day: number | null } | null | undefined): number | null {
+  return d?.year ? d.year * 10000 + (d.month ?? 0) * 100 + (d.day ?? 0) : null;
+}
+
+/** An error AniList would answer with this HTTP status (and, for bad input, a `validation` map). */
+class FakeError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly validation?: Record<string, string[]>,
+  ) {
+    super(message);
+  }
+}
+
+const notFound = () => new FakeError("Not Found.", 404);
+
+interface Context {
+  fake: FakeAniList;
+  /** Whether the request carried a token. */
+  authed: boolean;
+}
+
+type Resolver = GraphQLFieldResolver<any, Context, any>;
+
+const schema = buildSchema(readFileSync(new URL("../fixtures/anilist.graphql", import.meta.url), "utf8"));
+
+function resolveFields(type: string, resolvers: Record<string, Resolver>) {
+  const fields = (schema.getType(type) as GraphQLObjectType).getFields();
+  for (const [name, resolve] of Object.entries(resolvers)) {
+    if (!fields[name]) throw new Error(`AniList's schema has no ${type}.${name}`);
+    fields[name].resolve = resolve;
+  }
+}
+
+/** A show as the resolvers pass it around: catalog data plus how deep in `relations` it sits. */
+type MediaValue = Partial<CatalogMedia> & { id: number; type: string; level: number };
+
+function mediaValue(m: CatalogMedia, level: number): MediaValue {
+  return { ...m, type: "ANIME", level };
+}
+
+function requireAuth(ctx: Context) {
+  if (!ctx.authed) throw new FakeError("Unauthorized.", 401);
+}
+
+/** Whether `userId`/`userName` arguments (if any) name the signed-in user. */
+function isViewer(args: { userId?: number | null; userName?: string | null; id?: number | null; name?: string | null }, ctx: Context) {
+  const id = args.userId ?? args.id;
+  const name = args.userName ?? args.name;
+  return (id == null || id === VIEWER_ID) && (name == null || name.toLowerCase() === ctx.fake.viewerName.toLowerCase());
+}
+
+/** Paged list fields record their full length here, for `pageInfo`. */
+interface PageValue {
+  page: number;
+  perPage: number;
+  total?: number;
+}
+
+function paginate<T>(page: PageValue, all: T[]): T[] {
+  page.total = all.length;
+  return all.slice((page.page - 1) * page.perPage, page.page * page.perPage);
+}
+
+const STATUS_LISTS: [ListStatus, string][] = [
+  ["CURRENT", "Watching"],
+  ["REPEATING", "Rewatching"],
+  ["COMPLETED", "Completed"],
+  ["PAUSED", "Paused"],
+  ["DROPPED", "Dropped"],
+  ["PLANNING", "Planning"],
+];
+
+/** Media arguments the fake applies; any other one is logged in `unmodeled` and ignored. */
+const MEDIA_FILTERS: Record<string, (m: CatalogMedia, value: any, ctx: Context) => boolean> = {
+  id: (m, v) => m.id === v,
+  id_in: (m, v: number[]) => v.includes(m.id),
+  id_not: (m, v) => m.id !== v,
+  id_not_in: (m, v: number[]) => !v.includes(m.id),
+  search: (m, v: string) => titleMatches(m, v),
+  type: (_m, v) => v === "ANIME",
+  season: (m, v) => m.season === v,
+  seasonYear: (m, v) => m.seasonYear === v,
+  format: (m, v) => m.format === v,
+  format_in: (m, v: string[]) => m.format !== null && v.includes(m.format),
+  format_not: (m, v) => m.format !== v,
+  format_not_in: (m, v: string[]) => m.format === null || !v.includes(m.format),
+  status: (m, v) => m.status === v,
+  status_in: (m, v: string[]) => m.status !== null && v.includes(m.status),
+  status_not: (m, v) => m.status !== v,
+  status_not_in: (m, v: string[]) => m.status === null || !v.includes(m.status),
+  genre: (m, v: string) => (m.genres ?? []).includes(v),
+  // Like AniList: every one of the genres.
+  genre_in: (m, v: string[]) => v.every((g) => (m.genres ?? []).includes(g)),
+  genre_not_in: (m, v: string[]) => !v.some((g) => (m.genres ?? []).includes(g)),
+  isAdult: (m, v) => m.isAdult === v,
+  onList: (m, v, ctx) => ctx.authed && ctx.fake.entries.has(m.id) === v,
+  episodes: (m, v) => m.episodes === v,
+  episodes_greater: (m, v) => (m.episodes ?? 0) > v,
+  episodes_lesser: (m, v) => m.episodes !== null && m.episodes < v,
+  averageScore_greater: (m, v) => (m.averageScore ?? 0) > v,
+  averageScore_lesser: (m, v) => m.averageScore !== null && m.averageScore < v,
+  popularity_greater: (m, v) => (m.popularity ?? 0) > v,
+  popularity_lesser: (m, v) => (m.popularity ?? 0) < v,
+  startDate_greater: (m, v) => (dateInt(m.startDate) ?? 0) > v,
+  startDate_lesser: (m, v) => (dateInt(m.startDate) ?? Infinity) < v,
+  startDate_like: (m, v: string) => String(dateInt(m.startDate) ?? "").startsWith(v.replace(/%/g, "")),
+};
+
+function findMediaBy(args: Record<string, any>, ctx: Context): CatalogMedia[] {
+  const { sort, ...filters } = args;
+  let list = catalog;
+  for (const [name, value] of Object.entries(filters)) {
+    if (value == null) continue;
+    const test = MEDIA_FILTERS[name];
+    if (!test) {
+      ctx.fake.unmodeled.add(`Media(${name})`);
+      continue;
+    }
+    list = list.filter((m) => test(m, value, ctx));
+  }
+  // AniList answers id_in in its own order; the request's order is as good a stand-in as any.
+  if (filters.id_in && !sort) list = [...list].sort((a, b) => filters.id_in.indexOf(a.id) - filters.id_in.indexOf(b.id));
+  return sortMedia(list, sort?.[0] ?? (filters.search ? "SEARCH_MATCH" : undefined));
+}
+
+function entryFilter(args: Record<string, any>, ctx: Context): (e: StoredEntry) => boolean {
+  const known = new Set(["id", "userId", "userName", "type", "status", "status_in", "status_not", "status_not_in", "mediaId", "mediaId_in", "sort", "notes_like"]);
+  for (const [name, value] of Object.entries(args)) if (value != null && !known.has(name)) ctx.fake.unmodeled.add(`MediaList(${name})`);
+  return (e) =>
+    isViewer(args, ctx) &&
+    (args.type == null || args.type === "ANIME") &&
+    (args.id == null || e.id === args.id) &&
+    (args.mediaId == null || e.mediaId === args.mediaId) &&
+    (args.mediaId_in == null || args.mediaId_in.includes(e.mediaId)) &&
+    (args.status == null || e.status === args.status) &&
+    (args.status_in == null || args.status_in.includes(e.status)) &&
+    (args.status_not == null || e.status !== args.status_not) &&
+    (args.status_not_in == null || !args.status_not_in.includes(e.status)) &&
+    (args.notes_like == null || (e.notes ?? "").toLowerCase().includes(args.notes_like.replace(/%/g, "").toLowerCase()));
+}
+
+function sortEntries(entries: StoredEntry[], sort: string[] | undefined): StoredEntry[] {
+  const by = sort?.[0];
+  if (!by) return entries;
+  const desc = by.endsWith("_DESC");
+  const keys: Record<string, (e: StoredEntry) => number | string> = {
+    MEDIA_ID: (e) => e.mediaId,
+    SCORE: (e) => e.scoreRaw,
+    STATUS: (e) => e.status,
+    PROGRESS: (e) => e.progress,
+    // The fake doesn't keep edit times; newer entries have higher IDs.
+    UPDATED_TIME: (e) => e.id,
+    ADDED_TIME: (e) => e.id,
+    STARTED_ON: (e) => dateInt(e.startedAt) ?? 0,
+    FINISHED_ON: (e) => dateInt(e.completedAt) ?? 0,
+    MEDIA_TITLE_ROMAJI: (e) => catalog.find((c) => c.id === e.mediaId)?.title.romaji ?? "",
+    MEDIA_TITLE_ENGLISH: (e) => catalog.find((c) => c.id === e.mediaId)?.title.english ?? "",
+    MEDIA_POPULARITY: (e) => catalog.find((c) => c.id === e.mediaId)?.popularity ?? 0,
+  };
+  const key = keys[desc ? by.slice(0, -5) : by];
+  if (!key) throw new FakeError(`The fake AniList can't sort lists by ${by}.`, 400);
+  return [...entries].sort((a, b) => {
+    const x = key(a);
+    const y = key(b);
+    const order = x < y ? -1 : x > y ? 1 : 0;
+    return desc ? -order : order;
+  });
+}
+
+resolveFields("Query", {
+  Viewer: (_root, _args, ctx) => {
+    requireAuth(ctx);
+    return ctx.fake.viewer();
+  },
+  User: (_root, args, ctx) => {
+    if (!isViewer(args, ctx) || (args.search && !ctx.fake.viewerName.toLowerCase().includes(args.search.toLowerCase()))) {
+      throw notFound();
+    }
+    return ctx.fake.viewer();
+  },
+  Media: (_root, args, ctx) => {
+    const [m] = findMediaBy(args, ctx);
+    if (!m) throw notFound();
+    return mediaValue(m, 1);
+  },
+  Page: (_root, args): PageValue => ({ page: Math.max(1, args.page ?? 1), perPage: Math.min(PER_PAGE, Math.max(1, args.perPage ?? PER_PAGE)) }),
+  MediaList: (_root, args, ctx) => {
+    const entry = [...ctx.fake.entries.values()].find(entryFilter(args, ctx));
+    if (!entry) throw notFound();
+    return entry;
+  },
+  MediaListCollection: (_root, args, ctx) => {
+    if (args.userId == null && args.userName == null) {
+      throw new FakeError("validation", 400, { userId: ["The user id field is required when user name is not present."] });
+    }
+    if (!isViewer(args, ctx)) throw notFound();
+    const entries = [...ctx.fake.entries.values()].filter(entryFilter(args, ctx));
+    const lists: { name: string; isCustomList: boolean; isSplitCompletedList: boolean; status: ListStatus | null; entries: StoredEntry[] }[] = [];
+    for (const [status, name] of STATUS_LISTS) {
+      const these = entries.filter((e) => e.status === status && !e.hiddenFromStatusLists);
+      if (these.length) lists.push({ name, isCustomList: false, isSplitCompletedList: false, status, entries: these });
+    }
+    // An entry on a custom list comes back again in that list.
+    for (const name of ctx.fake.customListNames()) {
+      const these = entries.filter((e) => e.customLists?.includes(name));
+      if (these.length) lists.push({ name, isCustomList: true, isSplitCompletedList: false, status: null, entries: these });
+    }
+    return { lists, user: ctx.fake.viewer(), hasNextChunk: false };
+  },
+  GenreCollection: () => [...new Set(catalog.flatMap((m) => m.genres ?? []))].sort(),
+  AiringSchedule: (_root, args, ctx) => {
+    const schedule = ctx.fake.airingSchedules(args)[0];
+    if (!schedule) throw notFound();
+    return schedule;
+  },
+});
+
+resolveFields("Page", {
+  pageInfo: async (page: PageValue) => {
+    // Resolved after the page's list field, which records the total.
+    await Promise.resolve();
+    await Promise.resolve();
+    const total = page.total ?? 0;
+    const lastPage = Math.max(1, Math.ceil(total / page.perPage));
+    return { total, perPage: page.perPage, currentPage: page.page, lastPage, hasNextPage: page.page < lastPage };
+  },
+  media: (page: PageValue, args, ctx) => paginate(page, findMediaBy(args, ctx)).map((m) => mediaValue(m, 1)),
+  mediaList: (page: PageValue, args, ctx) =>
+    paginate(page, sortEntries([...ctx.fake.entries.values()].filter(entryFilter(args, ctx)), args.sort)),
+  activities: (page: PageValue, args, ctx) => {
+    const known = new Set(["userId", "mediaId", "type", "type_in", "createdAt_greater", "createdAt_lesser", "sort"]);
+    for (const [name, value] of Object.entries(args)) if (value != null && !known.has(name)) ctx.fake.unmodeled.add(`Activity(${name})`);
+    const listTypes = ["ANIME_LIST", "MEDIA_LIST"];
+    const matching = ctx.fake.activities.filter(
+      (a) =>
+        (args.userId == null || args.userId === VIEWER_ID) &&
+        (args.mediaId == null || a.mediaId === args.mediaId) &&
+        (args.type == null || listTypes.includes(args.type)) &&
+        (args.type_in == null || args.type_in.some((t: string) => listTypes.includes(t))) &&
+        (args.createdAt_greater == null || a.createdAt > args.createdAt_greater) &&
+        (args.createdAt_lesser == null || a.createdAt < args.createdAt_lesser),
+    );
+    const ascending = args.sort?.[0] === "ID";
+    const sorted = [...matching].sort((a, b) => (ascending ? a.id - b.id : b.id - a.id));
+    return paginate(page, sorted).map((a) => ({
+      __typename: "ListActivity",
+      ...a,
+      userId: VIEWER_ID,
+      type: "ANIME_LIST",
+      replyCount: 0,
+      likeCount: 0,
+      isLocked: false,
+      siteUrl: `https://anilist.co/activity/${a.id}`,
+      mediaId: a.mediaId,
+    }));
+  },
+  airingSchedules: (page: PageValue, args, ctx) => paginate(page, ctx.fake.airingSchedules(args)),
+  users: (page: PageValue, args, ctx) =>
+    paginate(page, args.search == null || ctx.fake.viewerName.toLowerCase().includes(args.search.toLowerCase()) ? [ctx.fake.viewer()] : []),
+});
+
+resolveFields("Media", {
+  type: (m: MediaValue) => m.type,
+  mediaListEntry: (m: MediaValue, _args, ctx) => (ctx.authed ? (ctx.fake.entries.get(m.id) ?? null) : null),
+  nextAiringEpisode: (m: MediaValue, _args, ctx) => {
+    const next = m.nextAiringEpisode;
+    return next ? ctx.fake.schedule(m.id, next.episode, next.airingAt) : null;
+  },
+  relations: (m: MediaValue) => {
+    if (m.level > RELATION_LEVELS || !m.relations) return { edges: [] };
+    return {
+      edges: m.relations.edges.map((e) => {
+        const target = catalog.find((c) => c.id === e.node.id);
+        return {
+          relationType: e.relationType,
+          node: target
+            ? { ...mediaValue(target, m.level + 1), type: e.node.type }
+            : // Outside the snapshot: AniList would know more, the fake only the ID.
+              { id: e.node.id, type: e.node.type, level: m.level + 1, title: { romaji: null, english: null, native: null }, format: null, status: null, episodes: null, startDate: null },
+        };
+      }),
+    };
+  },
+});
+
+resolveFields("MediaTitle", {
+  userPreferred: (title: CatalogMedia["title"], _args, ctx) => {
+    const lang = ctx.fake.titleLanguage;
+    return (lang === "ENGLISH" ? title.english : lang === "NATIVE" ? title.native : null) ?? title.romaji;
+  },
+});
+
+resolveFields("MediaList", {
+  userId: () => VIEWER_ID,
+  score: (e: StoredEntry, args, ctx) => displayScore(e.scoreRaw, args.format ?? ctx.fake.scoreFormat),
+  repeat: (e: StoredEntry) => e.repeat ?? 0,
+  // AniList returns an empty note as null.
+  notes: (e: StoredEntry) => e.notes || null,
+  private: (e: StoredEntry) => e.private ?? false,
+  hiddenFromStatusLists: (e: StoredEntry) => e.hiddenFromStatusLists ?? false,
+  // Every custom list the user has, each saying whether this entry is on it.
+  customLists: (e: StoredEntry, args, ctx) => {
+    const lists = ctx.fake.customListNames().map((name) => ({ name, enabled: e.customLists?.includes(name) ?? false }));
+    return args.asArray ? lists : Object.fromEntries(lists.map((l) => [l.name, l.enabled]));
+  },
+  media: (e: StoredEntry) => {
+    const m = catalog.find((c) => c.id === e.mediaId);
+    return m ? mediaValue(m, 1) : null;
+  },
+  user: (_e, _args, ctx) => ctx.fake.viewer(),
+});
+
+resolveFields("ListActivity", {
+  media: (a: StoredActivity) => {
+    const m = catalog.find((c) => c.id === a.mediaId);
+    return m ? mediaValue(m, 1) : null;
+  },
+  user: (_a, _args, ctx) => ctx.fake.viewer(),
+});
+
+(schema.getType("ActivityUnion") as any).resolveType = (value: { __typename?: string }) => value.__typename ?? "ListActivity";
+
+resolveFields("Mutation", {
+  SaveMediaListEntry: (_root, args, ctx) => {
+    requireAuth(ctx);
+    return ctx.fake.save(args);
+  },
+  UpdateMediaListEntries: (_root, args, ctx) => {
+    requireAuth(ctx);
+    const { ids, ...changes } = args;
+    const targets = [...ctx.fake.entries.values()].filter((e) => (ids ?? []).includes(e.id));
+    return targets.map((e) => ctx.fake.save({ ...changes, mediaId: e.mediaId }));
+  },
+  DeleteMediaListEntry: (_root, args, ctx) => {
+    requireAuth(ctx);
+    for (const [mediaId, entry] of ctx.fake.entries) {
+      if (entry.id === args.id) {
+        ctx.fake.entries.delete(mediaId);
+        return { deleted: true };
+      }
+    }
+    throw new FakeError("validation", 400, { id: ["The selected id is invalid."] });
+  },
+});
+
+// Any other mutation would change something the fake doesn't keep, so it fails loudly instead of pretending.
+for (const [name, field] of Object.entries(schema.getMutationType()!.getFields())) {
+  field.resolve ??= (_root, _args, ctx: Context) => {
+    ctx.fake.unmodeled.add(`Mutation.${name}`);
+    throw new FakeError(`The fake AniList doesn't support ${name}.`, 400);
+  };
+}
+
+/** Reads a field as stored, logging fields the fake has no data for. */
+const fieldResolver: GraphQLFieldResolver<any, Context> = (source, args, ctx, info) => {
+  if (source && typeof source === "object" && !(info.fieldName in source)) {
+    ctx.fake.unmodeled.add(`${info.parentType.name}.${info.fieldName}`);
+  }
+  return defaultFieldResolver(source, args, ctx, info);
+};
+
+/** Parsed and validated queries, by text: each client sends the same few over and over. */
+const documents = new Map<string, DocumentNode | readonly GraphQLError[]>();
+
+function prepare(query: string): DocumentNode | readonly GraphQLError[] {
+  let doc = documents.get(query);
+  if (!doc) {
+    try {
+      const parsed = parse(query);
+      const errors = validate(schema, parsed);
+      doc = errors.length ? errors : parsed;
+    } catch (err) {
+      doc = [err as GraphQLError];
+    }
+    documents.set(query, doc);
+  }
+  return doc;
+}
 
 export class FakeAniList {
   entries = new Map<number, StoredEntry>();
@@ -124,12 +573,14 @@ export class FakeAniList {
   /** The user's list activity, oldest first. */
   activities: StoredActivity[] = [];
   nextActivityId = 1;
-  /** Clock for new activity, in ms. */
+  /** Clock for new activity and airing countdowns, in ms. */
   clock: () => number = () => Date.now();
   /** The account's 18+ content setting (AniList's default is off). */
   displayAdultContent = false;
   /** Requests this returns true for never get an answer, like a stalled connection; they end only when aborted. */
   stalls: (query: string) => boolean = () => false;
+  /** Fields and arguments that requests used but the fake has no data for ("Media.coverImage", "Media(tag)"). */
+  unmodeled = new Set<string>();
 
   constructor(
     public scoreFormat: ScoreFormat = "POINT_10_DECIMAL",
@@ -163,6 +614,52 @@ export class FakeAniList {
       });
     }
     return this;
+  }
+
+  /** The signed-in user, as AniList's User type. */
+  viewer() {
+    return {
+      id: VIEWER_ID,
+      name: this.viewerName,
+      siteUrl: `https://anilist.co/user/${this.viewerName}`,
+      mediaListOptions: { scoreFormat: this.scoreFormat },
+      options: { titleLanguage: this.titleLanguage, timezone: this.timeZone, displayAdultContent: this.displayAdultContent },
+    };
+  }
+
+  /** The user's custom list names, in the order they first appear. */
+  customListNames(): string[] {
+    return [...new Set([...this.entries.values()].flatMap((e) => e.customLists ?? []))];
+  }
+
+  schedule(mediaId: number, episode: number, airingAt: number) {
+    const m = catalog.find((c) => c.id === mediaId);
+    return {
+      id: mediaId * 10000 + episode,
+      mediaId,
+      episode,
+      airingAt,
+      timeUntilAiring: airingAt - Math.floor(this.clock() / 1000),
+      media: m ? mediaValue(m, 1) : null,
+    };
+  }
+
+  /** The snapshot knows each airing show's next episode only. */
+  airingSchedules(args: Record<string, any>) {
+    const now = Math.floor(this.clock() / 1000);
+    return catalog
+      .filter((m) => m.nextAiringEpisode)
+      .map((m) => this.schedule(m.id, m.nextAiringEpisode!.episode, m.nextAiringEpisode!.airingAt))
+      .filter(
+        (s) =>
+          (args.mediaId == null || s.mediaId === args.mediaId) &&
+          (args.mediaId_in == null || args.mediaId_in.includes(s.mediaId)) &&
+          (args.episode == null || s.episode === args.episode) &&
+          (args.notYetAired == null || (s.airingAt > now) === args.notYetAired) &&
+          (args.airingAt_greater == null || s.airingAt > args.airingAt_greater) &&
+          (args.airingAt_lesser == null || s.airingAt < args.airingAt_lesser),
+      )
+      .sort((a, b) => a.airingAt - b.airingAt);
   }
 
   /**
@@ -206,6 +703,47 @@ export class FakeAniList {
     this.activities.push({ id: this.nextActivityId++, mediaId: after.mediaId, status, progress, createdAt: now });
   }
 
+  /** SaveMediaListEntry: creates or updates the entry named by `id` or `mediaId`. */
+  save(args: Record<string, any>): StoredEntry {
+    const byId = args.id != null ? [...this.entries.values()].find((e) => e.id === args.id) : undefined;
+    if (args.id != null && !byId) throw new FakeError("validation", 400, { id: ["The selected id is invalid."] });
+    const mediaId: number | undefined = byId?.mediaId ?? args.mediaId;
+    if (mediaId == null || !catalog.some((c) => c.id === mediaId)) {
+      throw new FakeError("validation", 400, { mediaId: ["The selected media id is invalid."] });
+    }
+    for (const name of ["progressVolumes", "priority", "advancedScores"]) {
+      if (args[name] != null) this.unmodeled.add(`SaveMediaListEntry(${name})`);
+    }
+    const before = this.entries.get(mediaId);
+    const existing: StoredEntry = before ?? {
+      id: this.nextEntryId++,
+      mediaId,
+      status: "PLANNING",
+      progress: 0,
+      scoreRaw: 0,
+      startedAt: EMPTY_DATE,
+      completedAt: EMPTY_DATE,
+    };
+    const date = (d: any) => ({ year: d?.year ?? null, month: d?.month ?? null, day: d?.day ?? null });
+    const scoreRaw = args.scoreRaw ?? (args.score != null ? rawScore(args.score, this.scoreFormat) : undefined);
+    const updated: StoredEntry = {
+      ...existing,
+      ...(args.status != null && { status: args.status }),
+      ...(args.progress != null && { progress: args.progress }),
+      ...(scoreRaw != null && { scoreRaw }),
+      ...(args.startedAt !== undefined && { startedAt: date(args.startedAt) }),
+      ...(args.completedAt !== undefined && { completedAt: date(args.completedAt) }),
+      ...(args.repeat != null && { repeat: args.repeat }),
+      ...(args.notes !== undefined && { notes: args.notes }),
+      ...(args.private != null && { private: args.private }),
+      ...(args.hiddenFromStatusLists != null && { hiddenFromStatusLists: args.hiddenFromStatusLists }),
+      ...(args.customLists != null && { customLists: args.customLists }),
+    };
+    this.entries.set(mediaId, updated);
+    this.recordActivity(before, updated);
+    return updated;
+  }
+
   /** Writes made so far, i.e. calls that change the list. */
   get writes() {
     return this.calls.filter((c) => /^\s*mutation/.test(c.query));
@@ -232,99 +770,34 @@ export class FakeAniList {
     this.nextActivityId = state.nextActivityId ?? 1;
   }
 
-  private entryView(e: StoredEntry) {
-    return {
-      id: e.id,
-      status: e.status,
-      progress: e.progress,
-      score: e.scoreRaw / 10,
-      displayScore: displayScore(e.scoreRaw, this.scoreFormat),
-      startedAt: e.startedAt,
-      completedAt: e.completedAt,
-      repeat: e.repeat ?? 0,
-      // AniList returns an empty note as null.
-      notes: e.notes || null,
-      private: e.private ?? false,
-      hiddenFromStatusLists: e.hiddenFromStatusLists ?? false,
-      customLists: (e.customLists ?? []).map((name) => ({ name, enabled: true })),
-    };
-  }
-
-  /** `depth` levels of relations, the way a query nesting `relations` that many times gets them. */
-  private mediaView(id: number, depth = 0, level = 1, links = false): Record<string, unknown> | null {
-    const m = catalog.find((c) => c.id === id);
-    if (!m) return null;
-    const { relations, franchise, popularity, externalLinks, ...rest } = m;
-    const entry = this.entries.get(id);
-    return {
-      ...rest,
-      mediaListEntry: entry ? this.entryView(entry) : null,
-      ...(depth > 0 ? { relations: this.relationsView(relations, depth, level, links) } : {}),
-      ...(links ? { externalLinks } : {}),
-    };
-  }
-
-  /**
-   * The innermost level has the short node AniConnect selects there; outer levels have
-   * full media (the snapshot can't fill in anime it doesn't hold, so those stay short).
-   */
-  private relationsView(relations: CatalogMedia["relations"], depth: number, level: number, links: boolean) {
-    if (level > RELATION_LEVELS) return { edges: [] };
-    return {
-      edges: relations.edges.map((e) => ({
-        relationType: e.relationType,
-        node: (() => {
-          const target = catalog.find((c) => c.id === e.node.id);
-          if (depth > 1 && target) return { type: e.node.type, ...this.mediaView(target.id, depth - 1, level + 1, links) };
-          return {
-            id: e.node.id,
-            type: e.node.type,
-            format: target?.format ?? null,
-            status: target?.status ?? null,
-            episodes: target?.episodes ?? null,
-            title: target?.title ?? { romaji: null, english: null, native: null },
-            startDate: target?.startDate ?? null,
-            mediaListEntry: this.entries.has(e.node.id) ? { status: this.entries.get(e.node.id)!.status } : null,
-          };
-        })(),
-      })),
-    };
-  }
-
-  /**
-   * Rough imitation of AniList search and filters: every word somewhere in a title, then
-   * season, year, genres (all of, like AniList's genre_in), formats (any of) and airing status.
-   */
+  /** AniConnect's browse filters, run the way Page.media runs them. */
   search(text: string, perPage: number, filters: SearchVariables = {}) {
-    const words = normalize(text).split(" ").filter(Boolean);
-    const sortKey = SORT_KEYS[filters.sort?.[0] ?? "SEARCH_MATCH"];
-    if (!sortKey) throw new Error(`FakeAniList: unsupported sort ${filters.sort}`);
-    return catalog
-      .filter((m) => {
-        const hay = [m.title.romaji, m.title.english, m.title.native, ...m.synonyms]
-          .filter(Boolean)
-          .map((n) => normalize(n!))
-          .join(" | ");
-        return words.every((w) => hay.includes(w));
-      })
-      .filter(
-        (m) =>
-          (filters.season == null || m.season === filters.season) &&
-          (filters.seasonYear == null || m.seasonYear === filters.seasonYear) &&
-          (filters.genres == null || filters.genres.every((g) => m.genres.includes(g))) &&
-          (filters.formats == null || (m.format !== null && filters.formats.includes(m.format))) &&
-          (filters.status == null || m.status === filters.status) &&
-          (filters.isAdult == null || m.isAdult === filters.isAdult),
-      )
-      .sort((a, b) => sortKey(b) - sortKey(a))
-      .slice(0, perPage);
+    const ctx: Context = { fake: this, authed: true };
+    return findMediaBy(
+      {
+        search: text || undefined,
+        season: filters.season,
+        seasonYear: filters.seasonYear,
+        genre_in: filters.genres,
+        format_in: filters.formats,
+        status: filters.status,
+        isAdult: filters.isAdult,
+        sort: filters.sort ?? ["SEARCH_MATCH"],
+      },
+      ctx,
+    ).slice(0, perPage);
   }
 
+  /** Answers a GraphQL request the way AniList's endpoint does. */
   fetch = async (_url: string, init: RequestInit): Promise<Response> => {
-    const { query, variables = {} } = JSON.parse(init.body as string) as {
-      query: string;
-      variables?: Record<string, any>;
-    };
+    let body: { query?: string; variables?: Record<string, any> | null };
+    try {
+      body = JSON.parse(init.body as string);
+    } catch {
+      return Response.json({ errors: [{ message: "Invalid JSON.", status: 400 }], data: null }, { status: 400 });
+    }
+    const query = body.query ?? "";
+    const variables = body.variables ?? {};
     this.calls.push({ query, variables });
     if (this.stalls(query)) {
       return new Promise((_, reject) => {
@@ -332,117 +805,33 @@ export class FakeAniList {
       });
     }
     if (this.rateLimited) {
-      return new Response(JSON.stringify({ errors: [{ message: "Too Many Requests." }] }), {
+      return Response.json({ errors: [{ message: "Too Many Requests.", status: 429 }], data: null }, {
         status: 429,
         headers: { "Retry-After": "30" },
       });
     }
-    const json = (data: unknown) => new Response(JSON.stringify({ data }));
 
-    if (query.includes("Viewer")) {
-      return json({
-        Viewer: {
-          id: 1,
-          name: this.viewerName,
-          mediaListOptions: { scoreFormat: this.scoreFormat },
-          options: { titleLanguage: this.titleLanguage, timezone: this.timeZone, displayAdultContent: this.displayAdultContent },
-        },
-      });
-    }
-    if (query.includes("activities(")) {
-      const { userId, mediaId, from, to } = variables;
-      const matching = this.activities
-        .filter(
-          (a) =>
-            userId === 1 &&
-            (mediaId === undefined || a.mediaId === mediaId) &&
-            (from === undefined || a.createdAt > from) &&
-            (to === undefined || a.createdAt < to),
-        )
-        .sort((a, b) => b.id - a.id);
-      const activities = matching.slice(0, 50).map((a) => {
-        const m = catalog.find((c) => c.id === a.mediaId)!;
-        return { id: a.id, status: a.status, progress: a.progress, createdAt: a.createdAt, media: { id: m.id, title: m.title } };
-      });
-      return json({ Page: { pageInfo: { hasNextPage: matching.length > 50 }, activities } });
-    }
-    if (query.includes("id_in")) {
-      const ids: number[] = variables.ids ?? [];
-      const links = query.includes("externalLinks");
-      return json({ Page: { media: ids.map((id) => this.mediaView(id, relationDepth(query), 1, links)).filter(Boolean) } });
-    }
-    if (query.includes("Page(")) {
-      const media = this.search(variables.search ?? "", variables.perPage ?? 10, variables).map((m) =>
-        this.mediaView(m.id, relationDepth(query), 1, query.includes("externalLinks")),
-      );
-      return json({ Page: { media } });
-    }
-    if (query.includes("Media(id")) {
-      const media = this.mediaView(variables.id);
-      if (!media) {
-        // Real AniList answers an unknown ID (or a manga ID on a type: ANIME query) with HTTP 404.
-        return new Response(
-          JSON.stringify({ errors: [{ message: "Not Found.", status: 404 }], data: { Media: null } }),
-          { status: 404 },
-        );
-      }
-      return json({ Media: media });
-    }
-    if (query.includes("MediaListCollection")) {
-      const entries = [...this.entries.values()]
-        .filter((e) => !variables.status || e.status === variables.status)
-        .map((e) => ({ ...this.entryView(e), media: this.mediaView(e.mediaId) }));
-      // AniList can return the same entry in two lists (a status list and a custom list).
-      return json({ MediaListCollection: { lists: [{ entries }, { entries: entries.slice(0, 1) }] } });
-    }
-    if (query.includes("SaveMediaListEntry")) {
-      const { mediaId, scoreRaw, status, progress, startedAt, completedAt, repeat, notes, hiddenFromStatusLists, customLists } =
-        variables;
-      if (!catalog.some((c) => c.id === mediaId)) {
-        return new Response(
-          JSON.stringify({ errors: [{ message: "validation", validation: { mediaId: ["The selected media id is invalid."] } }] }),
-          { status: 400 },
-        );
-      }
-      const existing: StoredEntry = this.entries.get(mediaId) ?? {
-        id: this.nextEntryId++,
-        mediaId,
-        status: "PLANNING",
-        progress: 0,
-        scoreRaw: 0,
-        startedAt: EMPTY_DATE,
-        completedAt: EMPTY_DATE,
-      };
-      const before = this.entries.get(mediaId);
-      const updated: StoredEntry = {
-        ...existing,
-        ...(status !== undefined && { status }),
-        ...(progress !== undefined && { progress }),
-        ...(scoreRaw !== undefined && { scoreRaw }),
-        ...(startedAt !== undefined && { startedAt }),
-        ...(completedAt !== undefined && { completedAt }),
-        ...(repeat !== undefined && { repeat }),
-        ...(notes !== undefined && { notes }),
-        ...(variables.private !== undefined && { private: variables.private }),
-        ...(hiddenFromStatusLists !== undefined && { hiddenFromStatusLists }),
-        ...(customLists !== undefined && { customLists }),
-      };
-      this.entries.set(mediaId, updated);
-      this.recordActivity(before, updated);
-      return json({ SaveMediaListEntry: { ...this.entryView(updated), media: this.mediaView(mediaId) } });
-    }
-    if (query.includes("DeleteMediaListEntry")) {
-      for (const [mediaId, entry] of this.entries) {
-        if (entry.id === variables.id) {
-          this.entries.delete(mediaId);
-          return json({ DeleteMediaListEntry: { deleted: true } });
-        }
-      }
-      return new Response(
-        JSON.stringify({ errors: [{ message: "validation", validation: { id: ["The selected id is invalid."] } }] }),
+    const doc = prepare(query);
+    if (!("kind" in doc)) {
+      return Response.json(
+        { errors: doc.map((e) => ({ message: e.message, status: 400, locations: e.locations })), data: null },
         { status: 400 },
       );
     }
-    throw new Error(`FakeAniList: unhandled query: ${query}`);
+    const authed = /^Bearer\s+\S/i.test(new Headers(init.headers).get("Authorization") ?? "");
+    const context: Context = { fake: this, authed };
+    const result = await execute({ schema, document: doc, variableValues: variables, contextValue: context, fieldResolver });
+    if (!result.errors?.length) return Response.json({ data: result.data });
+
+    const errors = result.errors.map((e) => {
+      const original = e.originalError;
+      if (original instanceof FakeError) {
+        return { message: original.message, status: original.status, locations: e.locations, ...(original.validation && { validation: original.validation }) };
+      }
+      // Bad variables come back like this from AniList too; anything else is a bug in the fake.
+      if (original) throw original;
+      return { message: e.message, status: 400, locations: e.locations };
+    });
+    return Response.json({ errors, data: result.data ?? null }, { status: errors[0]!.status });
   };
 }

@@ -120,7 +120,7 @@ bun test           # unit, resolver and tool tests against a fake AniList (no ne
 bun run typecheck
 ```
 
-Tests run against `test/fixtures/media.json`, a snapshot of real AniList data for franchises that are hard to resolve by name. Refresh it with `bun run snapshot`.
+Tests run against a fake AniList (`test/support/fake-anilist.ts`) holding `test/fixtures/media.json`, a snapshot of real AniList data for franchises that are hard to resolve by name. Refresh it with `bun run snapshot`. The fake runs every request against AniList's own GraphQL schema (`test/fixtures/anilist.graphql`, refreshed with `bun run snapshot:schema`), so a query AniList would reject fails the tests too, and other AniList servers' queries work against it as well. Fields it has no data for come back null.
 
 ### Evals
 

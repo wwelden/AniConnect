@@ -169,8 +169,9 @@ describe("tools", () => {
   });
 
   test("search_my_list filters by title and status without duplicates", async () => {
-    await call("add_to_list", { anime: 16498 });
-    await call("add_to_list", { anime: 21, status: "CURRENT" });
+    fake.seed([{ anime: 16498, status: "PLANNING" }, { anime: 21, status: "CURRENT" }]);
+    // AniList returns an entry on a custom list twice: in its status list and in the custom list.
+    fake.entries.get(21)!.customLists = ["Favourites"];
 
     let r = await call("search_my_list", { query: "attack" });
     expect(r.text).toContain("1 match on tester's list");
