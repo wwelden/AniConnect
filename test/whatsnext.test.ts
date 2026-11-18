@@ -44,7 +44,7 @@ describe("airedEpisodes", () => {
 
 describe("formatAirTime", () => {
   test("weekday, time and days away in the given zone", () => {
-    expect(formatAirTime(EP8_AIRS, NOW, "UTC")).toBe("Fri, Nov 20 at 2:00 PM (in 3 days)");
+    expect(formatAirTime(EP8_AIRS, NOW, "UTC")).toBe("Fri, Nov 20 at 2:00 PM UTC (in 3 days)");
     expect(formatAirTime(EP8_AIRS, NOW, "Asia/Tokyo")).toBe("Fri, Nov 20 at 11:00 PM (in 3 days)");
   });
 
@@ -120,10 +120,10 @@ describe("whats_next tool", () => {
     ]);
     // Airing shows first, then fewest episodes to go.
     expect(sections[0]).toContain(
-      "- ONE PIECE: 80 episodes to watch, about 32 hours (on 1100 of 1180 aired). Episode 1181 airs Sun, Jan 3 at 2:16 PM (in 47 days).",
+      "- ONE PIECE: 80 episodes to watch, about 32 hours (on 1100 of 1180 aired). Episode 1181 airs Sun, Jan 3 at 2:16 PM UTC (in 47 days).",
     );
     expect(sections[0]!.split("\n")[2]).toContain("- DAN DA DAN: 5 episodes to watch, about 2 hours (on 7 of 12 aired).");
-    expect(sections[1]).toContain("- The Apothecary Diaries Season 3: episode 8 airs Fri, Nov 20 at 2:00 PM (in 3 days).");
+    expect(sections[1]).toContain("- The Apothecary Diaries Season 3: episode 8 airs Fri, Nov 20 at 2:00 PM UTC (in 3 days).");
     // Sequels of finished shows that haven't been started; planned ones say so.
     expect(sections[2]).toContain("[182255] Frieren: Beyond Journey’s End Season 2");
     expect(sections[2]).toContain("not on your list");
@@ -141,7 +141,7 @@ describe("whats_next tool", () => {
     expect(r.text).toContain("you're watching it");
     expect(r.text).toContain("Aired: 7 of 12 episodes.");
     expect(r.text).toContain("You: Watching, watched 7.");
-    expect(r.text).toContain("Next: episode 8 airs Fri, Nov 20 at 2:00 PM (in 3 days).");
+    expect(r.text).toContain("Next: episode 8 airs Fri, Nov 20 at 2:00 PM UTC (in 3 days).");
     expect(r.text).toContain("Comes next: [200927] Kusuriya no Hitorigoto 3rd Season Part 2 (not out yet, expected 2027)");
   });
 

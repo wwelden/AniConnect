@@ -208,6 +208,27 @@ describe("whats_next air times use the AniList time zone", () => {
     expect(r.text).toContain(`episode 8 airs ${formatAirTime(EP8_AIRS, NOW, serverZone)}`);
   });
 
+  test("on the hosted server, no AniList zone means UTC, named, with a note (not the host's zone)", async () => {
+    const { fake, call } = await connect(null, NOW, true);
+    fake.seed([{ anime: APOTHECARY_S3, status: "CURRENT", progress: 7 }]);
+    const one = await call("whats_next", { anime: "apothecary diaries" });
+    expect(one.text).toContain("Next: episode 8 airs Fri, Nov 20 at 2:00 PM UTC (in 3 days).");
+    expect(one.text).toEndWith("Times and days are in UTC, as the user's time zone is unknown (none is set on AniList): to see them in theirs, call again with timeZone.");
+    const all = await call("whats_next", {});
+    expect(all.text).toContain("episode 8 airs Fri, Nov 20 at 2:00 PM UTC (in 3 days)");
+    expect(all.text).toContain("Times and days are in UTC");
+  });
+
+  test("on the hosted server, a zone from AniList or the call needs no note", async () => {
+    for (const [zone, args] of [["Asia/Tokyo", {}], [null, { timeZone: "Asia/Tokyo" }]] as const) {
+      const { fake, call } = await connect(zone, NOW, true);
+      fake.seed([{ anime: APOTHECARY_S3, status: "CURRENT", progress: 7 }]);
+      const r = await call("whats_next", { anime: "apothecary diaries", ...args });
+      expect(r.text).toContain("episode 8 airs Fri, Nov 20 at 11:00 PM (in 3 days)");
+      expect(r.text).not.toContain("Times and days are in UTC");
+    }
+  });
+
   test("the setting costs no extra request", async () => {
     const withZone = await apothecary("-05:00");
     const withArg = await apothecary("-05:00", { timeZone: "UTC" });
@@ -220,4 +241,30 @@ test("formatAirTime days count in an offset zone", () => {
   expect(formatAirTime(Date.parse("2026-11-18T01:00:00Z") / 1000, Date.parse("2026-11-17T12:00:00Z"), "-05:00")).toBe(
     "Tue, Nov 17 at 8:00 PM UTC-05:00 (today)",
   );
+});
+
+describe("watch_history on the hosted server with no time zone known", () => {
+  // 03:00 UTC on Nov 18 is still Nov 17 in the Americas: "today" is the UTC day, and says so.
+  const NOW = Date.parse("2026-11-18T03:00:00Z");
+
+  test("days are UTC days, named, with a note", async () => {
+    const { call } = await connect(null, NOW, true);
+    const r = await call("watch_history", { period: "today" });
+    expect(r.isError).toBe(false);
+    expect(r.text).toContain("Wed, Nov 18, 2026, UTC");
+    expect(r.text).toEndWith("call again with timeZone.");
+  });
+
+  test("a timeZone argument is used instead, with no note", async () => {
+    const { call } = await connect(null, NOW, true);
+    const r = await call("watch_history", { period: "today", timeZone: "America/New_York" });
+    expect(r.text).toContain("Tue, Nov 17, 2026, America/New_York");
+    expect(r.text).not.toContain("Times and days are in UTC");
+  });
+
+  test("the local server keeps using its own zone, with no note", async () => {
+    const { call } = await connect(null, NOW);
+    const r = await call("watch_history", { period: "today" });
+    expect(r.text).not.toContain("Times and days are in UTC");
+  });
 });
