@@ -389,7 +389,9 @@ export class OAuthServer {
         // The cookie only comes back on a same-site request, so another site can't post the form for the user.
         // Named after this page, so a second consent page doesn't replace the first one's cookie.
         "Set-Cookie": `aniconnect_consent_${consent}=1; Path=/authorize; Max-Age=${PENDING_MS / 1000}; HttpOnly; SameSite=Strict${this.secure}`,
-        "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'",
+        // No form-action: browsers apply it to the redirect after the post too, and the form's
+        // answer redirects to AniList (or, on deny, back to the app).
+        "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'",
         "X-Frame-Options": "DENY",
       },
     });

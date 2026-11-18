@@ -31,8 +31,8 @@ let base: string;
 /** AniList's side of sign-in: which code gives which token, and the exchanges it saw. */
 let anilistCodes: Map<string, string>;
 let exchanges: Record<string, string>[];
-/** AniList tokens AniList no longer accepts (the user revoked the app). */
-let revoked: Set<string>;
+/** AniList tokens AniList no longer accepts (the user revoked the app), and how AniList says so. */
+let revoked: Map<string, "errors" | "bare">;
 /** Delays AniList's answer to writes, so two of them overlap. */
 let slowWrites: boolean;
 
@@ -45,7 +45,7 @@ beforeEach(async () => {
     ["code-bob", anilistToken("bob")],
   ]);
   exchanges = [];
-  revoked = new Set();
+  revoked = new Map();
   slowWrites = false;
   const fetchFn = async (url: string, init: RequestInit) => {
     if (url === ANILIST_TOKEN) {
@@ -55,9 +55,9 @@ beforeEach(async () => {
       if (!token) return Response.json({ error: "invalid_request", message: "The authorization code is invalid." }, { status: 400 });
       return Response.json({ token_type: "Bearer", expires_in: YEAR_S, access_token: token, refresh_token: "unused" });
     }
-    if (revoked.has(new Headers(init.headers).get("Authorization")!.slice(7))) {
-      return Response.json({ errors: [{ message: "Invalid token", status: 401 }], data: null }, { status: 401 });
-    }
+    const refusal = revoked.get(new Headers(init.headers).get("Authorization")!.slice(7));
+    if (refusal === "errors") return Response.json({ errors: [{ message: "Invalid token", status: 401 }], data: null }, { status: 401 });
+    if (refusal === "bare") return new Response("Unauthorized", { status: 401 });
     if (slowWrites && /^\s*mutation/.test(JSON.parse(init.body as string).query)) await Bun.sleep(50);
     return fake.fetch(url, init);
   };
@@ -432,6 +432,8 @@ describe("authorization checks", () => {
     expect(html).toContain("&#60;b&#62;Evil&#60;/b&#62; app");
     expect(html).not.toContain("<b>Evil</b>");
     expect(res.headers.get("Content-Security-Policy")).toContain("frame-ancestors 'none'");
+    // Browsers check form-action against the post's redirect to AniList, so 'self' would block approving.
+    expect(res.headers.get("Content-Security-Policy")).not.toContain("form-action");
     expect(res.headers.get("Set-Cookie")).toContain("SameSite=Strict");
 
     // Another site posting the form for the user (no cookie, or someone else's) gets nowhere.
@@ -549,9 +551,9 @@ describe("authorization checks", () => {
     expect(late.headers.get("WWW-Authenticate")).toContain('error="invalid_token"');
   });
 
-  test("when AniList stops accepting the token, the tool says to sign in again and the client is signed out", async () => {
+  test.each(["errors", "bare"] as const)("when AniList stops accepting the token (%s 401), the tool says to sign in again and the client is signed out", async (refusal) => {
     const { client, provider } = await connectSignedIn();
-    revoked.add(anilistToken("alice"));
+    revoked.set(anilistToken("alice"), refusal);
     const result = await call(client, "search_my_list", { status: "CURRENT" });
     expect(result.isError).toBe(true);
     expect(result.text).toContain("sign in with AniList again: reconnect AniConnect");
@@ -564,8 +566,12 @@ describe("authorization checks", () => {
     });
     expect(next.status).toBe(401);
     expect(next.headers.get("WWW-Authenticate")).toContain('error="invalid_token"');
-    expect(app.stats()).toEqual({ sessions: 0, accounts: 0 });
+    expect(app.stats()).toEqual({ sessions: 0, accounts: 0, rejected: 1 });
     await client.close().catch(() => {});
+    // The refusal is forgotten once idle; a retry after that would ask AniList again.
+    clock += IDLE_MS;
+    await app.sweep();
+    expect(app.stats().rejected).toBe(0);
   });
 });
 
@@ -618,7 +624,7 @@ describe("sessions", () => {
   test("one user can't use another user's session", async () => {
     const alice = await connectSignedIn("code-alice");
     const bob = await connectSignedIn("code-bob");
-    expect(app.stats()).toEqual({ sessions: 2, accounts: 2 });
+    expect(app.stats()).toEqual({ sessions: 2, accounts: 2, rejected: 0 });
     const aliceSession = (alice.client.transport as StreamableHTTPClientTransport).sessionId!;
     const res = await fetch(`${base}/mcp`, {
       method: "POST",
@@ -637,10 +643,10 @@ describe("sessions", () => {
 
   test("idle sessions and users are dropped", async () => {
     const { client } = await connectSignedIn();
-    expect(app.stats()).toEqual({ sessions: 1, accounts: 1 });
+    expect(app.stats()).toEqual({ sessions: 1, accounts: 1, rejected: 0 });
     clock += IDLE_MS;
     await app.sweep();
-    expect(app.stats()).toEqual({ sessions: 0, accounts: 0 });
+    expect(app.stats()).toEqual({ sessions: 0, accounts: 0, rejected: 0 });
     await client.close().catch(() => {});
   });
 
