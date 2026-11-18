@@ -277,45 +277,87 @@ function sequelLine(s: NextSeason, language: TitleLanguage): string {
   return `- After ${displayTitle(s.after.title, language)}: ${sequelDetail(s, language)}`;
 }
 
-export function formatReport(r: Report, now: number, timeZone: string, language: TitleLanguage): string {
+/**
+ * How many shows each section of the whole-list report lists before it's cut short. Each
+ * section is already ranked, so the cut keeps what matters most: shows still airing come
+ * first in the episode lists, then the ones closest to done, so a long-running backlog
+ * ("134 episodes to watch") is what drops out. A list this size still reads at a glance;
+ * `all` lists everything.
+ */
+export const SECTION_LIMITS = {
+  newEpisodes: 8,
+  waiting: 5,
+  unknown: 3,
+  readySequels: 3,
+  onHold: 3,
+  comingSequels: 3,
+} as const;
+
+interface Section<T> {
+  heading: string;
+  shown: T[];
+  lines: string[];
+  /** How many more the section has than it shows. */
+  more: number;
+}
+
+/** The report's sections in order, each cut to its limit unless `all`. */
+function sections(r: Report, now: number, timeZone: string, language: TitleLanguage, all: boolean) {
   const title = (m: Media) => displayTitle(m.title, language);
-  const sections: string[] = [];
-  if (r.newEpisodes.length) {
-    sections.push(["New episodes to watch:", ...r.newEpisodes.map((b) => behindLine(b, now, timeZone, language))].join("\n"));
-  }
-  if (r.waiting.length) {
-    sections.push(
-      [
-        "Caught up, waiting for new episodes:",
-        ...r.waiting.map((m) => {
-          const next = upcoming(m, now);
-          return next
-            ? `- ${title(m)}: episode ${next.episode} airs ${formatAirTime(next.airingAt, now, timeZone)}.`
-            : `- ${title(m)}: still airing, no date announced for the next episode.`;
-        }),
-      ].join("\n"),
-    );
-  }
-  if (r.unknown.length) {
-    sections.push(
-      [
-        "Airing, but AniList doesn't say how many episodes are out:",
-        ...r.unknown.map((m) => `- ${title(m)}: you're on episode ${m.mediaListEntry!.progress}.`),
-      ].join("\n"),
-    );
-  }
-  const readySequels = r.nextSeasons.filter((s) => AIRED_STATUSES.has(s.next.status ?? ""));
-  const comingSequels = r.nextSeasons.filter((s) => !AIRED_STATUSES.has(s.next.status ?? ""));
-  if (readySequels.length) {
-    sections.push(["Next seasons of shows you finished:", ...readySequels.map((s) => sequelLine(s, language))].join("\n"));
-  }
-  if (r.onHold.length) {
-    sections.push(["On hold, with episodes left:", ...r.onHold.map((b) => behindLine(b, now, timeZone, language))].join("\n"));
-  }
-  if (comingSequels.length) {
-    sections.push(["Announced sequels:", ...comingSequels.map((s) => sequelLine(s, language))].join("\n"));
-  }
-  return sections.length ? sections.join("\n\n") : "Nothing new: you're caught up on everything you're watching.";
+  const section = <T>(heading: string, items: T[], limit: number, line: (item: T) => string): Section<T> => {
+    const shown = all ? items : items.slice(0, limit);
+    return { heading, shown, lines: shown.map(line), more: items.length - shown.length };
+  };
+  const behind = (b: Behind) => behindLine(b, now, timeZone, language);
+  const sequel = (s: NextSeason) => sequelLine(s, language);
+  const aired = (s: NextSeason) => AIRED_STATUSES.has(s.next.status ?? "");
+  return {
+    newEpisodes: section("New episodes to watch:", r.newEpisodes, SECTION_LIMITS.newEpisodes, behind),
+    waiting: section("Caught up, waiting for new episodes:", r.waiting, SECTION_LIMITS.waiting, (m) => {
+      const next = upcoming(m, now);
+      return next
+        ? `- ${title(m)}: episode ${next.episode} airs ${formatAirTime(next.airingAt, now, timeZone)}.`
+        : `- ${title(m)}: still airing, no date announced for the next episode.`;
+    }),
+    unknown: section(
+      "Airing, but AniList doesn't say how many episodes are out:",
+      r.unknown,
+      SECTION_LIMITS.unknown,
+      (m) => `- ${title(m)}: you're on episode ${m.mediaListEntry!.progress}.`,
+    ),
+    readySequels: section("Next seasons of shows you finished:", r.nextSeasons.filter(aired), SECTION_LIMITS.readySequels, sequel),
+    onHold: section("On hold, with episodes left:", r.onHold, SECTION_LIMITS.onHold, behind),
+    comingSequels: section(
+      "Announced sequels:",
+      r.nextSeasons.filter((s) => !aired(s)),
+      SECTION_LIMITS.comingSequels,
+      sequel,
+    ),
+  };
+}
+
+/** Whether the report, cut as it would be, shows an air time (a day and time in `timeZone`). */
+export function reportHasAirTimes(r: Report, now: number, all = false): boolean {
+  // Only the lines for these sections print times; the zone and language don't change which are shown.
+  const s = sections(r, now, "UTC", "ENGLISH", all);
+  return [...s.newEpisodes.shown.map((b) => b.media), ...s.waiting.shown, ...s.onHold.shown.map((b) => b.media)].some(
+    (m) => Boolean(upcoming(m, now)),
+  );
+}
+
+/**
+ * The whole-list report. Long sections are cut to SECTION_LIMITS and say how many more
+ * they have, with one line at the end saying how to see them all; `all` lists everything.
+ */
+export function formatReport(r: Report, now: number, timeZone: string, language: TitleLanguage, all = false): string {
+  const s = sections(r, now, timeZone, language, all);
+  const order: Section<unknown>[] = [s.newEpisodes, s.waiting, s.unknown, s.readySequels, s.onHold, s.comingSequels];
+  const blocks = order
+    .filter((x) => x.shown.length > 0)
+    .map((x) => [x.heading, ...x.lines, ...(x.more ? [`...and ${x.more} more.`] : [])].join("\n"));
+  if (!blocks.length) return "Nothing new: you're caught up on everything you're watching.";
+  const cut = order.some((x) => x.more > 0);
+  return `${blocks.join("\n\n")}${cut ? "\n\nLong sections are cut short: to list every show, call again with all: true." : ""}`;
 }
 
 /** One show: where the user is, what's out, when the next episode airs, and what comes before and after. */

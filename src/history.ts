@@ -323,6 +323,17 @@ export function formatHistory(activities: ListActivity[], o: HistoryOptions): st
 /** A finish "completed" or "rewatched" in the feed; other updates aren't finishes. */
 const FINISH = /^(completed|rewatched)$/;
 
+/**
+ * Whether the answer has a day or time read in `o.timeZone`, so a note about that zone
+ * applies: a range other than all time was read in it, and feed updates are dated in it.
+ * Finish dates from the list are the user's own days, the same in any zone.
+ */
+export function historyUsesZone(activities: ListActivity[], o: HistoryOptions, finished: boolean): boolean {
+  if (o.range.start > 0) return true;
+  if (!finished) return activities.length > 0;
+  return (o.truncated && activities.length > 0) || activities.some((a) => a.media && FINISH.test(a.status ?? ""));
+}
+
 /** The time a finish date on the list could mean, as a Range: a day, a month, or a year. */
 function dateRange(d: FuzzyDate, timeZone: string): Range | null {
   if (!d.year) return null;

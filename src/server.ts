@@ -46,7 +46,7 @@ import {
   type Intent,
   type Resolution,
 } from "./resolve";
-import { formatFinished, formatHistory, parsePeriod } from "./history";
+import { formatFinished, formatHistory, historyUsesZone, parsePeriod } from "./history";
 import { tokenWatch } from "./token";
 import { Journal, snapshot, undoGroups, type EntryChange } from "./undo";
 import {
@@ -58,6 +58,8 @@ import {
   formatShow,
   moviesBesideSeries,
   nextSeasons,
+  reportHasAirTimes,
+  upcoming,
 } from "./whatsnext";
 
 const anime = z
@@ -601,10 +603,11 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
           .string()
           .optional()
           .describe('IANA time zone for air times, e.g. "America/New_York". Defaults to the user\'s AniList time zone.'),
+        all: z.boolean().optional().describe("List every show; by default long sections are cut short"),
       },
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
-    safe(async ({ anime, timeZone }) => {
+    safe(async ({ anime, timeZone, all }) => {
       const { zone, note: zoneNote } = await readZone(timeZone);
       const at = now();
       // Streaming links are only wanted for one show, so only that path's lookups fetch them.
@@ -622,7 +625,9 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
             ? media
             : ((await client.getMany([media.id], { links: true }))[0] ?? media);
         const sequels = nextSeasons([show], listStatus, await client.getMany(moviesBesideSeries([show])));
-        return text(`${note}${formatShow(show, sequels, listStatus, at, zone, titleLanguage)}${zoneNote}`);
+        // The zone note only matters when an air time is printed.
+        const timed = Boolean(upcoming(show, at));
+        return text(`${note}${formatShow(show, sequels, listStatus, at, zone, titleLanguage)}${timed ? zoneNote : ""}`);
       }
 
       const finished = list
@@ -632,7 +637,9 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       const withRelations = await client.getMany(finished.map((m) => m.id));
       // Usually no request: only shows with both a series and a movie sequel need one.
       const sequels = nextSeasons(withRelations, listStatus, await client.getMany(moviesBesideSeries(withRelations)));
-      return text(`${formatReport(buildReport(list, sequels, at), at, zone, titleLanguage)}${zoneNote}`);
+      const report = buildReport(list, sequels, at);
+      const timed = reportHasAirTimes(report, at, all);
+      return text(`${formatReport(report, at, zone, titleLanguage, all)}${timed ? zoneNote : ""}`);
     }),
   );
 
@@ -693,7 +700,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       const body = finished
         ? formatFinished(show ? list.filter((e) => e.media.id === show.media.id) : list, activities, options)
         : formatHistory(activities, options);
-      return text(`${show?.note ?? ""}${body}${zoneNote}`);
+      return text(`${show?.note ?? ""}${body}${historyUsesZone(activities, options, Boolean(finished)) ? zoneNote : ""}`);
     }),
   );
 

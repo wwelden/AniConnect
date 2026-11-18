@@ -5,7 +5,7 @@ import { AniListClient, LIST_TTL_MS } from "../src/anilist";
 import { formatDate, todayFuzzy } from "../src/logic";
 import { createServer, INSTRUCTIONS, WRITE_TOOLS, type ServerOptions } from "../src/server";
 import pkg from "../package.json" with { type: "json" };
-import { PERSONA } from "./fixtures/persona";
+import { HISTORY, PERSONA } from "./fixtures/persona";
 import { catalog, FakeAniList, type CatalogMedia } from "./support/fake-anilist";
 
 let fake: FakeAniList;
@@ -1072,3 +1072,97 @@ describe("adult titles (AniList's 18+ content setting)", () => {
   });
 });
 
+
+describe("whats_next on a long list", () => {
+  // 45 finished shows being watched, each with episodes left: more than a report should list.
+  const stub = (i: number) =>
+    ({
+      id: 960000 + i, title: { romaji: `Backlog Show ${i}`, english: null, native: null }, synonyms: [], episodes: 12 + i,
+      duration: 24, format: "TV", status: "FINISHED", season: "SPRING", seasonYear: 2010, startDate: { year: 2010, month: 4, day: 1 },
+      averageScore: 70, popularity: 1000, isAdult: false, siteUrl: "", nextAiringEpisode: null, relations: { edges: [] },
+      franchise: `Backlog Show ${i}`,
+    }) as unknown as CatalogMedia;
+  const added = Array.from({ length: 45 }, (_, i) => stub(i));
+  beforeEach(() => void catalog.push(...added));
+  afterEach(() => void catalog.splice(catalog.length - added.length, added.length));
+
+  async function report(args: Record<string, unknown>) {
+    fake = new FakeAniList().seed(added.map((m) => ({ anime: m.id, status: "CURRENT" as const, progress: 1 })));
+    await connect({ now: () => NOW });
+    const r = await call("whats_next", args);
+    expect(r.isError).toBe(false);
+    return { ...r, requests: fake.calls.length };
+  }
+
+  test("lists the shows closest to done and says how to see the rest", async () => {
+    const r = await report({});
+    const lines = r.text.split("\n");
+    expect(lines[0]).toBe("New episodes to watch:");
+    expect(lines[1]).toBe("- Backlog Show 0: 11 episodes to watch, about 4.5 hours (on 1 of 12 aired).");
+    expect(lines.filter((l) => l.startsWith("- "))).toHaveLength(8);
+    expect(r.text).toContain("...and 37 more.");
+    expect(r.text).not.toContain("Backlog Show 44");
+    expect(r.text).toEndWith("Long sections are cut short: to list every show, call again with all: true.");
+  });
+
+  test("all: true lists every show, in the same requests", async () => {
+    const cut = await report({});
+    const all = await report({ all: true });
+    expect(all.text.split("\n").filter((l) => l.startsWith("- "))).toHaveLength(45);
+    expect(all.text).toContain("- Backlog Show 44: 55 episodes to watch");
+    expect(all.text).not.toContain("more.");
+    expect(all.text).not.toContain("all: true");
+    expect(all.requests).toBe(cut.requests);
+  });
+});
+
+describe("the UTC note on the hosted server appears only with a time or day it applies to", () => {
+  const NOTE = "Times and days are in UTC";
+  beforeEach(async () => {
+    fake = new FakeAniList().seed(PERSONA);
+    await connect({ now: () => NOW, hosted: true });
+  });
+
+  test("one show: only when the next episode's air time is given", async () => {
+    const finished = await call("whats_next", { anime: "jjk" });
+    expect(finished.text).not.toContain(" airs ");
+    expect(finished.text).not.toContain(NOTE);
+    const airing = await call("whats_next", { anime: "apothecary diaries" });
+    expect(airing.text).toContain("Next: episode 8 airs Fri, Nov 20 at 2:00 PM UTC (in 3 days).");
+    expect(airing.text).toContain(NOTE);
+  });
+
+  test("the whole list: only when a listed show has an air time", async () => {
+    expect((await call("whats_next", {})).text).toContain(NOTE);
+    fake = new FakeAniList().seed([{ anime: "Dandadan", status: "CURRENT", progress: 7 }]);
+    await connect({ now: () => NOW, hosted: true });
+    const r = await call("whats_next", {});
+    expect(r.text).toBe("New episodes to watch:\n- DAN DA DAN: 5 episodes to watch, about 2 hours (on 7 of 12 aired).");
+  });
+
+  test("watch_history: not for an all-time answer with nothing dated in it", async () => {
+    const empty = await call("watch_history", { anime: 145064 });
+    expect(empty.text).toContain("No list activity for JUJUTSU KAISEN Season 2 found (all time, UTC)");
+    expect(empty.text).not.toContain(NOTE);
+    fake.seedActivity(HISTORY);
+    const dated = await call("watch_history", { anime: 145064 });
+    expect(dated.text).toContain("Thu, Nov 12\n- 8:30 PM JUJUTSU KAISEN Season 2: watched episode 3");
+    expect(dated.text).toContain(NOTE);
+  });
+
+  test("watch_history: always for a range of days, which were read in UTC", async () => {
+    const r = await call("watch_history", { period: "this week" });
+    expect(r.text).toContain("No list activity found");
+    expect(r.text).toContain(NOTE);
+  });
+
+  test("watch_history finished: list finish dates are the user's own days and need no note", async () => {
+    const r = await call("watch_history", { period: "all time", finished: true });
+    expect(r.text).toContain("No finished shows found");
+    expect(r.text).not.toContain(NOTE);
+    fake.seedActivity(HISTORY);
+    const fromFeed = await call("watch_history", { period: "all time", finished: true });
+    expect(fromFeed.text).toContain("Frieren");
+    expect(fromFeed.text).toContain(NOTE);
+  });
+});
