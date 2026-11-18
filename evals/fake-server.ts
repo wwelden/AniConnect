@@ -6,7 +6,7 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { AniListClient } from "../src/anilist";
 import { createServer } from "../src/server";
-import { NOW } from "./clock";
+import { NOW } from "./persona";
 
 const url = process.env.ANILIST_URL;
 if (!url) {

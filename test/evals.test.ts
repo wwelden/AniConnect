@@ -106,7 +106,7 @@ describe("sending another server's AniList requests to the fake (R6.4)", () => {
           `fetch("https://graphql.anilist.co", { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer x" },
             body: JSON.stringify({ query: "query { Viewer { name } }" }) }).then((r) => r.json()).then((b) => console.log(b.data.Viewer.name))`,
         ],
-        { env: { ...process.env, FAKE_ANILIST_URL: http.url, NODE_OPTIONS: `--require ${join(import.meta.dir, "../evals/anilist-redirect.cjs")}` }, stdout: "pipe" },
+        { env: { ...process.env, FAKE_ANILIST_URL: http.url, NODE_OPTIONS: `--require ${JSON.stringify(join(import.meta.dir, "../evals/anilist-redirect.cjs"))}` }, stdout: "pipe" },
       );
       expect((await new Response(proc.stdout).text()).trim()).toBe("tester");
       expect(fake.calls).toHaveLength(1);

@@ -85,6 +85,16 @@ describe("fake AniList", () => {
     const q = "query ($m: Int) { MediaList(userName: \"tester\", mediaId: $m) { progress } }";
     expect((await gql(fake, q, { m: DANDADAN })).body.data.MediaList).toEqual({ progress: 3 });
     expect((await gql(fake, q, { m: findMedia("ONE PIECE").id })).status).toBe(404);
+    // `id` here is the entry's ID, not the user's.
+    const id = fake.entries.get(DANDADAN)!.id;
+    expect((await gql(fake, `query { MediaList(id: ${id}) { mediaId } }`)).body.data.MediaList).toEqual({ mediaId: DANDADAN });
+    expect((await gql(fake, `query { Page { mediaList(id: ${id}) { mediaId } } }`)).body.data.Page.mediaList).toEqual([{ mediaId: DANDADAN }]);
+  });
+
+  test("lists airing episodes with IDs that fit GraphQL's Int", async () => {
+    const r = await gql(new FakeAniList(), "query { Page { airingSchedules(notYetAired: true) { id episode media { id } } } }");
+    expect(r.status).toBe(200);
+    expect(r.body.data.Page.airingSchedules.length).toBeGreaterThan(0);
   });
 
   test("groups the list into status lists, and repeats an entry in each custom list it's on", async () => {

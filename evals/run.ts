@@ -17,13 +17,11 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
-import { HISTORY, PERSONA } from "../test/fixtures/persona";
-import { FakeAniList } from "../test/support/fake-anilist";
 import { CASES, type EvalCase } from "./cases";
-import { NOW } from "./clock";
 import { serveFake } from "./fake-http";
 import { diff, gradeCase } from "./grade";
-import { SERVERS } from "./servers";
+import { personaFake } from "./persona";
+import { serverNamed } from "./servers";
 
 const { values: args } = parseArgs({
   options: {
@@ -39,11 +37,13 @@ const { values: args } = parseArgs({
 const SYSTEM_PROMPT =
   "You are a helpful assistant. The user keeps track of the anime they watch on AniList, and you can manage their list with the tools provided. Today is 2026-11-17 and the user is in the UTC time zone.";
 
-if (!SERVERS[args.server!]) {
-  console.error(`Unknown server "${args.server}"; pick one of ${Object.keys(SERVERS).join(", ")}.`);
+let server: ReturnType<typeof serverNamed>;
+try {
+  server = serverNamed(args.server!);
+} catch (err) {
+  console.error((err as Error).message);
   process.exit(1);
 }
-const server = SERVERS[args.server!]!;
 const ownServer = args.server === "aniconnect";
 
 interface RunResult {
@@ -59,12 +59,13 @@ interface RunResult {
   transcript: { tool: string; input: unknown; result?: string; isError?: boolean }[];
   /** Fields and arguments the server asked AniList for that the fake has no data for. */
   unmodeled: string[];
+  /** Requests the server sent to the fake AniList. */
+  anilistRequests: number;
 }
 
 async function runCase(c: EvalCase): Promise<RunResult> {
   const dir = await mkdtemp(join(tmpdir(), "aniconnect-eval-"));
-  const fake = new FakeAniList("POINT_10_DECIMAL", "tester").seed(PERSONA).seedActivity(HISTORY);
-  fake.clock = () => NOW;
+  const fake = personaFake();
   const initial = structuredClone(fake.exportState().entries);
   const anilist = serveFake(fake);
   try {
@@ -134,7 +135,8 @@ async function runCase(c: EvalCase): Promise<RunResult> {
       }
     }
     const unmodeled = [...fake.unmodeled];
-    const base = { id: c.id, toolCalls, costUsd, durationMs: Date.now() - started, reply, model, transcript, unmodeled };
+    const anilistRequests = fake.calls.length;
+    const base = { id: c.id, toolCalls, costUsd, durationMs: Date.now() - started, reply, model, transcript, unmodeled, anilistRequests };
     if (proc.exitCode !== 0) {
       return { ...base, passed: false, detail: `claude exited ${proc.exitCode}: ${err.trim().slice(0, 300)}` };
     }
@@ -183,6 +185,11 @@ async function main() {
   console.log(`\nPassed ${passed}/${results.length} (${Math.round((100 * passed) / results.length)}%)`);
   console.log(`In the ideal number of tool calls: ${efficient}/${ideal.length}`);
   console.log(`Average tool calls: ${calls.toFixed(2)}   Total cost: $${cost.toFixed(2)}`);
+  // A server whose tools ran but never reached the fake is talking to something else, e.g. the real AniList.
+  const silent = results.filter((r) => r.toolCalls.length > 0 && r.anilistRequests === 0);
+  if (silent.length) {
+    console.log(`Warning: tools ran but nothing reached the fake AniList in ${silent.map((r) => r.id).join(", ")}.`);
+  }
   const unmodeled = [...new Set(results.flatMap((r) => r.unmodeled))].sort();
   if (unmodeled.length) {
     console.log(`The fake had no data for (returned null): ${unmodeled.join(", ")}`);

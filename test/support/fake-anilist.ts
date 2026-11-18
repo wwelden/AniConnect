@@ -233,10 +233,8 @@ function requireAuth(ctx: Context) {
   if (!ctx.authed) throw new FakeError("Unauthorized.", 401);
 }
 
-/** Whether `userId`/`userName` arguments (if any) name the signed-in user. */
-function isViewer(args: { userId?: number | null; userName?: string | null; id?: number | null; name?: string | null }, ctx: Context) {
-  const id = args.userId ?? args.id;
-  const name = args.userName ?? args.name;
+/** Whether a user ID and name (either may be absent) name the signed-in user. */
+function isViewer(id: number | null | undefined, name: string | null | undefined, ctx: Context) {
   return (id == null || id === VIEWER_ID) && (name == null || name.toLowerCase() === ctx.fake.viewerName.toLowerCase());
 }
 
@@ -284,7 +282,8 @@ const MEDIA_FILTERS: Record<string, (m: CatalogMedia, value: any, ctx: Context) 
   genre_in: (m, v: string[]) => v.every((g) => (m.genres ?? []).includes(g)),
   genre_not_in: (m, v: string[]) => !v.some((g) => (m.genres ?? []).includes(g)),
   isAdult: (m, v) => m.isAdult === v,
-  onList: (m, v, ctx) => ctx.authed && ctx.fake.entries.has(m.id) === v,
+  // Without a token there is no list to be on, so the filter does nothing.
+  onList: (m, v, ctx) => !ctx.authed || ctx.fake.entries.has(m.id) === v,
   episodes: (m, v) => m.episodes === v,
   episodes_greater: (m, v) => (m.episodes ?? 0) > v,
   episodes_lesser: (m, v) => m.episodes !== null && m.episodes < v,
@@ -318,7 +317,7 @@ function entryFilter(args: Record<string, any>, ctx: Context): (e: StoredEntry) 
   const known = new Set(["id", "userId", "userName", "type", "status", "status_in", "status_not", "status_not_in", "mediaId", "mediaId_in", "sort", "notes_like"]);
   for (const [name, value] of Object.entries(args)) if (value != null && !known.has(name)) ctx.fake.unmodeled.add(`MediaList(${name})`);
   return (e) =>
-    isViewer(args, ctx) &&
+    isViewer(args.userId, args.userName, ctx) &&
     (args.type == null || args.type === "ANIME") &&
     (args.id == null || e.id === args.id) &&
     (args.mediaId == null || e.mediaId === args.mediaId) &&
@@ -364,7 +363,7 @@ resolveFields("Query", {
     return ctx.fake.viewer();
   },
   User: (_root, args, ctx) => {
-    if (!isViewer(args, ctx) || (args.search && !ctx.fake.viewerName.toLowerCase().includes(args.search.toLowerCase()))) {
+    if (!isViewer(args.id, args.name, ctx) || (args.search && !ctx.fake.viewerName.toLowerCase().includes(args.search.toLowerCase()))) {
       throw notFound();
     }
     return ctx.fake.viewer();
@@ -384,7 +383,7 @@ resolveFields("Query", {
     if (args.userId == null && args.userName == null) {
       throw new FakeError("validation", 400, { userId: ["The user id field is required when user name is not present."] });
     }
-    if (!isViewer(args, ctx)) throw notFound();
+    if (!isViewer(args.userId, args.userName, ctx)) throw notFound();
     const entries = [...ctx.fake.entries.values()].filter(entryFilter(args, ctx));
     const lists: { name: string; isCustomList: boolean; isSplitCompletedList: boolean; status: ListStatus | null; entries: StoredEntry[] }[] = [];
     for (const [status, name] of STATUS_LISTS) {
@@ -556,7 +555,7 @@ function blank(type: GraphQLOutputType): unknown {
   if (isObjectType(inner) && ALWAYS_PRESENT.test(inner.name)) return {};
   if (!isNonNullType(type)) return null;
   if (isEnumType(inner)) return inner.getValues()[0]!.value;
-  if (isScalarType(inner)) return { Boolean: false, Int: 0, Float: 0, String: "" }[inner.name] ?? null;
+  if (isScalarType(inner)) return ({ Boolean: false, Int: 0, Float: 0, Json: {} } as Record<string, unknown>)[inner.name] ?? "";
   return {};
 }
 
@@ -661,13 +660,22 @@ export class FakeAniList {
   schedule(mediaId: number, episode: number, airingAt: number) {
     const m = catalog.find((c) => c.id === mediaId);
     return {
-      id: mediaId * 10000 + episode,
+      id: this.scheduleId(mediaId, episode),
       mediaId,
       episode,
       airingAt,
       timeUntilAiring: airingAt - Math.floor(this.clock() / 1000),
       media: m ? mediaValue(m, 1) : null,
     };
+  }
+
+  private scheduleIds = new Map<string, number>();
+
+  /** A stable ID for an episode's airing, small enough for GraphQL's 32-bit Int. */
+  private scheduleId(mediaId: number, episode: number): number {
+    const key = `${mediaId}:${episode}`;
+    if (!this.scheduleIds.has(key)) this.scheduleIds.set(key, this.scheduleIds.size + 1);
+    return this.scheduleIds.get(key)!;
   }
 
   /** The snapshot knows each airing show's next episode only. */
@@ -854,9 +862,11 @@ export class FakeAniList {
       if (original instanceof FakeError) {
         return { message: original.message, status: original.status, locations: e.locations, ...(original.validation && { validation: original.validation }) };
       }
-      // Bad variables come back like this from AniList too; anything else is a bug in the fake.
-      if (original) throw original;
-      return { message: e.message, status: 400, locations: e.locations };
+      // Bad variables come back like this from AniList too.
+      if (!original) return { message: e.message, status: 400, locations: e.locations };
+      // Anything else is a bug in the fake: answer like a server error, and say so.
+      console.error(`Fake AniList failed at ${e.path?.join(".")}: ${original.stack}`);
+      return { message: `Fake AniList failed: ${original.message}`, status: 500, locations: e.locations };
     });
     return Response.json({ errors, data: result.data ?? null }, { status: errors[0]!.status });
   };

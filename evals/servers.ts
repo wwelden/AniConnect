@@ -23,7 +23,7 @@ function nodeEnv(anilistUrl: string, extra: Record<string, string> = {}) {
   return {
     ANILIST_TOKEN: TOKEN,
     FAKE_ANILIST_URL: anilistUrl,
-    NODE_OPTIONS: `--require ${REDIRECT}`,
+    NODE_OPTIONS: `--require ${JSON.stringify(REDIRECT)}`,
     PATH: process.env.PATH ?? "",
     HOME: process.env.HOME ?? "",
     ...extra,
@@ -52,3 +52,9 @@ export const SERVERS: Record<string, EvalServer> = {
     env: (anilistUrl) => nodeEnv(anilistUrl),
   },
 };
+
+export function serverNamed(name: string): EvalServer {
+  const server = SERVERS[name];
+  if (!server) throw new Error(`Unknown server "${name}"; pick one of ${Object.keys(SERVERS).join(", ")}.`);
+  return server;
+}

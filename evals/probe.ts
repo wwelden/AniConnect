@@ -10,20 +10,15 @@
 import { parseArgs } from "node:util";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { HISTORY, PERSONA } from "../test/fixtures/persona";
-import { FakeAniList } from "../test/support/fake-anilist";
-import { NOW } from "./clock";
 import { serveFake } from "./fake-http";
-import { SERVERS } from "./servers";
+import { personaFake } from "./persona";
+import { serverNamed } from "./servers";
 
 const { values: args } = parseArgs({
   options: { server: { type: "string", default: "aniconnect" }, call: { type: "string" }, args: { type: "string", default: "{}" } },
 });
-const spec = SERVERS[args.server!];
-if (!spec) throw new Error(`Unknown server ${args.server}; pick one of ${Object.keys(SERVERS).join(", ")}`);
-
-const fake = new FakeAniList("POINT_10_DECIMAL", "tester").seed(PERSONA).seedActivity(HISTORY);
-fake.clock = () => NOW;
+const spec = serverNamed(args.server!);
+const fake = personaFake();
 const http = serveFake(fake);
 const client = new Client({ name: "probe", version: "0" });
 await client.connect(
