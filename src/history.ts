@@ -68,6 +68,29 @@ const MONTHS = [
   "july", "august", "september", "october", "november", "december",
 ];
 
+const WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+
+/** 0 (Monday) to 6 (Sunday). */
+function weekdayOf(d: Day): number {
+  return (new Date(Date.UTC(d.year, d.month - 1, d.day)).getUTCDay() + 6) % 7;
+}
+
+const NUMBERS = ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve"];
+/** A count in words or digits: "3", "a", "two", "a couple of", "a few". */
+const COUNT = `(\\d+|an?|${NUMBERS.join("|")}|(?:a )?couple(?: of)?|(?:a )?few)`;
+const AGO = new RegExp(`^${COUNT} (day|week|month|year)s? ago$`);
+const LAST_N = new RegExp(`^(?:the )?(?:last|past) (?:${COUNT} )?(day|week|month|year)s?$`);
+const LAST_HOURS = new RegExp(`^(?:the )?(?:last|past) (?:${COUNT} )?hours?$`);
+
+/** The number a COUNT match stands for (none is 1). */
+function count(word: string | undefined): number {
+  const w = (word ?? "1").replace(/^a /, "").replace(/ of$/, "");
+  if (/^\d+$/.test(w)) return Number(w);
+  if (w === "couple") return 2;
+  if (w === "few") return 3;
+  return NUMBERS.indexOf(w) + 1 || 1;
+}
+
 /** 1-12 for a month name or its abbreviation ("mar", "sept"), else 0. */
 function monthNumber(word: string): number {
   return word.length >= 3 ? MONTHS.findIndex((name) => name.startsWith(word)) + 1 : 0;
@@ -88,10 +111,40 @@ function span(text: string, today: Day, after?: Day, before?: Day): [Day, Day] |
     const y = shift(today, { days: -1 });
     return [y, y];
   }
+  if (t === "tonight") return [today, today];
+  // Watching last night often runs past midnight.
+  if (t === "last night") return [shift(today, { days: -1 }), today];
+  if ((m = t.match(/^(this|last|past) weekend$/))) {
+    // The weekend before this week ("last", "past"), or the latest one that has started ("this").
+    const weekday = weekdayOf(today);
+    if (m[1] === "this" && weekday >= 5) return [shift(today, { days: 5 - weekday }), today];
+    const sunday = shift(today, { days: -weekday - 1 });
+    return [shift(sunday, { days: -1 }), sunday];
+  }
+  if ((m = t.match(/^(?:last )?([a-z]+day)$/)) && WEEKDAYS.includes(m[1]!)) {
+    const weekday = WEEKDAYS.indexOf(m[1]!);
+    // At the end of a range, the first one on or after its start: "monday to wednesday".
+    if (after) {
+      const d = shift(after, { days: (weekday - weekdayOf(after) + 7) % 7 });
+      return [d, d];
+    }
+    // Otherwise the latest one before today: "last friday" asked on a Friday is a week ago.
+    const d = shift(today, { days: -((weekdayOf(today) - weekday + 7) % 7 || 7) });
+    return [d, d];
+  }
+  if ((m = t.match(AGO))) {
+    const n = count(m[1]);
+    const unit = m[2]!;
+    const d =
+      unit === "day" || unit === "week"
+        ? shift(today, { days: -n * (unit === "week" ? 7 : 1) })
+        : shift(today, { [unit === "month" ? "months" : "years"]: -n });
+    return [d, d];
+  }
   if ((m = t.match(/^(this|last) week$/))) {
     const last = m[1] === "last";
     // Weeks start on Monday.
-    const weekday = (new Date(Date.UTC(today.year, today.month - 1, today.day)).getUTCDay() + 6) % 7;
+    const weekday = weekdayOf(today);
     const monday = shift(today, { days: -weekday - (last ? 7 : 0) });
     return [monday, last ? shift(monday, { days: 6 }) : today];
   }
@@ -104,8 +157,8 @@ function span(text: string, today: Day, after?: Day, before?: Day): [Day, Day] |
     const year = today.year - (m[1] === "last" ? 1 : 0);
     return [{ year, month: 1, day: 1 }, m[1] === "last" ? { year, month: 12, day: 31 } : today];
   }
-  if ((m = t.match(/^(?:the )?(?:last|past) (?:(\d+) )?(day|week|month|year)s?$/))) {
-    const n = Number(m[1] ?? 1);
+  if ((m = t.match(LAST_N))) {
+    const n = count(m[1]);
     const unit = m[2]!;
     const first =
       unit === "day" || unit === "week"
@@ -126,7 +179,11 @@ function span(text: string, today: Day, after?: Day, before?: Day): [Day, Day] |
     const check = shift(d, {});
     return check.month === d.month && check.day === d.day ? [d, d] : null;
   }
-  if ((m = t.match(/^([a-z]{3,9})\.?(?: (\d{1,2}))?,? ?(\d{4})?$/))) {
+  // "5th of March 2025" reads as "March 5 2025".
+  if ((m = t.match(/^(?:the )?(\d{1,2})(?:st|nd|rd|th)? (?:of )?([a-z]{3,9})\.?(,? \d{4})?$/))) {
+    return span(`${m[2]} ${m[1]}${m[3] ?? ""}`, today, after, before);
+  }
+  if ((m = t.match(/^([a-z]{3,9})\.?(?: (\d{1,2})(?:st|nd|rd|th)?)?,? ?(\d{4})?$/))) {
     const month = monthNumber(m[1]!);
     if (month === 0) return null;
     const day = m[2] ? Number(m[2]) : null;
@@ -151,14 +208,15 @@ function span(text: string, today: Day, after?: Day, before?: Day): [Day, Day] |
 /**
  * Reads a time range a model can copy from the user's words: "this week", "last month",
  * "March", "March 2025", "last 30 days", "2026-03-14", "March 1 to March 15", "since June",
- * "all time". Throws a readable error for anything else.
+ * "all time", "this weekend", "last night", "two days ago", "past few weeks", "5th of March".
+ * Throws a readable error for anything else.
  */
 export function parsePeriod(period: string, now: number, timeZone: string): Range {
   const text = period
     .toLowerCase()
     .replace(/\s+/g, " ")
     .trim()
-    .replace(/^(in|during|from|over) /, "");
+    .replace(/^(in|during|from|over|for|on) /, "");
   const today = dayOf(now, timeZone);
   const end = (d: Day) => startOf(shift(d, { days: 1 }), timeZone);
   const checked = (r: Range): Range => {
@@ -168,6 +226,12 @@ export function parsePeriod(period: string, now: number, timeZone: string): Rang
   };
 
   if (/^(all|all time|ever|anytime|any time)$/.test(text)) return { start: 0, end: end(today) };
+  const hours = text.match(LAST_HOURS);
+  if (hours) {
+    const n = count(hours[1]);
+    if (n === 0) throw new Error(`"${period}" is an empty range.`);
+    return checked({ start: now - n * 3_600_000, end: end(today) });
+  }
   const since = text.match(/^since (.+)$/);
   if (since) {
     const s = span(since[1]!, today);
@@ -185,7 +249,7 @@ export function parsePeriod(period: string, now: number, timeZone: string): Rang
     if (a && b) return checked({ start: startOf(a[0], timeZone), end: end(b[1]) });
   }
   throw new Error(
-    `Couldn't read the time range "${period}". Use words like "this week", "last month", "March", "March 2025", "last 30 days", "since June", or dates like "2026-03-01 to 2026-03-15".`,
+    `Couldn't read the time range "${period}". Use words like "this week", "this weekend", "last friday", "3 days ago", "last month", "March", "March 5th", "March 2025", "last 30 days", "since June", or dates like "2026-03-01 to 2026-03-15".`,
   );
 }
 
