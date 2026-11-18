@@ -5,7 +5,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { AniListClient, type Media } from "../src/anilist";
 import { normalize } from "../src/logic";
-import { parseQuery, resolveAnime, titleSeason, type Intent } from "../src/resolve";
+import { parseQuery, resolveAnime, titleSeason, type AnimeSource, type Intent } from "../src/resolve";
 import { clientSource } from "../src/server";
 import { PERSONA } from "./fixtures/persona";
 import { FakeAniList, findMedia } from "./support/fake-anilist";
@@ -278,6 +278,53 @@ describe("a part with no season isn't called season 1 (#45)", () => {
     const r = await resolve("spy x family season 1 part 2", "rate");
     if (r.kind !== "match") throw new Error(`expected a match, got ${r.kind}: ${r.why}`);
     expect(r.why).toStartWith("it's season 1 part 2, going by ");
+  });
+});
+
+describe("an episode of a completed show stays with it unless an aired sequel follows (#35)", () => {
+  run([
+    // The 2nd Season is a sequel but hasn't aired.
+    ["bocchi the rock", "progress", "Bocchi the Rock!"],
+    ["Bocchi the Rock!", "progress", "Bocchi the Rock!"],
+    // The aired 2nd Season still wins; the unaired 3rd doesn't.
+    ["frieren", "progress", "Sousou no Frieren 2nd Season"],
+  ]);
+
+  test("the other version of a remake isn't picked over the completed one", async () => {
+    fake.seed([{ anime: "HUNTER×HUNTER (2011)", status: "COMPLETED" }]);
+    const r = await resolve("hunter x hunter", "progress");
+    expect(r.kind === "match" && r.media.id).toBe(11061);
+  });
+
+  /** A completed show plus an unrelated one that shares a word, as AniList search returns them. */
+  function sharedWord(listed: [number, string], other: [number, string]): AnimeSource {
+    const base = findMedia("Dandadan");
+    const noDate = { year: null, month: null, day: null };
+    const media = (id: number, romaji: string, onList: boolean): Media => ({
+      ...base,
+      id,
+      title: { romaji, english: null, native: null },
+      synonyms: [],
+      status: "FINISHED",
+      relations: { edges: [] },
+      mediaListEntry: onList
+        ? { id, status: "COMPLETED", progress: 12, score: 0, displayScore: 0, startedAt: noDate, completedAt: noDate }
+        : null,
+    });
+    const all = [media(listed[0], listed[1], true), media(other[0], other[1], false)];
+    return {
+      listMedia: async () => all.filter((m) => m.mediaListEntry),
+      search: async () => all,
+      getRelated: async (ids) => all.filter((m) => ids.includes(m.id)),
+    };
+  }
+
+  test.each([
+    ["monster", [19, "Monster"], [1469, "Monster Farm: Enbanseki no Himitsu"]],
+    ["another", [11111, "Another"], [1745, "Wild 7 another Bouryaku Unga"]],
+  ] as const)("%s", async (query, listed, other) => {
+    const r = await resolveAnime(query, "progress", sharedWord([...listed], [...other]), "ENGLISH");
+    expect(r.kind === "match" && r.media.id).toBe(listed[0]);
   });
 });
 

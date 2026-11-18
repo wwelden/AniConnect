@@ -421,7 +421,32 @@ async function resolveParsed(
   if (q.hint.season !== undefined || q.hint.part !== undefined) {
     return resolveSeason(q, intent, pool, source, fetched);
   }
+  if (intent === "progress") pool = await keepCompleted(pool, source, fetched);
   return pick(query, intent, pool);
+}
+
+/**
+ * After finishing a show, an episode update means its next season, but only a sequel that
+ * has started airing. Shows not on the list that match no better than the completed one
+ * (a show sharing a word, an unaired sequel, the other version of a remake) are dropped,
+ * so the update goes to the completed show and the episode rules say what happens (#35).
+ */
+async function keepCompleted(pool: Scored[], source: AnimeSource, fetched: Media[]): Promise<Scored[]> {
+  const ranks = STATUS_RANK.progress;
+  const completed = pool.filter((s) => status(s.media) === "COMPLETED");
+  if (!completed.length || pool.some((s) => ranks[status(s.media)] < ranks.NONE)) return pool;
+  const best = Math.max(...completed.map((s) => s.score));
+  const rivals = pool.filter(
+    (s) => status(s.media) === "NONE" && (s.score <= best || completed.some((c) => isRemake(s.media, c.media))),
+  );
+  if (!rivals.length) return pool;
+  const sequels = new Set<number>();
+  for (const c of completed) {
+    if (!isSeries(c.media) || sequels.has(c.media.id)) continue;
+    const chain = await seasonChain(c.media, Number.POSITIVE_INFINITY, source, fetched);
+    for (const e of chain.slice(1)) if (hasAired(e.media)) sequels.add(e.media.id);
+  }
+  return pool.filter((s) => !rivals.includes(s) || sequels.has(s.media.id));
 }
 
 function pick(query: string, intent: Intent, pool: Scored[]): Resolution {

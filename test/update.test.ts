@@ -66,6 +66,15 @@ describe("update_shows (R2.6)", () => {
     );
   });
 
+  test("a rewatch with episodes targets the show on the list, not its next season (#35)", async () => {
+    // Frieren's aired 2nd Season would take a plain episode update.
+    const r = await update({ anime: "frieren", status: "REPEATING", episodes: 2 });
+    expect(r.isError).toBe(false);
+    expect(r.text).toContain("you've completed it.\n");
+    expect(fake.entries.get(FRIEREN)).toMatchObject({ status: "REPEATING", progress: 2 });
+    expect(fake.entries.get(findMedia("Sousou no Frieren 2nd Season").id)).toBeUndefined();
+  });
+
   test("an ambiguous show is listed with its candidates and the others are saved", async () => {
     const r = await update({ anime: "attack on titan", score: 10 }, { anime: "dandadan", watched: 1 });
     expect(r.isError).toBe(false);
