@@ -51,7 +51,7 @@ Every tool that targets a show accepts a title (or an ID) and picks the right An
 |---|---|---|
 | R1.1 | Match any title form: English, romaji, native, AniList synonyms, common acronyms (JJK, AoT, MHA), ignoring case, punctuation and accents. | Done (resolver tests) |
 | R1.2 | Tolerate small typos ("frieran"). | Done (resolver tests) |
-| R1.3 | Prefer shows already on the user's list over the rest of AniList. | Done (resolver tests) |
+| R1.3 | Prefer shows already on the user's list over the rest of AniList, except over a show titled exactly as asked: changing the status or score of "Naruto" with only Shippuden on the list asks which one, and "Jujutsu Kaisen" with only the JJK 0 movie listed is the series. That check costs one AniList search when nothing on the list has the exact title. | Done (resolver tests) |
 | R1.4 | Season-aware: with no season given, episode updates go to the season the user is currently watching (not season 1). | Done (resolver tests) |
 | R1.5 | Understand season phrasing: "season 2", "S2", "2nd season", "second season", "part 2" (with or without a season: "final season part 2"), and map it to the right entry even when AniList's title doesn't contain the number. | Done (resolver tests) |
 | R1.6 | Intent-aware defaults: episode updates prefer in-progress entries; ratings prefer completed ones; adding prefers the first season. | Done (resolver tests) |

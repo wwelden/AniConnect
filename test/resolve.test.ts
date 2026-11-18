@@ -482,3 +482,55 @@ describe("removing a split season asks which part (#29)", () => {
     expect(r.kind === "match" && r.media.id).toBe(142838);
   });
 });
+
+describe("a show titled as asked isn't taken for a listed one that only contains the name", () => {
+  const only = (anime: string) => {
+    fake = new FakeAniList().seed([{ anime, status: "COMPLETED" }]);
+    client = new AniListClient("test", fake.fetch);
+  };
+
+  test("with only the JJK 0 movie listed, \"Jujutsu Kaisen\" is the TV series", async () => {
+    only("Jujutsu Kaisen 0");
+    for (const intent of ["status", "rate"] as const) {
+      const r = await resolve("Jujutsu Kaisen", intent);
+      if (r.kind !== "match") throw new Error(`expected a match, got ${r.kind}: ${r.why}`);
+      expect(r.media.id).toBe(findMedia("Jujutsu Kaisen").id);
+    }
+  });
+
+  test("with only a One Piece special listed, \"One Piece\" is the series", async () => {
+    only("ONE PIECE: Heart of Gold");
+    const r = await resolve("one piece", "status");
+    expect(r.kind === "match" && r.media.id).toBe(findMedia("ONE PIECE").id);
+  });
+
+  test("a listed series with a longer title and an unlisted one titled as asked: ask", async () => {
+    for (const [listed, query, other] of [
+      ["NARUTO: Shippuuden", "Naruto", "NARUTO"],
+      ["Hagane no Renkinjutsushi: FULLMETAL ALCHEMIST", "Fullmetal Alchemist", "Hagane no Renkinjutsushi"],
+      ["Steins;Gate 0", "Steins;Gate", "Steins;Gate"],
+    ]) {
+      only(listed!);
+      for (const intent of ["status", "rate"] as const) {
+        const r = await resolve(query!, intent);
+        if (r.kind !== "ambiguous") throw new Error(`${query} (${intent}): expected ambiguous, got ${r.kind}: ${r.why}`);
+        expect(r.candidates.map((m) => m.id)).toEqual([findMedia(other!).id, findMedia(listed!).id]);
+        expect(r.why).toContain("isn't on your list");
+      }
+    }
+  });
+
+  test("reading about a show keeps the listed one, with no search", async () => {
+    only("NARUTO: Shippuuden");
+    const r = await resolve("Naruto", "show");
+    expect(r.kind === "match" && r.media.id).toBe(findMedia("NARUTO: Shippuuden").id);
+    expect(fake.calls.some((c) => c.query.includes("search:"))).toBe(false);
+  });
+
+  test("the show titled as asked is on the list: no question", async () => {
+    fake = new FakeAniList().seed([{ anime: "NARUTO", status: "COMPLETED" }, { anime: "NARUTO: Shippuuden", status: "COMPLETED" }]);
+    client = new AniListClient("test", fake.fetch);
+    const r = await resolve("Naruto", "status");
+    expect(r.kind === "match" && r.media.id).toBe(findMedia("NARUTO").id);
+  });
+});
