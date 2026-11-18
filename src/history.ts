@@ -285,11 +285,16 @@ export interface HistoryOptions {
 const INCOMPLETE =
   "AniList's activity feed can be incomplete: users can turn off activity for some list statuses, and old activity can be deleted.";
 
-/** Activity newest first, grouped by day in the user's time zone. */
-export function formatHistory(activities: ListActivity[], o: HistoryOptions): string {
+/** The range in words: "all time", "Tue, Nov 17, 2026", or "Mon, Nov 16, 2026 to Tue, Nov 17, 2026". */
+function rangeLabel(o: HistoryOptions): string {
   const first = dayLabel(o.range.start, o.timeZone);
   const last = dayLabel(Math.min(o.range.end, o.now) - 1, o.timeZone);
-  const span = o.range.start <= 0 ? "all time" : first === last ? first : `${first} to ${last}`;
+  return o.range.start <= 0 ? "all time" : first === last ? first : `${first} to ${last}`;
+}
+
+/** Activity newest first, grouped by day in the user's time zone. */
+export function formatHistory(activities: ListActivity[], o: HistoryOptions): string {
+  const span = rangeLabel(o);
   const about = o.show ? ` for ${o.show}` : "";
   if (activities.length === 0) {
     return `No list activity${about} found (${span}, ${o.timeZone}). That doesn't prove nothing was watched: ${INCOMPLETE}`;
@@ -318,21 +323,12 @@ export function formatHistory(activities: ListActivity[], o: HistoryOptions): st
 /** A finish "completed" or "rewatched" in the feed; other updates aren't finishes. */
 const FINISH = /^(completed|rewatched)$/;
 
-/**
- * Whether a finish date on the list falls in the range. A full date counts when its day
- * overlaps the range; a date without a day or month only when all of the time it could
- * mean does: "2026" is in "this year", not in "last month". Finishes aren't in the future,
- * so that time ends today.
- */
-function dateIn(d: FuzzyDate, range: Range, now: number, timeZone: string): boolean {
-  if (!d.year) return false;
+/** The time a finish date on the list could mean, as a Range: a day, a month, or a year. */
+function dateRange(d: FuzzyDate, timeZone: string): Range | null {
+  if (!d.year) return null;
   const first = { year: d.year, month: d.month ?? 1, day: (d.month && d.day) || 1 };
-  if (d.month && d.day) {
-    return startOf(first, timeZone) < range.end && startOf(shift(first, { days: 1 }), timeZone) > range.start;
-  }
-  const last = shift(first, d.month ? { months: 1 } : { years: 1 });
-  const end = Math.min(startOf(last, timeZone), startOf(shift(dayOf(now, timeZone), { days: 1 }), timeZone));
-  return startOf(first, timeZone) >= range.start && end <= range.end;
+  const last = shift(first, d.month && d.day ? { days: 1 } : d.month ? { months: 1 } : { years: 1 });
+  return { start: startOf(first, timeZone), end: startOf(last, timeZone) };
 }
 
 /**
@@ -341,29 +337,40 @@ function dateIn(d: FuzzyDate, range: Range, now: number, timeZone: string): bool
  * which catch shows with no finish date and shows removed from the list since.
  */
 export function formatFinished(list: ListItem[], activities: ListActivity[], o: HistoryOptions): string {
-  const first = dayLabel(o.range.start, o.timeZone);
-  const last = dayLabel(Math.min(o.range.end, o.now) - 1, o.timeZone);
-  const span = o.range.start <= 0 ? "all time" : first === last ? first : `${first} to ${last}`;
+  const span = rangeLabel(o);
   const about = o.show ? ` (${o.show})` : "";
   const thisYear = parts(o.now, o.timeZone).year;
+  const endOfToday = startOf(shift(dayOf(o.now, o.timeZone), { days: 1 }), o.timeZone);
   const finishes = new Map<number, { title: string; when: string; at: number }>();
-  // A finish date on the list is the user's word for when they finished, so the feed's
-  // "completed" counts only for shows without one; a rewatch finished is its own finish.
-  const dated = new Set<number>();
+  /** When each dated show on the list was finished, by the list. */
+  const dated = new Map<number, Range>();
   for (const e of list) {
-    if (e.status !== "COMPLETED" && e.status !== "REPEATING") continue;
-    if (e.completedAt?.year) dated.add(e.media.id);
-    if (!dateIn(e.completedAt, o.range, o.now, o.timeZone)) continue;
     const d = e.completedAt;
-    const at = startOf({ year: d.year!, month: d.month ?? 1, day: d.day ?? 1 }, o.timeZone);
-    const when = d.month && d.day ? dayLabel(at, o.timeZone, d.year !== thisYear) : formatDate(d);
-    finishes.set(e.media.id, { title: displayTitle(e.media.title, o.language), when, at });
+    const r = (e.status === "COMPLETED" || e.status === "REPEATING") && d ? dateRange(d, o.timeZone) : null;
+    if (!r) continue;
+    dated.set(e.media.id, r);
+    // A full date counts when its day overlaps the range; a month or year only when all of
+    // it is in the range ("2026" is in "this year", not "last month"). Finishes aren't in
+    // the future, so that time ends today.
+    const inRange =
+      d.month && d.day
+        ? r.start < o.range.end && r.end > o.range.start
+        : r.start >= o.range.start && Math.min(r.end, endOfToday) <= o.range.end;
+    if (!inRange) continue;
+    const when = d.month && d.day ? dayLabel(r.start, o.timeZone, d.year !== thisYear) : formatDate(d);
+    finishes.set(e.media.id, { title: displayTitle(e.media.title, o.language), when, at: r.start });
   }
-  // Activities are newest first, so a show finished twice in the range keeps its latest.
+  // The feed has the exact time. A finish date on the list is the user's word for when they
+  // finished (they may have corrected it), so a "completed" update counts for a show with
+  // one only when it agrees with it; a rewatch finished is a finish of its own.
+  const exact = new Set<number>();
   for (const a of activities) {
-    if (!a.media || !FINISH.test(a.status ?? "") || finishes.has(a.media.id)) continue;
-    if (a.status === "completed" && dated.has(a.media.id)) continue;
+    if (!a.media || !FINISH.test(a.status ?? "") || exact.has(a.media.id)) continue;
     const at = a.createdAt * 1000;
+    const r = dated.get(a.media.id);
+    if (a.status === "completed" && r && !(at >= r.start && at < r.end)) continue;
+    // Activities are newest first, so a show finished twice in the range keeps its latest.
+    exact.add(a.media.id);
     const when = dayLabel(at, o.timeZone, parts(at, o.timeZone).year !== thisYear);
     const title = `${displayTitle(a.media.title, o.language)}${a.status === "rewatched" ? " (rewatch)" : ""}`;
     finishes.set(a.media.id, { title, when, at });
@@ -371,12 +378,14 @@ export function formatFinished(list: ListItem[], activities: ListActivity[], o: 
   const sorted = [...finishes.values()].sort((x, y) => y.at - x.at);
   const lines =
     sorted.length === 0
-      ? [`No finished shows${about} found (${span}, ${o.timeZone}).`]
+      ? [
+          `No finished shows${about} found (${span}, ${o.timeZone}). That doesn't prove nothing was finished: a show without a finish date on the list only shows up here through the feed. ${INCOMPLETE}`,
+        ]
       : [
           `Shows finished${about}, ${span} (${o.timeZone}), newest first:`,
           ...sorted.map((f) => `- ${f.when}: ${f.title}`),
+          "Dates are from the activity feed, or the finish date on the list when the feed has none.",
         ];
-  lines.push("Dates are the finish dates on the list, or when the activity feed logged the finish for a show without one.");
   if (o.truncated && activities.length > 0) {
     const oldest = dayLabel(activities.at(-1)!.createdAt * 1000, o.timeZone);
     lines.push(

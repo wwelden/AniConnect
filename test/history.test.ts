@@ -261,7 +261,7 @@ describe("watch_history tool", () => {
     expect(r.text).toContain("No list activity found (Sun, Nov 1, 2026, UTC). That doesn't prove nothing was watched");
   });
 
-  /** `n` One Piece episode updates, one a day back from `from` (an ISO time). */
+  /** `n` One Piece episode updates, one every 6 hours back from `from` (an ISO time). */
   function busy(n: number, from = "2026-11-16T10:00:00Z") {
     for (let i = 0; i < n; i++) {
       const at = new Date(Date.parse(from) - i * 6 * 3_600_000).toISOString();
@@ -312,7 +312,7 @@ describe("watch_history tool", () => {
 
   test("finished shows with no finish date on the list come from the feed", async () => {
     const r = await call("watch_history", { period: "last month", finished: true, timeZone: "UTC" });
-    expect(r.text).toMatch(/newest first:\n- Sun, Oct 25: Mob Psycho 100 II\n- Mon, Oct 5: Frieren[^\n]*\nDates are/);
+    expect(r.text).toMatch(/newest first:\n- Sun, Oct 25: Mob Psycho 100 II\n- Mon, Oct 5: Frieren[^\n]*\nDates are from the activity feed/);
     expect(r.text).not.toContain("Bocchi");
     expect(r.text).not.toContain("The feed was read back");
 
@@ -325,10 +325,18 @@ describe("watch_history tool", () => {
   });
 
   test("a partial finish date counts only when all of it is in the range", async () => {
-    fake.entries.get(findMedia("Bocchi the Rock!").id)!.completedAt = { year: 2026, month: null, day: null };
+    fake.entries.get(findMedia("Haikyuu!!").id)!.status = "COMPLETED";
+    fake.entries.get(findMedia("Haikyuu!!").id)!.completedAt = { year: 2026, month: null, day: null };
     const r = await call("watch_history", { period: "last month", finished: true, timeZone: "UTC" });
-    expect(r.text).not.toContain("BOCCHI");
-    expect((await call("watch_history", { period: "since January", finished: true, timeZone: "UTC" })).text).toContain("2026: BOCCHI");
+    expect(r.text).not.toMatch(/Haikyu/i);
+    expect((await call("watch_history", { period: "since January", finished: true, timeZone: "UTC" })).text).toMatch(/- 2026: Haikyu/i);
+  });
+
+  test("a partial finish date doesn't hide the feed's exact time for it", async () => {
+    // Finished on Mar 14 by the feed; the list only says 2026.
+    fake.entries.get(findMedia("Bocchi the Rock!").id)!.completedAt = { year: 2026, month: null, day: null };
+    const r = await call("watch_history", { period: "March", finished: true, timeZone: "UTC" });
+    expect(r.text).toMatch(/- Sat, Mar 14: BOCCHI THE ROCK!/);
   });
 
   test("finished for one show, and none in the range", async () => {
@@ -336,7 +344,7 @@ describe("watch_history tool", () => {
     expect(r.text).toMatch(/\nShows finished \(Frieren[^\n]*\), all time \(UTC\), newest first:\n- Mon, Oct 5: Frieren[^\n]*\nDates are/);
     expect(r.text).not.toContain("Mob Psycho");
     const none = await call("watch_history", { period: "this week", finished: true, timeZone: "UTC" });
-    expect(none.text).toMatch(/^No finished shows found \(Mon, Nov 16, 2026 to Tue, Nov 17, 2026, UTC\)\./);
+    expect(none.text).toMatch(/^No finished shows found \(Mon, Nov 16, 2026 to Tue, Nov 17, 2026, UTC\)\. That doesn't prove nothing was finished/);
   });
 
   test("bad input is a readable error", async () => {
