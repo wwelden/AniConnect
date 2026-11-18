@@ -555,3 +555,68 @@ describe("titles that differ only in punctuation (#61)", () => {
     expect(r.media.id).toBe(id);
   });
 });
+
+describe("a numbered season of two different shows asks which show (#62)", () => {
+  const season2 = (id: number, romaji: string, related: number[] = []): Media => ({
+    id, title: { romaji, english: null, native: null }, synonyms: [], episodes: 13, duration: 24, format: "TV",
+    status: "FINISHED", seasonYear: 2014 + id, startDate: { year: 2014 + id, month: 4, day: 1 }, averageScore: null,
+    siteUrl: "", nextAiringEpisode: null, mediaListEntry: null,
+    relations: { edges: related.map((rid) => ({ relationType: "SEQUEL", node: { id: rid, type: "ANIME", format: "TV" } })) },
+  } as unknown as Media);
+  const source = (all: Media[], list: Media[] = []): AnimeSource => ({
+    listMedia: async () => list,
+    search: async () => all,
+    getRelated: async () => [],
+  });
+
+  test("two season 2s of different shows: ask", async () => {
+    const all = [season2(1, "Love Live! 2nd Season"), season2(2, "Love Live! Sunshine!! 2nd Season")];
+    const r = await resolveAnime("love season 2", "add", source(all), "ENGLISH");
+    if (r.kind !== "ambiguous") throw new Error(`expected ambiguous, got ${r.kind}: ${r.why}`);
+    expect(r.candidates.map((m) => m.id)).toEqual([1, 2]);
+    expect(r.why).toBe('Season 2 of "love" matches 2 shows.');
+  });
+
+  test("the one on the list is the one meant", async () => {
+    const all = [season2(1, "Love Live! 2nd Season"), season2(2, "Love Live! Sunshine!! 2nd Season")];
+    const listed = { ...all[1]!, mediaListEntry: { status: "CURRENT", progress: 3 } } as unknown as Media;
+    const r = await resolveAnime("love season 2", "progress", source(all, [listed]), "ENGLISH");
+    expect(r.kind === "match" && r.media.id).toBe(2);
+  });
+
+  test("two parts of one season (joined by a sequel edge) still pick the first part", async () => {
+    const all = [season2(1, "Love Live! 2nd Season", [2]), season2(2, "Love Live! 2nd Season Part 2")];
+    const r = await resolveAnime("love season 2", "add", source(all), "ENGLISH");
+    expect(r.kind === "match" && r.media.id).toBe(1);
+  });
+
+  run([
+    // Season 3 and its Part 2 both state season 3; Frieren's season 2 has a side-story ONA.
+    ["attack on titan season 3", "add", "Shingeki no Kyojin Season 3"],
+    ["frieren season 2", "add", "Sousou no Frieren 2nd Season"],
+  ]);
+});
+
+describe("\"next season ... part N\" resolves that part of the next season (#63)", () => {
+  test("a next season with no such part: none, not another part", async () => {
+    fake = new FakeAniList().seed([]);
+    client = new AniListClient("test", fake.fetch);
+    const r = await resolve("next season of Frieren part 2", "add");
+    expect(r.kind).toBe("none");
+    expect(r.why).toBe("AniList doesn't list a part 2 of Frieren: Beyond Journey’s End Season 2.");
+  });
+
+  test("the requested part of the next season", async () => {
+    fake = new FakeAniList().seed([
+      { anime: "Shingeki no Kyojin", status: "COMPLETED" },
+      { anime: "Shingeki no Kyojin Season 2", status: "COMPLETED" },
+    ]);
+    client = new AniListClient("test", fake.fetch);
+    const part2 = await resolve("next season of attack on titan part 2", "add");
+    if (part2.kind !== "match") throw new Error(`expected a match, got ${part2.kind}: ${part2.why}`);
+    expect(part2.media.title.romaji).toBe("Shingeki no Kyojin Season 3 Part 2");
+    expect(part2.why).toBe("it's the season after Attack on Titan Season 2, part 2");
+    const part1 = await resolve("next season of attack on titan part 1", "add");
+    expect(part1.kind === "match" && part1.media.title.romaji).toBe("Shingeki no Kyojin Season 3");
+  });
+});

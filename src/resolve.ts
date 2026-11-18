@@ -668,7 +668,8 @@ async function resolveRelative(
   if (!("root" in picked)) return picked;
   const { root } = picked;
 
-  const chain = (await seasonChain(root, Number.POSITIVE_INFINITY, source, fetched)).map((e) => e.media);
+  const entries = await seasonChain(root, Number.POSITIVE_INFINITY, source, fetched);
+  const chain = entries.map((e) => e.media);
 
   if (q.hint.latest) {
     const aired = chain.filter(hasAired).filter((m) => q.hint.part === undefined || (titlePart(m) ?? 1) === q.hint.part);
@@ -682,13 +683,21 @@ async function resolveRelative(
   chain.forEach((m, i) => {
     if (m.mediaListEntry && m.mediaListEntry.status !== "PLANNING") anchor = i;
   });
-  const next = chain[anchor >= 0 ? anchor + 1 : 1];
+  const nextAt = anchor >= 0 ? anchor + 1 : 1;
+  const next = entries[nextAt];
   if (!next) {
     const after = anchor >= 0 ? chain[anchor]! : root;
     return { kind: "none", why: `AniList doesn't list a season after ${displayTitle(after.title, language)} yet.` };
   }
   const why = anchor >= 0 ? `it's the season after ${displayTitle(chain[anchor]!.title, language)}` : "it's the sequel to the first season";
-  return { kind: "match", media: next, why };
+  const part = q.hint.part;
+  if (part === undefined) return { kind: "match", media: next.media, why };
+  // "Next season part 2": that part of the next season, never another part or season (#63).
+  const wanted = entries.slice(nextAt).find((e) => e.season === next.season && e.part === part);
+  if (!wanted) {
+    return { kind: "none", why: `AniList doesn't list a part ${part} of ${displayTitle(next.media.title, language)}.` };
+  }
+  return { kind: "match", media: wanted.media, why: part === next.part ? why : `${why}, part ${part}` };
 }
 
 interface SeasonEntry {
@@ -782,6 +791,8 @@ async function resolveSeason(
     .filter((e) => titleSeason(e.media) !== undefined || wantSeason === 1)
     .filter((e) => fits(e.season, e.part));
   let how = "its title";
+  // Seasons from the sequel chain are one show's by construction; titles may name different shows.
+  let oneShow = false;
 
   // 2. Otherwise walk the sequel chain from season 1 ("Shingeki no Kyojin: The Final Season" is season 4).
   if (matches.length === 0 || wantSeason === 1) {
@@ -794,6 +805,7 @@ async function resolveSeason(
       if (fromChain.length) {
         matches = fromChain;
         how = "the sequel order on AniList";
+        oneShow = true;
       }
     }
   }
@@ -859,6 +871,19 @@ async function resolveSeason(
   const ranks = STATUS_RANK[intent];
   matches.sort((a, b) => ranks[status(a.media)] - ranks[status(b.media)] || a.part - b.part || dateKey(a.media) - dateKey(b.media));
   const best = matches[0]!;
+  // "Love Live! 2nd Season" and "Love Live! Sunshine!! 2nd Season" are both season 2 of
+  // something, not two parts of one season: ask which show (#62).
+  if (!oneShow) {
+    const likeliest = matches.filter((e) => ranks[status(e.media)] === ranks[status(best.media)]).map((e) => e.media);
+    const shows = likeliest.length > 1 ? await showGroups(likeliest, source, fetched) : [];
+    if (shows.length > 1) {
+      return {
+        kind: "ambiguous",
+        candidates: shows.slice(0, MAX_CANDIDATES).map((g) => g[0]!),
+        why: `${label[0]!.toUpperCase()}${label.slice(1)} of "${q.exact}" matches ${shows.length} shows.`,
+      };
+    }
+  }
   const why =
     status(best.media) === "NONE"
       ? partOnly
@@ -866,6 +891,44 @@ async function resolveSeason(
         : `it's the first part of ${label}`
       : `it's ${label} and ${STATUS_WHY[status(best.media)]}`;
   return { kind: "match", media: best.media, why };
+}
+
+/** Relations that keep two anime within one show: its seasons and parts, and side stories of them. */
+const SAME_SHOW = new Set(["SEQUEL", "PREQUEL", "SIDE_STORY", "PARENT"]);
+
+/**
+ * `items` grouped by show: anime joined, directly or through each other, by `SAME_SHOW` edges
+ * (the parts of one season, a season's side story), in the order each group first appears.
+ * Each group's anime keep their order in `items`. A remake or spin-off is a different show.
+ */
+async function showGroups(items: Media[], source: AnimeSource, fetched: Media[]): Promise<Media[][]> {
+  const { full } = relationLookup(source, fetched);
+  const ids = new Set(items.map((m) => m.id));
+  const linked = new Map<number, Set<number>>(items.map((m) => [m.id, new Set<number>()]));
+  for (const m of items) {
+    for (const e of (await full(m.id))?.relations?.edges ?? []) {
+      if (!SAME_SHOW.has(e.relationType) || !ids.has(e.node.id)) continue;
+      linked.get(m.id)!.add(e.node.id);
+      linked.get(e.node.id)!.add(m.id);
+    }
+  }
+  const group = new Map<number, number>();
+  for (const m of items) {
+    if (group.has(m.id)) continue;
+    const stack = [m.id];
+    while (stack.length) {
+      const id = stack.pop()!;
+      if (group.has(id)) continue;
+      group.set(id, m.id);
+      stack.push(...linked.get(id)!);
+    }
+  }
+  const groups = new Map<number, Media[]>();
+  for (const m of items) {
+    const key = group.get(m.id)!;
+    groups.set(key, [...(groups.get(key) ?? []), m]);
+  }
+  return [...groups.values()];
 }
 
 /** True when one of the show's titles is, or starts with, this number ("86", "86 Part 2"), not just contains it. */
