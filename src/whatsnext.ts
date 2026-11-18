@@ -76,7 +76,7 @@ export function parts(ms: number, timeZone: string) {
 
 /**
  * "Fri, Nov 20 at 2:00 PM (in 3 days)", in the given time zone. A fixed offset follows no
- * daylight-saving rules, so the time names it: "at 2:00 PM UTC-05:00".
+ * daylight-saving rules, so the time names it: "at 2:00 PM UTC-05:00"; so does UTC itself.
  */
 export function formatAirTime(airingAt: number, now: number, timeZone: string): string {
   const at = parts(airingAt * 1000, timeZone);
@@ -86,7 +86,8 @@ export function formatAirTime(airingAt: number, now: number, timeZone: string): 
     Date.UTC(p.year, ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"].indexOf(p.month), p.day);
   const days = Math.round((dayNumber(at) - dayNumber(today)) / 86_400_000);
   const relative = days <= 0 ? "today" : days === 1 ? "tomorrow" : `in ${days} days`;
-  const offset = /^[+-]/.test(timeZone) ? ` UTC${timeZone}` : "";
+  // UTC is named too: it's what the hosted server falls back to when the user's zone is unknown.
+  const offset = /^[+-]/.test(timeZone) ? ` UTC${timeZone}` : timeZone === "UTC" ? " UTC" : "";
   return `${at.weekday}, ${at.month} ${at.day} at ${at.time}${offset} (${relative})`;
 }
 

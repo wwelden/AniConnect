@@ -341,14 +341,13 @@ export class UserState {
   watch?: ReturnType<typeof tokenWatch>;
 }
 
-/** The user's zone from their AniList settings, else the server's (right when it runs on the user's machine). */
-function userZone(viewer: Viewer): string {
-  return viewer.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
-}
-
 /** After dates filled in as today on the hosted server when the user's time zone is unknown (#38). */
 const UTC_NOTE =
   " Today's date was taken in UTC, as the user's time zone is unknown: if theirs differs, fix the dates with update_shows and pass timeZone.";
+
+/** After times and days read in UTC on the hosted server when the user's time zone is unknown. */
+const UTC_READ_NOTE =
+  "Times and days are in UTC, as the user's time zone is unknown (none is set on AniList): to see them in theirs, call again with timeZone.";
 
 /** How many recently finished shows to check for sequels (one AniList request). */
 const SEQUEL_CHECK_LIMIT = 50;
@@ -368,6 +367,18 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
   // server's local date, which is theirs on their own machine. The hosted server takes UTC.
   const today = (viewer: Viewer) => todayFuzzy(new Date(now()), viewer.timeZone ?? (options.hosted ? "UTC" : undefined));
   const zoneUnknown = (viewer: Viewer) => Boolean(options.hosted && !viewer.timeZone);
+  /**
+   * The zone for times and days the tools read out: the call's, else the user's AniList one,
+   * else the server's, which is theirs on their own machine. The hosted server takes UTC and
+   * says so (`note`), since its clock's zone says nothing about the user's.
+   */
+  const readZone = async (timeZone: string | undefined) => {
+    const viewer = await client.getViewer();
+    if (timeZone) return { zone: checkTimeZone(timeZone), note: "" };
+    if (viewer.timeZone) return { zone: checkTimeZone(viewer.timeZone), note: "" };
+    if (options.hosted) return { zone: "UTC", note: `\n${UTC_READ_NOTE}` };
+    return { zone: Intl.DateTimeFormat().resolvedOptions().timeZone, note: "" };
+  };
   /** The latest date the user can mean: with no zone known, the date where it's already tomorrow (UTC+14). */
   const latest = (viewer: Viewer) => (zoneUnknown(viewer) ? todayFuzzy(new Date(now()), "+14:00") : today(viewer));
   /** The viewer, with the time zone the call gave in place of the AniList one. */
@@ -538,7 +549,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
     safe(async ({ anime, timeZone }) => {
-      const zone = checkTimeZone(timeZone ?? userZone(await client.getViewer()));
+      const { zone, note: zoneNote } = await readZone(timeZone);
       const at = now();
       // Streaming links are only wanted for one show, so only that path's lookups fetch them.
       const source = memo(clientSource(client, { links: anime !== undefined }));
@@ -555,7 +566,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
             ? media
             : ((await client.getMany([media.id], { links: true }))[0] ?? media);
         const sequels = nextSeasons([show], listStatus, await client.getMany(moviesBesideSeries([show])));
-        return text(`${note}${formatShow(show, sequels, listStatus, at, zone, titleLanguage)}`);
+        return text(`${note}${formatShow(show, sequels, listStatus, at, zone, titleLanguage)}${zoneNote}`);
       }
 
       const finished = list
@@ -565,7 +576,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       const withRelations = await client.getMany(finished.map((m) => m.id));
       // Usually no request: only shows with both a series and a movie sequel need one.
       const sequels = nextSeasons(withRelations, listStatus, await client.getMany(moviesBesideSeries(withRelations)));
-      return text(formatReport(buildReport(list, sequels, at), at, zone, titleLanguage));
+      return text(`${formatReport(buildReport(list, sequels, at), at, zone, titleLanguage)}${zoneNote}`);
     }),
   );
 
@@ -595,7 +606,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
     safe(async ({ period, anime, finished, timeZone }) => {
-      const zone = checkTimeZone(timeZone ?? userZone(await client.getViewer()));
+      const { zone, note: zoneNote } = await readZone(timeZone);
       const at = now();
       const range = parsePeriod(period ?? (anime === undefined ? "last 7 days" : "all time"), at, zone);
       // Most history is for shows on the list, so try the list alone first ("remove" never
@@ -626,7 +637,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       const body = finished
         ? formatFinished(show ? list.filter((e) => e.media.id === show.media.id) : list, activities, options)
         : formatHistory(activities, options);
-      return text(`${show?.note ?? ""}${body}`);
+      return text(`${show?.note ?? ""}${body}${zoneNote}`);
     }),
   );
 
