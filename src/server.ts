@@ -108,6 +108,11 @@ function text(body: string): ToolResult {
   return { content: [{ type: "text", text: body }] };
 }
 
+/** An entry line, then any sentences about the change (" Start date set to ..."), with a full stop between. */
+function entryThen(entry: string, after: string): string {
+  return after ? `${entry}.${after}` : entry;
+}
+
 /**
  * Makes the wrapper for every tool handler: it turns thrown errors into tool errors the model
  * can read and recover from, fails before any request once the token has expired, and adds a
@@ -681,7 +686,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
         const saved = await client.saveEntry({ mediaId: media.id, ...plan });
         journal.record("add_to_list", [change(media, null, saved)]);
         return text(
-          `${note}Added: ${describeEntry(saved.media, saved, viewer)}${planDates(plan, viewer)}`,
+          `${note}Added: ${entryThen(describeEntry(saved.media, saved, viewer), `${planDates(plan, viewer)}${completedNote(media, status, saved.progress)}`)}`,
         );
       });
     }),
@@ -708,11 +713,8 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
         journal.record("set_status", [change(media, entry, saved)]);
         const before = entry ? statusLabel(entry.status) : "not on list";
         const reset = plan.progress === 0 && entry ? ` Episode count reset from ${entry.progress} to 0 for the rewatch.` : "";
-        // Completing an unreleased show is worth flagging even when its episode count is unknown and progress stays 0.
-        const aired =
-          status === "COMPLETED" ? airedNote(media, media.status === "NOT_YET_RELEASED" ? Math.max(saved.progress, 1) : saved.progress) : "";
         return text(
-          `${note}${before} -> ${statusLabel(status as ListStatus)}: ${describeEntry(saved.media, saved, viewer)}${reset}${planDates(plan, viewer)}${aired}`,
+          `${note}${before} -> ${statusLabel(status as ListStatus)}: ${entryThen(describeEntry(saved.media, saved, viewer), `${reset}${planDates(plan, viewer)}${completedNote(media, status, saved.progress)}`)}`,
         );
       });
     }),
@@ -766,6 +768,13 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       ? " Note: AniList says it hasn't started airing yet."
       : ` Note: AniList says only ${aired} episode${aired === 1 ? " has" : "s have"} aired so far.`;
   };
+
+  /** For a show set Completed: says when that's more episodes than have aired (#40). */
+  const completedNote = (media: Media, status: ListStatus, progress: number) =>
+    status !== "COMPLETED"
+      ? ""
+      : // Completing an unreleased show is worth flagging even when its episode count is unknown and progress stays 0.
+        airedNote(media, media.status === "NOT_YET_RELEASED" ? Math.max(progress, 1) : progress);
 
   const saveProgress = async (
     tool: string,
