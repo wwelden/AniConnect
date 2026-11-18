@@ -546,9 +546,9 @@ describe("set_status COMPLETED on a show still airing", () => {
   test("says nothing for a finished show or another status", async () => {
     await connect({ now: () => NOW });
     let r = await call("set_status", { anime: 16498, status: "COMPLETED" });
-    expect(r.text).not.toContain("aired");
+    expect(r.text).not.toContain("AniList says");
     r = await call("set_status", { anime: 186712, status: "PLANNING" });
-    expect(r.text).not.toContain("aired");
+    expect(r.text).not.toContain("AniList says");
   });
 });
 
