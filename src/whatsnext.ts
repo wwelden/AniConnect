@@ -403,12 +403,14 @@ export function plainSynopsis(raw: string | null | undefined, max = SYNOPSIS_LEN
       return Number.isFinite(n) && n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : whole;
     })
     .replace(/\(\s*(?:sources?\s*:|written by\b)[^)]*\)|\[\s*(?:sources?\s*:|written by\b)[^\]]*\]/gi, "");
-  const story = text
+  const paragraphs = text
     .split(/\n/)
     .map((p) => p.replace(/\s+/g, " ").trim())
-    // Notes about the adaptation ("Note: Episodes 11 and 12 ...") come after the story.
-    .filter((p) => p && !/^(notes?|source|sources)\s*:/i.test(p))
-    .join(" ");
+    .filter(Boolean);
+  // Notes about the adaptation ("Note: Episodes 11 and 12 ...") come after the story and can
+  // run over several lines ("Notes:" then a line per bullet), so everything from one on goes.
+  const notes = paragraphs.findIndex((p) => /^(notes?|sources?)\s*:/i.test(p));
+  const story = (notes < 0 ? paragraphs : paragraphs.slice(0, notes)).join(" ");
   if (story.length <= max) return story;
   const cut = story.slice(0, max + 1);
   // The last sentence that ends within the limit, if that keeps at least half of it. "Mr." and "J." don't end one.

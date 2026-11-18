@@ -487,8 +487,12 @@ describe("plainSynopsis", () => {
     );
   });
 
-  test("drops notes about the adaptation", () => {
+  test("drops notes about the adaptation, including a heading with a line per note", () => {
     expect(plainSynopsis("The story.<br><br>\nNote: Episodes 11 and 12 adapt a novel.")).toBe("The story.");
+    // As AniList has it for Demon Slayer's Swordsmith Village Arc.
+    const swordsmith = findMedia(145139).description;
+    expect(swordsmith).toContain("<i>Notes:<br>\n•");
+    expect(plainSynopsis(swordsmith)).toEndWith("a new battle begins for Tanjiro and his comrades.");
   });
 
   test("keeps story text that only looks like a credit", () => {
