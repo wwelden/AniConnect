@@ -1,7 +1,8 @@
 {
   "name": "aniconnect",
   "version": "0.3.0",
-  "description": "MCP server for managing your AniList anime list",
+  "description": "AniList MCP server: manage your anime list from Claude or any MCP client",
+  "keywords": ["anilist", "mcp", "mcp-server", "model-context-protocol", "anime", "anime-list", "claude"],
   "license": "MIT",
   "type": "module",
   "private": true,
