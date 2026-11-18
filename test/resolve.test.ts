@@ -89,6 +89,23 @@ describe("abbreviations next to other words (#36)", () => {
     ["csm reze", "add", "Chainsaw Man: Reze-hen"],
     ["hxh phantom rogue", "add", "HUNTER×HUNTER: Phantom Rouge"],
   ]);
+
+  test("falls back to the expanded reading when the literal one misses the hint", async () => {
+    const show = (id: number, romaji: string, format: string, synonyms: string[] = []): Media => ({
+      id, title: { romaji, english: null, native: null }, synonyms, episodes: 1, duration: 24, format,
+      status: "FINISHED", seasonYear: 2023, startDate: { year: 2023, month: 1, day: 1 }, averageScore: null,
+      siteUrl: "", nextAiringEpisode: null, mediaListEntry: null, relations: { edges: [] },
+    });
+    // The TV entry matches "aot final season" as written, but a movie was asked for.
+    const all = [
+      show(1, "Shingeki no Kyojin: The Final Season", "TV", ["AoT Final Season"]),
+      show(2, "Attack on Titan: The Final Season Movie", "MOVIE"),
+    ];
+    const source = { listMedia: async () => [], search: async () => all, getRelated: async () => [] };
+    const r = await resolveAnime("aot final season movie", "add", source, "ENGLISH");
+    if (r.kind !== "match") throw new Error(`expected a match, got ${r.kind}: ${r.why}`);
+    expect(r.media.id).toBe(2);
+  });
 });
 
 describe("episode updates go to the season being watched (R1.4)", () => {

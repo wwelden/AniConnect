@@ -368,7 +368,11 @@ export async function resolveAnime(
   const src = memo(source);
   const q = parseQuery(query);
   for (let literal = q.literal; literal; literal = literal.literal) {
-    if (await matchesStrongly(literal, intent, src)) return resolveParsed(query, literal, intent, src, language);
+    if (!(await matchesStrongly(literal, intent, src))) continue;
+    // A name can match yet miss the hint ("aot final season movie" against a TV synonym):
+    // then the next reading gets its turn.
+    const r = await resolveParsed(query, literal, intent, src, language);
+    if (r.kind !== "none") return r;
   }
   return resolveParsed(query, q, intent, src, language);
 }
