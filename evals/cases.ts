@@ -113,6 +113,14 @@ export const CASES: EvalCase[] = [
       { anime: "Mushoku Tensei: Isekai Ittara Honki Dasu", added: true, status: "PLANNING" },
     ] } },
 
+  // Importing a list (R2.11): shows already on the list stay exactly as they are.
+  { id: "import-keeps-listed", prompt: "Import these from my spreadsheet as plan to watch: Chainsaw Man, Steins;Gate, Frieren, Dandadan, Mushoku Tensei",
+    expect: { changes: [
+      { anime: "Chainsaw Man", added: true, status: "PLANNING" },
+      { anime: "Steins;Gate", added: true, status: "PLANNING" },
+      { anime: "Mushoku Tensei: Isekai Ittara Honki Dasu", added: true, status: "PLANNING" },
+    ] } },
+
   // Several changes in one request (R2.6): one update_shows call.
   { id: "batch-two-shows", prompt: "watched episodes 4 and 5 of jjk, and I finished dandadan", idealCalls: 1,
     expect: { changes: [

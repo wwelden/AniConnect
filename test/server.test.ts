@@ -19,14 +19,25 @@ async function call(name: string, args: Record<string, unknown>) {
   return { text: result.content.map((c) => c.text).join("\n"), isError: Boolean(result.isError) };
 }
 
+/** Rate-limit waits the client asked for, which pass at once, calling `onSleep`. */
+let slept: number[] = [];
+let onSleep = () => {};
+
 async function connect(options: ServerOptions = {}) {
-  const server = createServer(new AniListClient("test-token", fake.fetch), options);
+  const anilist = new AniListClient("test-token", fake.fetch);
+  anilist.sleep = async (ms) => {
+    slept.push(ms);
+    onSleep();
+  };
+  const server = createServer(anilist, options);
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   client = new Client({ name: "test", version: "0" });
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
 }
 
 beforeEach(async () => {
+  slept = [];
+  onSleep = () => {};
   fake = new FakeAniList("POINT_5");
   await connect();
 });
@@ -312,12 +323,31 @@ describe("tools", () => {
     expect(fake.entries.has(16498)).toBe(true);
   });
 
-  test("rate limits surface the retry delay", async () => {
+  test("rate limits surface the retry delay once waiting hasn't helped", async () => {
     fake.rateLimited = true;
     const r = await call("search_anime", { query: "titan" });
     expect(r.isError).toBe(true);
     expect(r.text).toContain("Try again in 30 seconds");
     expect(r.text).toContain("30 requests a minute");
+    expect(slept).toEqual([30_000]);
+  });
+
+  test("a rate-limited request waits as AniList says and is sent again", async () => {
+    await call("search_my_list", {}); // the viewer and list, so only the search is limited
+    fake.rateLimited = true;
+    onSleep = () => (fake.rateLimited = false);
+    const r = await call("search_anime", { query: "frieren" });
+    expect(r.isError).toBe(false);
+    expect(r.text).toContain("Frieren");
+    expect(slept).toEqual([30_000]);
+  });
+
+  test("a wait longer than half a minute is reported, not made", async () => {
+    fake.rateLimited = true;
+    fake.retryAfter = "45";
+    const r = await call("search_anime", { query: "titan" });
+    expect(r.text).toContain("Try again in 45 seconds");
+    expect(slept).toEqual([]);
   });
 
   test("reports the version from package.json", () => {
@@ -694,7 +724,9 @@ describe("list cache (R5.4)", () => {
   beforeEach(async () => {
     clock = Date.parse("2026-11-17T12:00:00Z");
     fake.seed(PERSONA);
-    const server = createServer(new AniListClient("t", fake.fetch), { now: () => clock });
+    const anilist = new AniListClient("t", fake.fetch);
+    anilist.sleep = async () => {};
+    const server = createServer(anilist, { now: () => clock });
     const [ct, st] = InMemoryTransport.createLinkedPair();
     c = new Client({ name: "t", version: "0" });
     await Promise.all([server.connect(st), c.connect(ct)]);

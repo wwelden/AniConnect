@@ -28,7 +28,9 @@ async function call(name: string, args: Record<string, unknown> = {}) {
 beforeEach(async () => {
   fake = new FakeAniList("POINT_10_DECIMAL").seed(PERSONA);
   fake.clock = () => NOW;
-  const server = createServer(new AniListClient("test-token", (u, i) => fake.fetch(u, i)), { now: () => NOW });
+  const anilist = new AniListClient("test-token", (u, i) => fake.fetch(u, i));
+  anilist.sleep = async () => {}; // rate-limited requests are retried at once
+  const server = createServer(anilist, { now: () => NOW });
   const [ct, st] = InMemoryTransport.createLinkedPair();
   client = new Client({ name: "test", version: "0" });
   await Promise.all([server.connect(st), client.connect(ct)]);

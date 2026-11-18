@@ -6,6 +6,7 @@ import pkg from "../package.json" with { type: "json" };
 import {
   AniListClient,
   LIST_STATUSES,
+  SEARCH_BATCH,
   SEASONS,
   type BrowseFilters,
   type FuzzyDate,
@@ -98,7 +99,9 @@ The tools that change the list (${WRITE_TOOLS.join(", ")}) take the show as the 
 
 For several shows in one request, or several changes to one show ("finished Frieren, 9/10"), make one update_shows call instead of one call per change.
 
-To take back a change (the user says "undo that" or that you got it wrong), call undo rather than writing the old values back: it restores the entry exactly, dates and all.`;
+To take back a change (the user says "undo that" or that you got it wrong), call undo rather than writing the old values back: it restores the entry exactly, dates and all.
+
+To add many shows (an import from a spreadsheet or another site), use update_shows with addOnly, so shows already on the list are never changed, and call it with dryRun first to check what each name matches. In a call about several shows, names that need a choice come back with their candidates while the rest are saved: ask the user about them together.`;
 
 /** The short form of INSTRUCTIONS on each write tool, for clients that don't show instructions (R2.2). */
 const BY_NAME = " Takes the show's name; don't search first.";
@@ -145,18 +148,46 @@ function safeFor(client: AniListClient, now: () => number, user: UserState) {
 
 /**
  * Adult titles stay out of AniList-wide search unless the user's AniList settings allow them:
- * the `isAdult` argument for searchAnime (false hides them, undefined returns everything).
+ * the `isAdult` argument for searchAnime and searchMany (false hides them, undefined returns everything).
  */
 function adultFilter(viewer: Viewer): false | undefined {
   return viewer.displayAdultContent ? undefined : false;
 }
 
+/**
+ * Title searches asked for together go to AniList together: update_shows resolves all its
+ * shows at once, and one request per SEARCH_BATCH searches spares AniList's rate limit.
+ * Searches are collected until the work in progress settles (a timer turn), then sent, each
+ * request at once and on its own, so one that fails fails only its own searches.
+ */
+function batched(run: (queries: string[]) => Promise<Media[][]>): (query: string) => Promise<Media[]> {
+  let waiting: { query: string; resolve: (media: Media[]) => void; reject: (err: unknown) => void }[] = [];
+  return (query) =>
+    new Promise((resolve, reject) => {
+      if (waiting.length === 0) {
+        setTimeout(() => {
+          const all = waiting;
+          waiting = [];
+          for (let i = 0; i < all.length; i += SEARCH_BATCH) {
+            const batch = all.slice(i, i + SEARCH_BATCH);
+            run(batch.map((w) => w.query)).then(
+              (results) => batch.forEach((w, j) => w.resolve(results[j]!)),
+              (err) => batch.forEach((w) => w.reject(err)),
+            );
+          }
+        }, 0);
+      }
+      waiting.push({ query, resolve, reject });
+    });
+}
+
 export function clientSource(client: AniListClient, options: LinkOptions = {}): AnimeSource {
+  const search = batched(async (queries) => client.searchMany(queries, 15, options, adultFilter(await client.getViewer())));
   return {
     // Shows already on the list come from here, so they resolve whatever the 18+ setting.
     listMedia: async () =>
       (await client.getMyList()).map(({ media, ...entry }) => ({ ...media, mediaListEntry: entry })),
-    search: async (query) => client.searchAnime(query, 15, options, adultFilter(await client.getViewer())),
+    search,
     getRelated: (ids) => client.getRelated(ids, options),
     searchHidden: async (query) =>
       adultFilter(await client.getViewer()) === false ? client.searchAnime(query, 15, {}, true) : [],
@@ -306,6 +337,13 @@ function continues(media: Media, language: TitleLanguage): string {
   );
   return done?.node.title ? `. Continues ${displayTitle(done.node.title, language)}, which you completed` : "";
 }
+
+/**
+ * Most updates update_shows saves in one call: AniList allows 30 requests a minute, and each
+ * show saved is one. A dry run saves nothing, so it checks more names at once.
+ */
+const UPDATE_LIMIT = 10;
+const DRY_RUN_LIMIT = 50;
 
 /** Longest private note AniConnect writes; AniList's own limit is far higher. */
 const NOTE_LIMIT = 2000;
@@ -894,9 +932,8 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
   });
   type Update = z.infer<typeof updateItem>;
 
-  /** One update_shows item, on its show's turn: a line for the result and the change for undo. */
-  const saveUpdate = async (viewer: Viewer, resolved: { media: Media; note: string }, stale: boolean, u: Update) => {
-    const media = stale ? await client.getAnime(resolved.media.id) : resolved.media;
+  /** What one update_shows item would write, worked out from the show's entry as it is now. */
+  const planItem = (viewer: Viewer, media: Media, u: Update) => {
     const entry = media.mediaListEntry;
     // Clearing a score, note or date on a show that isn't on the list would only add it.
     const clearsOnly =
@@ -936,26 +973,72 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
     const oldNote = entry?.notes ?? "";
     const notes = u.addNote !== undefined ? (oldNote ? `${oldNote}\n${u.addNote}` : u.addNote) : u.notes;
     if (notes !== undefined && notes.length > NOTE_LIMIT) throw new Error(`The note would be over ${NOTE_LIMIT} characters.`);
-    const saved = await client.saveEntry({ mediaId: media.id, ...plan, ...dates, scoreRaw, notes });
-    const format = viewer.scoreFormat;
-    const parts = [
-      entry?.status !== saved.status &&
-        `${entry ? statusLabel(entry.status) : "not on list"} -> ${statusLabel(saved.status)}`,
-      (progress !== undefined || current !== saved.progress) && `episode ${current} -> ${saved.progress}`,
-      u.score !== undefined &&
-        `score ${formatScore(entry?.displayScore ?? 0, format)} -> ${formatScore(saved.displayScore, format)}`,
-      u.startedAt !== undefined && `start date ${showDate(entry?.startedAt)} -> ${showDate(saved.startedAt)}`,
-      u.completedAt !== undefined && `finish date ${showDate(entry?.completedAt)} -> ${showDate(saved.completedAt)}`,
-      notes !== undefined && (saved.notes ? `note is now ${quoteNote(saved.notes)}` : oldNote ? "note removed" : "no note"),
-    ].filter(Boolean);
-    // Dates the user gave are in `parts`; only the ones filled in for them are worth a note.
+    // Dates the user gave are said with the change; only the ones filled in for them are worth a note.
     const filled = { ...plan, ...(u.startedAt !== undefined && { startedAt: undefined }), ...(u.completedAt !== undefined && { completedAt: undefined }) };
+    return { entry, current, progress, stepNote, plan, dates, scoreRaw, notes, oldNote, filled };
+  };
+  type ItemPlan = ReturnType<typeof planItem>;
+
+  /** What an update changes, from the entry before and the entry after it (saved, or as it would be). */
+  const describeChange = (
+    viewer: Viewer,
+    u: Update,
+    p: ItemPlan,
+    next: {
+      status?: ListStatus;
+      progress: number;
+      score: string;
+      /** The score before, when `score` isn't in the user's own format. */
+      scoreBefore?: string;
+      startedAt?: FuzzyDate | null;
+      completedAt?: FuzzyDate | null;
+      notes?: string | null;
+    },
+  ) => {
+    const { entry, current } = p;
+    return [
+      entry?.status !== next.status &&
+        `${entry ? statusLabel(entry.status) : "not on list"} -> ${next.status ? statusLabel(next.status) : "on list"}`,
+      (p.progress !== undefined || current !== next.progress) && `episode ${current} -> ${next.progress}`,
+      u.score !== undefined && `score ${next.scoreBefore ?? formatScore(entry?.displayScore ?? 0, viewer.scoreFormat)} -> ${next.score}`,
+      u.startedAt !== undefined && `start date ${showDate(entry?.startedAt)} -> ${showDate(next.startedAt)}`,
+      u.completedAt !== undefined && `finish date ${showDate(entry?.completedAt)} -> ${showDate(next.completedAt)}`,
+      p.notes !== undefined && (next.notes ? `note is now ${quoteNote(next.notes)}` : p.oldNote ? "note removed" : "no note"),
+    ]
+      .filter(Boolean)
+      .join(", ");
+  };
+
+  /** One update_shows item, on its show's turn: a line for the result and the change for undo. */
+  const saveUpdate = async (viewer: Viewer, resolved: { media: Media; note: string }, media: Media, u: Update) => {
+    const p = planItem(viewer, media, u);
+    const saved = await client.saveEntry({ mediaId: media.id, ...p.plan, ...p.dates, scoreRaw: p.scoreRaw, notes: p.notes });
+    const parts = describeChange(viewer, u, p, { ...saved, score: formatScore(saved.displayScore, viewer.scoreFormat) });
     const title = displayTitle(saved.media.title, viewer.titleLanguage);
     return {
-      line: `${resolved.note}${title}: ${parts.join(", ") || "no change"}.${stepNote}${describePlanDates(filled)}${airedNote(media, saved.progress)}\n${describeEntry(saved.media, saved, viewer)}`,
-      change: change(media, entry, saved),
-      filled: Boolean(filled.startedAt || filled.completedAt),
+      line: `${resolved.note}${title}: ${parts || "no change"}.${p.stepNote}${describePlanDates(p.filled)}${airedNote(media, saved.progress)}\n${describeEntry(saved.media, saved, viewer)}`,
+      change: change(media, p.entry, saved),
+      filled: Boolean(p.filled.startedAt || p.filled.completedAt),
     };
+  };
+
+  /** One update_shows item in a dry run: what it would change, saving nothing. */
+  const previewUpdate = (viewer: Viewer, resolved: { media: Media; note: string }, u: Update) => {
+    const { media } = resolved;
+    const p = planItem(viewer, media, u);
+    const progress = p.plan.progress ?? p.current;
+    const parts = describeChange(viewer, u, p, {
+      status: p.plan.status ?? p.entry?.status,
+      progress,
+      // Out of 10 on both sides: AniList puts it in the user's format only once saved.
+      score: u.score ? `${u.score}/10` : "unrated",
+      scoreBefore: p.entry?.score ? `${p.entry.score}/10` : "unrated",
+      startedAt: p.dates.startedAt ?? p.plan.startedAt ?? p.entry?.startedAt,
+      completedAt: p.dates.completedAt ?? p.plan.completedAt ?? p.entry?.completedAt,
+      notes: p.notes ?? p.oldNote,
+    });
+    const title = displayTitle(media.title, viewer.titleLanguage);
+    return `${resolved.note}${title}: ${parts || "no change"}.${p.stepNote}${describePlanDates(p.filled)}${airedNote(media, progress)}\n${describeEntry(media, p.entry, viewer)}`;
   };
 
   server.registerTool(
@@ -963,52 +1046,116 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
     {
       title: "Update shows",
       description:
-        "Make several list changes in one call: to several shows (\"watched eps 3-5 of JJK and the Dandadan finale\") or several things about one show (\"finished Frieren, 9/10\"). Also the only way to set or correct start and finish dates (\"I actually finished it last March\") and to write the user's private notes on a show. Each update names a show plus any of status, episodes, watched, score, dates and notes, with the same rules as set_status, set_progress, mark_episodes_watched and rate_anime. Updates that are ambiguous or fail are listed with the reason, and the rest are still saved." +
+        "Make several list changes in one call: to several shows (\"watched eps 3-5 of JJK and the Dandadan finale\") or several things about one show (\"finished Frieren, 9/10\"). Also the only way to set or correct start and finish dates (\"I actually finished it last March\") and to write the user's private notes on a show. Each update names a show plus any of status, episodes, watched, score, dates and notes, with the same rules as set_status, set_progress, mark_episodes_watched and rate_anime. Updates that are ambiguous or fail are listed with the reason, and the rest are still saved. For adding many shows (an import), pass addOnly, and dryRun first to check what each name matches." +
         BY_NAME,
-      inputSchema: { updates: z.array(updateItem).min(1).max(10).describe("One per show"), timeZone: userTimeZone },
+      inputSchema: {
+        updates: z
+          .array(updateItem)
+          .min(1)
+          .max(DRY_RUN_LIMIT)
+          .describe(`One per show: up to ${UPDATE_LIMIT}, or ${DRY_RUN_LIMIT} with dryRun`),
+        addOnly: z
+          .boolean()
+          .optional()
+          .describe(
+            "Only add shows that aren't on the list yet (plan to watch unless a status, episodes or dates say otherwise); shows already on it are left unchanged. Use when adding or importing shows.",
+          ),
+        dryRun: z
+          .boolean()
+          .optional()
+          .describe("Save nothing: say which show each name matches and what would change, so the matches can be checked first"),
+        timeZone: userTimeZone,
+      },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
-    safe(async ({ updates, timeZone }) => {
+    safe(async ({ updates, addOnly, dryRun, timeZone }) => {
+      if (!dryRun && updates.length > UPDATE_LIMIT) {
+        throw new Error(
+          `Up to ${UPDATE_LIMIT} updates are saved per call (${DRY_RUN_LIMIT} with dryRun, which saves nothing); split them across calls.`,
+        );
+      }
       const readAt = user.saves;
       const viewer = await viewerIn(timeZone);
       const source = memo(clientSource(client));
+      // A form for one show only: in a batch, the names that need a choice come back together
+      // for the assistant to ask about at once, rather than each stopping the call to ask.
+      const askUser = updates.length === 1 && !dryRun ? ask : undefined;
+      // Shows given by ID, fetched together: one request rather than one each.
+      const ids = [...new Set(updates.map((u) => u.anime).filter((a): a is number => typeof a === "number"))];
+      // If that fails, each show is looked up on its own and reports its own error.
+      const fetched = ids.length > 1 ? await client.getMany(ids).catch(() => []) : [];
+      const byId = new Map(fetched.map((m) => [m.id, m]));
       // In the order they were saved, so undo can take them back newest first.
       const changes: EntryChange[] = [];
+      type ItemResult = { line: string; change?: EntryChange; filled?: boolean; kept?: boolean; ok?: boolean };
       const results = await Promise.all(
-        updates.map(async (u): Promise<{ line: string; change?: EntryChange; filled?: boolean }> => {
+        updates.map(async (u): Promise<ItemResult> => {
           const label = typeof u.anime === "number" ? `ID ${u.anime}` : `"${u.anime}"`;
           try {
             if (u.episodes !== undefined && u.watched !== undefined) {
               throw new Error("Give episodes or watched, not both.");
             }
             const counts = u.episodes !== undefined || u.watched !== undefined;
+            // A show added with no status or episodes: completed if it has a finish date, watching
+            // if it has a start date, else plan to watch, as with add_to_list.
+            if (addOnly && u.status === undefined && !counts) {
+              u = { ...u, status: u.completedAt ? "COMPLETED" : u.startedAt ? "CURRENT" : "PLANNING" };
+            }
             if (u.notes !== undefined && u.addNote !== undefined) throw new Error("Give notes or addNote, not both.");
             const dated = u.startedAt !== undefined || u.completedAt !== undefined;
             const noted = u.notes !== undefined || u.addNote !== undefined;
             if (!counts && !dated && !noted && u.status === undefined && u.score === undefined) {
               throw new Error("Nothing to change: give status, episodes, watched, score, a date or a note.");
             }
-            // A rewatch is of a show already on the list, never the next season (#35).
-            const intent: Intent =
-              counts && u.status !== "REPEATING" ? "progress" : u.status || dated || noted ? "status" : "rate";
-            const resolved = await find(u.anime, intent, source, false);
-            return await inTurn(resolved.media.id, readAt, async (stale) => {
-              const result = await saveUpdate(viewer, resolved, stale, u);
+            // Adding means season 1 and all of AniList, like add_to_list. A rewatch is of a show
+            // already on the list, never the next season (#35).
+            const intent: Intent = addOnly
+              ? "add"
+              : counts && u.status !== "REPEATING"
+                ? "progress"
+                : u.status || dated || noted
+                  ? "status"
+                  : "rate";
+            const known = typeof u.anime === "number" ? byId.get(u.anime) : undefined;
+            const resolved = known
+              ? { media: known, note: "" }
+              : await target(client, u.anime, intent, source, false, undefined, askUser);
+            const kept = (media: Media) => ({
+              line: `${resolved.note}Already on your list, unchanged: ${describeEntry(media, media.mediaListEntry, viewer)}`,
+              kept: true,
+            });
+            if (dryRun) {
+              if (addOnly && resolved.media.mediaListEntry) return kept(resolved.media);
+              return { line: previewUpdate(viewer, resolved, u), ok: true };
+            }
+            return await onTurn(resolved.media, readAt, async (media) => {
+              if (addOnly && media.mediaListEntry) return kept(media);
+              const result = await saveUpdate(viewer, resolved, media, u);
               changes.push(result.change);
-              return result;
+              return { ...result, ok: true };
             });
           } catch (err) {
             return { line: `Not changed: ${label}: ${(err as Error).message.replace(/^Nothing was changed\. /, "")}` };
           }
         }),
       );
-      journal.record("update_shows", changes);
       // Said once for the whole batch, not on every line.
       const utc = zoneUnknown(viewer) && results.some((r) => r.filled) ? `\n${UTC_NOTE.trim()}` : "";
       const body = results.map((r) => r.line).join("\n") + utc;
-      if (changes.length === 0) return { ...text(body), isError: true };
-      const failed = results.length - changes.length;
-      return text(failed ? `Saved ${changes.length} of ${results.length} updates.\n${body}` : body);
+      const done = results.filter((r) => r.ok).length;
+      const kept = results.filter((r) => r.kept).length;
+      const failed = results.length - done - kept;
+      const keptNote = kept ? `; ${kept} already on your list, left unchanged` : "";
+      if (dryRun) {
+        const header = `Dry run, nothing was saved: ${done} of ${results.length} updates would be saved${keptNote}${failed ? `; ${failed} can't be` : ""}.`;
+        const next = done
+          ? `\nTo save exactly these matches, call again without dryRun${addOnly ? " but still with addOnly" : ""}, passing the ID (the number in brackets) of each show that would be saved.`
+          : "";
+        return text(`${header}\n${body}${next}`);
+      }
+      journal.record("update_shows", changes);
+      if (done === 0 && failed > 0) return { ...text(body), isError: true };
+      return text(failed || kept ? `Saved ${done} of ${results.length} updates${keptNote}.\n${body}` : body);
     }),
   );
 
