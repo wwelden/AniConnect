@@ -71,24 +71,21 @@ function withCors(res: Response): Response {
 }
 
 /**
- * Reads the body into memory, giving up past MAX_BODY_BYTES (null). Bun's maxRequestBodySize
- * doesn't apply to chunked bodies, which have no Content-Length.
+ * Reads the body into memory, keeping at most MAX_BODY_BYTES; null if it was larger. Bun's
+ * maxRequestBodySize doesn't apply to chunked bodies, which have no Content-Length. An oversized
+ * body is still read to its end (and dropped): answering mid-upload lets the client reuse the
+ * connection with the rest of the body unsent, and its next request then gets a 400.
  */
 async function capBody(req: Request): Promise<Request | null> {
   if (!req.body) return req;
-  const reader = req.body.getReader();
   const chunks: Uint8Array[] = [];
   let size = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > MAX_BODY_BYTES) {
-      void reader.cancel().catch(() => {});
-      return null;
-    }
-    chunks.push(value);
+  for await (const chunk of req.body) {
+    size += chunk.byteLength;
+    if (size <= MAX_BODY_BYTES) chunks.push(chunk);
+    else chunks.length = 0;
   }
+  if (size > MAX_BODY_BYTES) return null;
   // Framing headers described the original stream, not this buffer.
   const headers = new Headers(req.headers);
   headers.delete("content-length");

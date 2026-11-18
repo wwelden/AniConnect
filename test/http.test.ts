@@ -343,10 +343,13 @@ describe("authorization checks", () => {
           c.close();
         },
       });
-    expect((await post("/register", chunked(JSON.stringify({ redirect_uris: [REDIRECT], pad })))).status).toBe(413);
-    // Just under the limit is still served, chunked or not.
+    // Just under the limit is still served, chunked or not, including on a connection that
+    // just carried an oversized chunked body (answering that one mid-upload broke the next request).
     const fits = JSON.stringify({ redirect_uris: [REDIRECT], pad: pad.slice(0, -1000) });
-    expect((await post("/register", fits)).status).toBe(201);
+    for (let i = 0; i < 5; i++) {
+      expect((await post("/register", chunked(JSON.stringify({ redirect_uris: [REDIRECT], pad })))).status).toBe(413);
+      expect((await post("/register", fits)).status).toBe(201);
+    }
     expect((await post("/register", chunked(fits))).status).toBe(201);
   });
 
