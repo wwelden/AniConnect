@@ -311,32 +311,36 @@ export class AniListClient {
     } catch {
       // The signal also covers reading the body, so a stall there ends up here.
       if (signal.aborted) throw timedOut();
+      if (res.status === 401) return this.rejectToken("HTTP 401");
       throw new AniListError(`AniList returned HTTP ${res.status} with a non-JSON body.`);
     }
 
+    // Validation errors carry their real reason in `validation`, e.g. {"id": ["The selected id is invalid."]}.
+    const messages = (body.errors ?? [])
+      .map((e) =>
+        e.validation
+          ? Object.entries(e.validation)
+              .map(([field, reasons]) => `${field}: ${reasons.join(" ")}`)
+              .join("; ")
+          : e.message,
+      )
+      .join("; ");
+    // A 401 means the token, whatever the body says (AniList usually sends "Invalid token", but not always).
+    if (res.status === 401 || /invalid token/i.test(messages)) return this.rejectToken(messages || "HTTP 401");
     if (body.errors?.length) {
-      // Validation errors carry their real reason in `validation`, e.g. {"id": ["The selected id is invalid."]}.
-      const messages = body.errors
-        .map((e) =>
-          e.validation
-            ? Object.entries(e.validation)
-                .map(([field, reasons]) => `${field}: ${reasons.join(" ")}`)
-                .join("; ")
-            : e.message,
-        )
-        .join("; ");
-      if (res.status === 401 || /invalid token/i.test(messages)) {
-        this.rejected = true;
-        throw new AniListError(
-          `AniList rejected the token (${messages}). ${this.renew ?? "Check ANILIST_TOKEN; tokens expire after a year."}`,
-        );
-      }
       throw new AniListError(`AniList error: ${messages}`, body.errors[0]!.status ?? res.status);
     }
     if (!res.ok || !body.data) {
       throw new AniListError(`AniList returned HTTP ${res.status}.`);
     }
     return body.data;
+  }
+
+  private rejectToken(reason: string): never {
+    this.rejected = true;
+    throw new AniListError(
+      `AniList rejected the token (${reason}). ${this.renew ?? "Check ANILIST_TOKEN; tokens expire after a year."}`,
+    );
   }
 
   /**

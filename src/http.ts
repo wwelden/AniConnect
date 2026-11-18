@@ -105,8 +105,12 @@ export async function createHttpApp(config: OAuthConfig, options: HttpOptions = 
   const oauth = await OAuthServer.create(config, { fetch: options.fetch, now });
   const accounts = new Map<string, Account>();
   const sessions = new Map<string, Session>();
-  /** Users whose AniList token AniList has rejected: their access token is refused, so the client signs in again. */
-  const rejected = new Set<string>();
+  /**
+   * Users whose AniList token AniList has rejected, with when it first did: their access
+   * token is refused, so the client signs in again. Forgotten after IDLE_MS, after which a
+   * retry asks AniList again.
+   */
+  const rejected = new Map<string, number>();
 
   function account(key: string, token: string): Account {
     let found = accounts.get(key);
@@ -134,6 +138,7 @@ export async function createHttpApp(config: OAuthConfig, options: HttpOptions = 
     }
     const active = new Set([...sessions.values()].map((s) => s.account));
     for (const [key, a] of accounts) if (a.lastUsed <= cutoff && !active.has(key)) accounts.delete(key);
+    for (const [key, since] of rejected) if (since <= cutoff) rejected.delete(key);
   }
 
   async function mcp(req: Request): Promise<Response> {
@@ -143,7 +148,8 @@ export async function createHttpApp(config: OAuthConfig, options: HttpOptions = 
     const key = token && (await sha256(token));
     if (key && (rejected.has(key) || accounts.get(key)?.client.rejected)) {
       // Sign the user out here too, so the client asks them to sign in again.
-      rejected.add(key);
+      // Kept from the first refusal, so a client that keeps retrying still gets a fresh check after IDLE_MS.
+      if (!rejected.has(key)) rejected.set(key, now());
       accounts.delete(key);
       for (const [id, s] of sessions) if (s.account === key) await close(id);
     }
@@ -231,8 +237,8 @@ export async function createHttpApp(config: OAuthConfig, options: HttpOptions = 
 
   return {
     oauth,
-    /** Open sessions and signed-in users, for tests. */
-    stats: () => ({ sessions: sessions.size, accounts: accounts.size }),
+    /** Open sessions, signed-in users and refused tokens, for tests. */
+    stats: () => ({ sessions: sessions.size, accounts: accounts.size, rejected: rejected.size }),
     sweep,
     async fetch(req: Request): Promise<Response> {
       try {
