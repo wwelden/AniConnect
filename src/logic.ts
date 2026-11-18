@@ -209,9 +209,9 @@ export function after(a: FuzzyDate, b: FuzzyDate): boolean {
 
 /**
  * Reads a start or finish date the user gave (R0.10): "2025-03-14", "2025-03" when they only
- * remember the month, or "2025". Dates in the future are refused.
+ * remember the month, or "2025". Dates in the future (after `latest`) are refused.
  */
-export function parseFuzzyDate(text: string, today: FuzzyDate): FuzzyDate {
+export function parseFuzzyDate(text: string, today: FuzzyDate, latest = today): FuzzyDate {
   const m = /^(\d{4})(?:-(\d{1,2})(?:-(\d{1,2}))?)?$/.exec(text.trim());
   if (!m) throw new Error(`Give dates as YYYY-MM-DD, YYYY-MM or YYYY (got "${text}").`);
   const year = Number(m[1]);
@@ -222,7 +222,7 @@ export function parseFuzzyDate(text: string, today: FuzzyDate): FuzzyDate {
     throw new Error(`There's no day ${day} in ${year}-${String(month).padStart(2, "0")} (got "${text}").`);
   }
   const date = { year, month, day };
-  if (after(date, today)) throw new Error(`${text} is in the future (today is ${formatDate(today)}).`);
+  if (after(date, latest)) throw new Error(`${text} is in the future (today is ${formatDate(today)}).`);
   return date;
 }
 

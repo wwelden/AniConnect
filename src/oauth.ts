@@ -15,6 +15,7 @@ import type { FetchFn } from "./anilist";
 import { tokenExpiry } from "./token";
 
 export const ANILIST_AUTHORIZE = "https://anilist.co/api/v2/oauth/authorize";
+const ANILIST_ORIGIN = new URL(ANILIST_AUTHORIZE).origin;
 export const ANILIST_TOKEN = "https://anilist.co/api/v2/oauth/token";
 
 /** How long the user has to finish signing in on AniList. */
@@ -203,6 +204,17 @@ function destination(uri: string): string {
   return url.host ? `${url.protocol}//${url.host}` : `${url.protocol}${url.pathname.split("/")[0]}`;
 }
 
+/**
+ * Where the consent form may send the browser. Chrome checks form-action against the redirect
+ * that answers the form too, so this lists where that goes: AniList, or back to the app.
+ */
+function formAction(redirectUri: string): string {
+  const url = new URL(redirectUri);
+  // An app scheme (cursor:), or a host CSP can't spell (Chrome ignores [::1]), is allowed by its scheme.
+  const app = /^https?:$/.test(url.protocol) && /^[a-z0-9-]+(\.[a-z0-9-]+)*(:\d+)?$/.test(url.host) ? url.origin : url.protocol;
+  return `'self' ${ANILIST_ORIGIN} ${app}`;
+}
+
 function consentPage(name: string | undefined, redirectUri: string, pending: string): string {
   const app = name ? `<b>${escapeHtml(name)}</b> (as the app calls itself)` : "An app";
   return `<!doctype html>
@@ -387,8 +399,9 @@ export class OAuthServer {
         "Content-Type": "text/html; charset=utf-8",
         "Cache-Control": "no-store",
         // The cookie only comes back on a same-site request, so another site can't post the form for the user.
-        "Set-Cookie": `aniconnect_consent=${consent}; Path=/authorize; Max-Age=${PENDING_MS / 1000}; HttpOnly; SameSite=Strict${this.secure}`,
-        "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'",
+        // Named after this page, so a second consent page doesn't replace the first one's cookie.
+        "Set-Cookie": `aniconnect_consent_${consent}=1; Path=/authorize; Max-Age=${PENDING_MS / 1000}; HttpOnly; SameSite=Strict${this.secure}`,
+        "Content-Security-Policy": `default-src 'none'; style-src 'unsafe-inline'; form-action ${formAction(redirectUri)}; frame-ancestors 'none'`,
         "X-Frame-Options": "DENY",
       },
     });
@@ -400,13 +413,19 @@ export class OAuthServer {
     const sealed = form.get("pending");
     const pending = await this.sealer.open<Pending>("pending", sealed, this.now());
     if (!pending || !sealed) return page("this sign-in has expired or isn't valid. Start again from your MCP client.");
-    const cookie = /(?:^|;\s*)aniconnect_consent=([^;]+)/.exec(req.headers.get("Cookie") ?? "")?.[1];
-    if (!pending.x || cookie !== pending.x) {
+    const consent = `aniconnect_consent_${pending.x}`;
+    if (!pending.x || !(req.headers.get("Cookie") ?? "").split(/;\s*/).some((c) => c.startsWith(`${consent}=`))) {
       return page("couldn't confirm this approval came from this page. Start again from your MCP client.", 403);
     }
+    const forget = (res: Response) => {
+      res.headers.append("Set-Cookie", `${consent}=; Path=/authorize; Max-Age=0; HttpOnly; SameSite=Strict${this.secure}`);
+      return res;
+    };
     if (form.get("action") !== "approve") {
-      return redirect(
-        withParams(pending.r, { error: "access_denied", error_description: "The user didn't approve the app.", state: pending.s }),
+      return forget(
+        redirect(
+          withParams(pending.r, { error: "access_denied", error_description: "The user didn't approve the app.", state: pending.s }),
+        ),
       );
     }
     // The state AniList carries is a new kind, made only here, and it works only in the browser
@@ -425,7 +444,7 @@ export class OAuthServer {
       "Set-Cookie",
       `aniconnect_signin_${signIn}=1; Path=/oauth/callback; Max-Age=${PENDING_MS / 1000}; HttpOnly; SameSite=Lax${this.secure}`,
     );
-    return res;
+    return forget(res);
   }
 
   /** AniList sends the user back here: swap its code for their token, and send them back to the client. */

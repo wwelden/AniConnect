@@ -51,6 +51,7 @@ export interface ParsedQuery {
    * Set when "new"/"next" was read as a season word but sits apart from "season"
    * ("the new Frieren season"). The words might instead be part of a title
    * ("New Game", "My Next Life as a Villainess"), so this literal reading is tried first.
+   * Also set when an abbreviation was expanded next to other words, holding the unexpanded words.
    */
   literal?: ParsedQuery;
 }
@@ -117,20 +118,36 @@ export function parseQuery(raw: string): ParsedQuery {
   if (hint.season === undefined && !hint.latest && !hint.next && / (?:season|cour) /.test(q)) {
     const split = / (new|newest|latest|recent|current|next) /.exec(q);
     if (split) {
-      literal = finish(q.replace(/ (?:season|cour) /, " "), { ...hint });
+      literal = finish(q.replace(/ (?:season|cour) /, " "), { ...hint }, false);
       if (split[1] === "next") hint.next = true;
       else hint.latest = true;
       q = q.replace(split[0], " ").replace(/ (?:season|cour) /, " ");
     }
   }
-  return { ...finish(q, hint), ...(literal && { literal }) };
+  const parsed = finish(q, hint);
+  // Both readings kept: "next jjk 0 season" tries "next jjk 0", then "jjk 0" (next season).
+  if (literal) return { ...parsed, literal: { ...literal, literal: parsed.literal } };
+  return parsed;
 }
 
-function finish(q: string, hint: SeasonHint): ParsedQuery {
-  let exact = q.replace(/\s+/g, " ").trim();
-  if (ALIASES[exact]) exact = ALIASES[exact]!;
-  const words = exact.split(" ").filter((w) => w && !STOPWORDS.has(w));
-  return { exact, words, hint };
+const isAlias = (w: string) => Object.hasOwn(ALIASES, w);
+const meaningful = (s: string) => s.split(" ").filter((w) => w && !STOPWORDS.has(w));
+
+/** `expand` false keeps abbreviations as written, for a reading that is already literal. */
+function finish(q: string, hint: SeasonHint, expand = true): ParsedQuery {
+  const raw = q.replace(/\s+/g, " ").trim();
+  if (!expand) return { exact: raw, words: meaningful(raw), hint };
+  // Expand an abbreviation wherever it stands as a word: "aot final season".
+  const exact = raw
+    .split(" ")
+    .map((w) => (isAlias(w) ? ALIASES[w]! : w))
+    .join(" ");
+  const parsed: ParsedQuery = { exact, words: meaningful(exact), hint };
+  // Some names really contain the short form ("HxH: Phantom Rogue", "JJK 0"), so with
+  // other words around it the unexpanded reading is tried first.
+  const rawWords = meaningful(raw);
+  if (exact !== raw && !rawWords.every(isAlias)) parsed.literal = { exact: raw, words: rawWords, hint: { ...hint } };
+  return parsed;
 }
 
 function names(m: Media): string[] {
@@ -350,10 +367,29 @@ export async function resolveAnime(
 ): Promise<Resolution> {
   const src = memo(source);
   const q = parseQuery(query);
-  if (q.literal && (await matchesStrongly(q.literal, intent, src))) {
-    return resolveParsed(query, q.literal, intent, src, language);
+  let hidden: Resolution | undefined;
+  const skipped: ParsedQuery[] = [];
+  for (let literal = q.literal; literal; literal = literal.literal) {
+    if (!(await matchesStrongly(literal, intent, src))) {
+      skipped.push(literal);
+      continue;
+    }
+    // A name can match yet miss the hint ("aot final season movie" against a TV synonym):
+    // then the next reading gets its turn.
+    const r = await resolveParsed(query, literal, intent, src, language);
+    if (r.kind !== "none") return r;
+    if (r.hidden) hidden ??= r;
   }
-  return resolveParsed(query, q, intent, src, language);
+  const r = await resolveParsed(query, q, intent, src, language);
+  if (r.kind !== "none" || r.hidden) return r;
+  // Keep "only adult titles match" over a plain "couldn't find", including for an
+  // adult title named with the short form as written ("JJK 0").
+  if (hidden) return hidden;
+  for (const literal of skipped) {
+    const l = await resolveParsed(query, literal, intent, src, language);
+    if (l.kind === "none" && l.hidden) return l;
+  }
+  return r;
 }
 
 async function matchesStrongly(q: ParsedQuery, intent: Intent, source: AnimeSource): Promise<boolean> {
@@ -421,7 +457,57 @@ async function resolveParsed(
   if (q.hint.season !== undefined || q.hint.part !== undefined) {
     return resolveSeason(q, intent, pool, source, fetched);
   }
+  if (intent === "progress") pool = await keepCompleted(pool, source, fetched);
   return pick(query, intent, pool);
+}
+
+/**
+ * After finishing a show, an episode update means its next season, but only a sequel that
+ * has started airing. Shows not on the list that match no better than the completed one
+ * (a show sharing a word, an unaired sequel, the other version of a remake) are dropped,
+ * so the update goes to the completed show and the episode rules say what happens (#35).
+ */
+async function keepCompleted(pool: Scored[], source: AnimeSource, fetched: Media[]): Promise<Scored[]> {
+  const ranks = STATUS_RANK.progress;
+  const completed = pool.filter((s) => status(s.media) === "COMPLETED");
+  if (!completed.length || pool.some((s) => ranks[status(s.media)] < ranks.NONE)) return pool;
+  const best = Math.max(...completed.map((s) => s.score));
+  const remake = (s: Scored) => completed.some((c) => isRemake(s.media, c.media));
+  const rivals = pool.filter((s) => status(s.media) === "NONE" && (s.score <= best || remake(s)));
+  // Only an aired rival that isn't another version could be the next season: walk chains just for those.
+  if (!rivals.some((s) => hasAired(s.media) && !remake(s))) return pool.filter((s) => !rivals.includes(s));
+  // Only the best completed matches vouch for a sequel: a weaker one ("Alpha Side Story" when
+  // "Alpha" is exact) can't hand the update to its own sequel.
+  const anchors = completed.filter((s) => s.score === best).map((s) => s.media);
+  const wanted = rivals.filter((s) => hasAired(s.media) && !remake(s)).map((s) => s.media.id);
+  const sequels = await sequelsReached(anchors, wanted, source, fetched);
+  return pool.filter((s) => !rivals.includes(s) || sequels.has(s.media.id));
+}
+
+/** Formats a sequel chain passes through when checking what follows what: series and movies. */
+const CHAIN_FORMATS = new Set([...SERIES_FORMATS, "MOVIE"]);
+
+/**
+ * Which of `wanted` follow `from` through SEQUEL edges, movies included (season 1, the movie,
+ * season 2). Stops once all are found or after 15 anime, fetching only what isn't known yet.
+ */
+async function sequelsReached(from: Media[], wanted: number[], source: AnimeSource, fetched: Media[]): Promise<Set<number>> {
+  const { learn, full } = relationLookup(source, fetched);
+  from.forEach(learn);
+  const found = new Set<number>();
+  const seen = new Set(from.map((m) => m.id));
+  const queue = from.map((m) => m.id);
+  while (queue.length && found.size < wanted.length && seen.size < 15) {
+    const edges: RelationEdge[] = (await full(queue.shift()!))?.relations?.edges ?? [];
+    for (const e of edges) {
+      if (e.relationType !== "SEQUEL" || e.node.type !== "ANIME" || !CHAIN_FORMATS.has(e.node.format ?? "")) continue;
+      if (seen.has(e.node.id)) continue;
+      seen.add(e.node.id);
+      queue.push(e.node.id);
+      if (wanted.includes(e.node.id)) found.add(e.node.id);
+    }
+  }
+  return found;
 }
 
 function pick(query: string, intent: Intent, pool: Scored[]): Resolution {
@@ -563,11 +649,10 @@ interface SeasonEntry {
 }
 
 /**
- * Seasons in sequel order from `root`, stopping after the first one past season `upTo`.
- * Walks what this call already fetched (`fetched`: the list and search results, which carry
- * relations) and fetches only the anime it lacks, two sequel steps per request.
+ * Anime with their relations: what this call already fetched (the list and search results,
+ * which carry relations), fetching only the anime it lacks, two sequel steps per request.
  */
-async function seasonChain(root: Media, upTo: number, source: AnimeSource, fetched: Media[]): Promise<SeasonEntry[]> {
+function relationLookup(source: AnimeSource, fetched: Media[]) {
   const known = new Map<number, Media>();
   const learn = (m: Media) => {
     const had = known.get(m.id);
@@ -576,7 +661,6 @@ async function seasonChain(root: Media, upTo: number, source: AnimeSource, fetch
     known.set(m.id, { ...keep, mediaListEntry: m.mediaListEntry ?? had?.mediaListEntry ?? null });
   };
   fetched.forEach(learn);
-  learn(root);
   /** The anime with its relations, fetching it (and its related anime, in full) if needed. */
   const full = async (id: number): Promise<Media | undefined> => {
     if (known.get(id)?.relations) return known.get(id);
@@ -589,6 +673,17 @@ async function seasonChain(root: Media, upTo: number, source: AnimeSource, fetch
     }
     return known.get(id)?.relations ? known.get(id) : undefined;
   };
+  return { known, learn, full };
+}
+
+/**
+ * Seasons in sequel order from `root`, stopping after the first one past season `upTo`.
+ * Walks what this call already fetched (`fetched`: the list and search results, which carry
+ * relations) and fetches only the anime it lacks, two sequel steps per request.
+ */
+async function seasonChain(root: Media, upTo: number, source: AnimeSource, fetched: Media[]): Promise<SeasonEntry[]> {
+  const { known, learn, full } = relationLookup(source, fetched);
+  learn(root);
 
   const chain: SeasonEntry[] = [];
   let current: Media | undefined = known.get(root.id);
@@ -680,7 +775,13 @@ async function resolveSeason(
     }
   }
 
-  const label = `season ${wantSeason}${q.hint.part ? ` part ${q.hint.part}` : ""}`;
+  // Name only what was asked: "part 5" alone is not "season 1 part 5".
+  const label = [
+    q.hint.season !== undefined ? `season ${q.hint.season}` : "",
+    q.hint.part !== undefined ? `part ${q.hint.part}` : "",
+  ].filter(Boolean).join(" ") || `season ${wantSeason}`;
+  // "the part of part 2" and "the first part of part 2" read wrong: a part-only request already names the part.
+  const partOnly = q.hint.season === undefined && q.hint.part !== undefined;
   if (matches.length === 0) {
     return { kind: "none", why: `Couldn't find ${label} of "${q.exact}" on AniList.` };
   }
@@ -693,14 +794,14 @@ async function resolveSeason(
   if (intent === "remove") {
     const listed = matches.filter((e) => e.media.mediaListEntry);
     if (listed.length === 1) {
-      return { kind: "match", media: listed[0]!.media, why: `it's the part of ${label} on your list` };
+      return { kind: "match", media: listed[0]!.media, why: partOnly ? `it's ${label}, the one on your list` : `it's the part of ${label} on your list` };
     }
     if (listed.length > 1) {
       listed.sort((a, b) => a.part - b.part || dateKey(a.media) - dateKey(b.media));
       return {
         kind: "ambiguous",
         candidates: listed.slice(0, MAX_CANDIDATES).map((e) => e.media),
-        why: `S${label.slice(1)} of "${q.exact}" matches ${listed.length} entries on your list.`,
+        why: `${label[0]!.toUpperCase()}${label.slice(1)} of "${q.exact}" matches ${listed.length} entries on your list.`,
       };
     }
   }
@@ -711,7 +812,9 @@ async function resolveSeason(
   const best = matches[0]!;
   const why =
     status(best.media) === "NONE"
-      ? `it's the first part of ${label}`
+      ? partOnly
+        ? `it's ${label}, the earliest that fits`
+        : `it's the first part of ${label}`
       : `it's ${label} and ${STATUS_WHY[status(best.media)]}`;
   return { kind: "match", media: best.media, why };
 }

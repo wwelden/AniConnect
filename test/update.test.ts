@@ -66,6 +66,23 @@ describe("update_shows (R2.6)", () => {
     );
   });
 
+  test("a rewatch with episodes targets the show on the list, not its next season (#35)", async () => {
+    // Frieren's aired 2nd Season would take a plain episode update.
+    const r = await update({ anime: "frieren", status: "REPEATING", episodes: 2 });
+    expect(r.isError).toBe(false);
+    expect(r.text).toContain("you've completed it.\n");
+    expect(fake.entries.get(FRIEREN)).toMatchObject({ status: "REPEATING", progress: 2 });
+    expect(fake.entries.get(findMedia("Sousou no Frieren 2nd Season").id)).toBeUndefined();
+  });
+
+  test("a rewatch with watched episodes targets the show on the list and counts from 0 (#35, #37)", async () => {
+    const r = await update({ anime: "frieren", status: "REPEATING", watched: 2 });
+    expect(r.isError).toBe(false);
+    expect(r.text).toContain("you've completed it.\n");
+    expect(fake.entries.get(FRIEREN)).toMatchObject({ status: "REPEATING", progress: 2 });
+    expect(fake.entries.get(findMedia("Sousou no Frieren 2nd Season").id)).toBeUndefined();
+  });
+
   test("an ambiguous show is listed with its candidates and the others are saved", async () => {
     const r = await update({ anime: "attack on titan", score: 10 }, { anime: "dandadan", watched: 1 });
     expect(r.isError).toBe(false);
@@ -92,6 +109,28 @@ describe("update_shows (R2.6)", () => {
     const id = findMedia("Chainsaw Man").id;
     expect(r.text).toContain("Chainsaw Man: not on list -> Watching, episode 0 -> 2.");
     expect(fake.entries.get(id)).toMatchObject({ status: "CURRENT", progress: 2 });
+  });
+
+  test("clearing something on a show that isn't on the list leaves it off", async () => {
+    const id = findMedia("Chainsaw Man").id;
+    const rated = await call("rate_anime", { anime: "chainsaw man", score: 0 });
+    expect(rated.isError).toBe(false);
+    expect(rated.text).toContain("Chainsaw Man isn't on your list, so there's no rating to clear.");
+    const r = await update(
+      { anime: "chainsaw man", notes: "" },
+      { anime: "chainsaw man", completedAt: "clear" },
+      { anime: "chainsaw man", score: 0, startedAt: "clear" },
+    );
+    expect(r.isError).toBe(true);
+    expect(r.text).toContain("Chainsaw Man isn't on your list, so there's nothing to clear.");
+    expect(fake.writes).toHaveLength(0);
+    expect(fake.entries.has(id)).toBe(false);
+  });
+
+  test("a clear with something to set still adds the show", async () => {
+    const r = await update({ anime: "chainsaw man", score: 0, status: "PLANNING" });
+    expect(r.text).toContain("Chainsaw Man: not on list -> Plan to watch");
+    expect(fake.entries.has(findMedia("Chainsaw Man").id)).toBe(true);
   });
 
   test("the same show twice counts both", async () => {

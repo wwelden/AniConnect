@@ -7,7 +7,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { UnauthorizedError, type OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 import type { OAuthClientInformationMixed, OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
-import { configFromEnv, createHttpApp, IDLE_MS, MAX_SESSIONS } from "../src/http";
+import { configFromEnv, createHttpApp, IDLE_MS, MAX_SESSIONS, SERVE_OPTIONS } from "../src/http";
 import { ANILIST_AUTHORIZE, ANILIST_TOKEN } from "../src/oauth";
 import { PERSONA } from "./fixtures/persona";
 import { FakeAniList, findMedia } from "./support/fake-anilist";
@@ -63,7 +63,7 @@ beforeEach(async () => {
   };
   // Bind first so PUBLIC_URL can name the real port.
   let handler: (req: Request) => Promise<Response> = async () => new Response(null, { status: 503 });
-  server = Bun.serve({ port: 0, fetch: (req) => handler(req) });
+  server = Bun.serve({ ...SERVE_OPTIONS, port: 0, fetch: (req) => handler(req) });
   base = `http://localhost:${server.port}`;
   app = await createHttpApp(
     {
@@ -328,6 +328,31 @@ describe("authorization checks", () => {
     expect((await register({ redirect_uris: [] })).status).toBe(400);
   });
 
+  test("bodies over 1 MB are refused before they are read", async () => {
+    const pad = "x".repeat(1024 * 1024);
+    const post = (path: string, body: string | ReadableStream, type = "application/json") =>
+      fetch(`${base}${path}`, { method: "POST", headers: { "Content-Type": type }, body });
+    expect((await post("/register", JSON.stringify({ redirect_uris: [REDIRECT], pad }))).status).toBe(413);
+    expect((await post("/token", `grant_type=refresh_token&pad=${pad}`, "application/x-www-form-urlencoded")).status).toBe(413);
+    expect((await post("/mcp", JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping", pad }))).status).toBe(413);
+    // Sent chunked, with no Content-Length for Bun to check up front.
+    const chunked = (text: string) =>
+      new ReadableStream({
+        start(c) {
+          for (let i = 0; i < text.length; i += 64 * 1024) c.enqueue(new TextEncoder().encode(text.slice(i, i + 64 * 1024)));
+          c.close();
+        },
+      });
+    // Just under the limit is still served, chunked or not, including on a connection that
+    // just carried an oversized chunked body (answering that one mid-upload broke the next request).
+    const fits = JSON.stringify({ redirect_uris: [REDIRECT], pad: pad.slice(0, -1000) });
+    for (let i = 0; i < 5; i++) {
+      expect((await post("/register", chunked(JSON.stringify({ redirect_uris: [REDIRECT], pad })))).status).toBe(413);
+      expect((await post("/register", fits)).status).toBe(201);
+    }
+    expect((await post("/register", chunked(fits))).status).toBe(201);
+  });
+
   test("an unregistered redirect URI gets an error page, never a redirect", async () => {
     const { body } = await register();
     const url = new URL(`${base}/authorize`);
@@ -411,14 +436,62 @@ describe("authorization checks", () => {
 
     // Another site posting the form for the user (no cookie, or someone else's) gets nowhere.
     expect((await answer(pending, "approve")).status).toBe(403);
-    expect((await answer(pending, "approve", "aniconnect_consent=guess")).status).toBe(403);
-    // Cancel goes back to the app with access_denied.
+    expect((await answer(pending, "approve", "aniconnect_consent_guess=1")).status).toBe(403);
+    // Cancel goes back to the app with access_denied, and forgets this page's cookie.
     const denied = await answer(pending, "deny", cookie);
+    expect(denied.headers.getSetCookie()).toContain(`${cookie.split("=")[0]}=; Path=/authorize; Max-Age=0; HttpOnly; SameSite=Strict`);
     const back = new URL(denied.headers.get("Location")!);
     expect(back.origin).toBe("https://evil.example");
     expect(back.searchParams.get("error")).toBe("access_denied");
     expect(back.searchParams.get("state")).toBe("s");
     expect(back.searchParams.get("code")).toBeNull();
+  });
+
+  test("the consent page's CSP lets its form go on to AniList or back to the app", async () => {
+    // Chrome checks form-action against the redirect that answers the form, not only the form's own target.
+    const cases: [string, string][] = [
+      ["https://claude.ai/api/mcp/auth_callback", "https://claude.ai"],
+      [REDIRECT, "http://localhost:9999"],
+      ["http://[::1]:9999/callback", "http:"],
+      ["cursor://anysphere.cursor-mcp/oauth/callback", "cursor:"],
+      // A host the URL parser allows but CSP can't spell doesn't get to add directives.
+      ["https://a;sandbox,x.example/cb", "https:"],
+      ["https://a..b/cb", "https:"],
+    ];
+    for (const [redirectUri, app] of cases) {
+      const { body } = await register({ redirect_uris: [redirectUri] });
+      const url = `${base}/authorize?${new URLSearchParams({
+        client_id: body.client_id!,
+        response_type: "code",
+        code_challenge: "x",
+        code_challenge_method: "S256",
+      })}`;
+      const { res } = await consent(url);
+      expect(res.headers.get("Content-Security-Policy")).toBe(
+        `default-src 'none'; style-src 'unsafe-inline'; form-action 'self' https://anilist.co ${app}; frame-ancestors 'none'`,
+      );
+    }
+  });
+
+  test("opening the consent page twice leaves both pages able to approve", async () => {
+    const { body } = await register();
+    const url = `${base}/authorize?${new URLSearchParams({
+      client_id: body.client_id!,
+      response_type: "code",
+      code_challenge: "x",
+      code_challenge_method: "S256",
+    })}`;
+    const first = await consent(url);
+    const second = await consent(url);
+    expect(first.cookie).not.toBe(second.cookie);
+    // The browser holds both pages' cookies, and each page is checked against its own.
+    const jar = `${first.cookie}; ${second.cookie}`;
+    const one = await answer(first.pending, "approve", jar);
+    expect(one.status).toBe(302);
+    expect(new URL(one.headers.get("Location")!).origin).toBe("https://anilist.co");
+    expect((await answer(second.pending, "approve", jar)).status).toBe(302);
+    // One page's cookie doesn't approve the other page.
+    expect((await answer(first.pending, "approve", second.cookie)).status).toBe(403);
   });
 
   test("a code works once, with the right verifier, for the client it was issued to", async () => {

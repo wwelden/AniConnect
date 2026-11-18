@@ -476,6 +476,15 @@ describe("rewatches", () => {
     const done = fake.entries.get(130003)!;
     expect(done).toMatchObject({ status: "COMPLETED", progress: 12, repeat: 1, startedAt: EARLIER, completedAt: EARLIER });
   });
+
+  test("starting a rewatch and logging episodes in one update counts them from 0", async () => {
+    fake.seed(PERSONA);
+    const r = await call("update_shows", { updates: [{ anime: 130003, status: "REPEATING", watched: 2 }] });
+    expect(r.isError).toBe(false);
+    expect(r.text).toContain("Completed -> Rewatching");
+    expect(r.text).not.toContain("Not changed");
+    expect(fake.entries.get(130003)).toMatchObject({ status: "REPEATING", progress: 2 });
+  });
 });
 
 describe("lowering progress on a completed show", () => {
@@ -524,6 +533,33 @@ test("progress on an unreleased show with no schedule yet says it hasn't aired",
   expect(r.isError).toBe(false);
   expect(fake.entries.get(186712)!.progress).toBe(1);
   expect(r.text).toContain("hasn't started airing yet");
+});
+
+describe("set_status COMPLETED on a show still airing", () => {
+  test("notes how many episodes have aired", async () => {
+    await connect({ now: () => NOW });
+    const r = await call("set_status", { anime: 195516, status: "COMPLETED" });
+    expect(r.isError).toBe(false);
+    expect(fake.entries.get(195516)!.progress).toBe(12);
+    expect(r.text).toContain("AniList says only 7 episodes have aired so far.");
+  });
+
+  test("notes a show that hasn't premiered, even with no episode count", async () => {
+    await connect({ now: () => NOW });
+    // Bocchi the Rock! 2nd Season: not yet released, episode count unknown.
+    const r = await call("set_status", { anime: 186712, status: "COMPLETED" });
+    expect(r.isError).toBe(false);
+    expect(fake.entries.get(186712)).toMatchObject({ status: "COMPLETED", progress: 0 });
+    expect(r.text).toContain("hasn't started airing yet");
+  });
+
+  test("says nothing for a finished show or another status", async () => {
+    await connect({ now: () => NOW });
+    let r = await call("set_status", { anime: 16498, status: "COMPLETED" });
+    expect(r.text).not.toContain("AniList says");
+    r = await call("set_status", { anime: 186712, status: "PLANNING" });
+    expect(r.text).not.toContain("AniList says");
+  });
 });
 
 describe("parts without a season number", () => {

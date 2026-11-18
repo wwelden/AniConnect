@@ -585,20 +585,25 @@ export class AniListClient {
   }
 
   /**
-   * The user's own anime list activity, newest first: one page of at most 50.
-   * `from` and `to` are Unix seconds (from inclusive, to exclusive).
+   * The user's own anime list activity, newest first: up to `pages` pages (default 1) of 50,
+   * one request each, stopping at the last. `from` and `to` are Unix seconds (from
+   * inclusive, to exclusive).
    */
   async getMyActivity(options: {
     from?: number;
     to?: number;
     mediaId?: number;
+    pages?: number;
   }): Promise<{ activities: ListActivity[]; hasNextPage: boolean }> {
     const viewer = await this.getViewer();
-    const data = await this.request<{
-      Page: { pageInfo: { hasNextPage: boolean }; activities: (ListActivity | Record<string, never>)[] };
-    }>(
-      `query ($userId: Int, $mediaId: Int, $from: Int, $to: Int) {
-        Page(perPage: 50) {
+    const activities = new Map<number, ListActivity>();
+    let hasNextPage = true;
+    for (let page = 1; hasNextPage && page <= (options.pages ?? 1); page++) {
+      const data = await this.request<{
+        Page: { pageInfo: { hasNextPage: boolean }; activities: (ListActivity | Record<string, never>)[] };
+      }>(
+        `query ($userId: Int, $mediaId: Int, $from: Int, $to: Int, $page: Int) {
+        Page(page: $page, perPage: 50) {
           pageInfo { hasNextPage }
           activities(
             userId: $userId, mediaId: $mediaId, type: ANIME_LIST, sort: ID_DESC,
@@ -611,18 +616,20 @@ export class AniListClient {
           }
         }
       }`,
-      {
-        userId: viewer.id,
-        mediaId: options.mediaId,
-        // AniList's bounds are exclusive on both ends.
-        from: options.from !== undefined ? options.from - 1 : undefined,
-        to: options.to,
-      },
-    );
-    return {
-      activities: data.Page.activities.filter((a): a is ListActivity => "id" in a),
-      hasNextPage: data.Page.pageInfo.hasNextPage,
-    };
+        {
+          userId: viewer.id,
+          mediaId: options.mediaId,
+          // AniList's bounds are exclusive on both ends.
+          from: options.from !== undefined ? options.from - 1 : undefined,
+          to: options.to,
+          page,
+        },
+      );
+      // Activity logged while paging pushes older activity down a page; keep each once.
+      for (const a of data.Page.activities.filter((a): a is ListActivity => "id" in a)) activities.set(a.id, a);
+      hasNextPage = data.Page.pageInfo.hasNextPage;
+    }
+    return { activities: [...activities.values()], hasNextPage };
   }
 
   async saveEntry(input: {
