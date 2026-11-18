@@ -15,6 +15,7 @@ import type { FetchFn } from "./anilist";
 import { tokenExpiry } from "./token";
 
 export const ANILIST_AUTHORIZE = "https://anilist.co/api/v2/oauth/authorize";
+const ANILIST_ORIGIN = new URL(ANILIST_AUTHORIZE).origin;
 export const ANILIST_TOKEN = "https://anilist.co/api/v2/oauth/token";
 
 /** How long the user has to finish signing in on AniList. */
@@ -203,6 +204,17 @@ function destination(uri: string): string {
   return url.host ? `${url.protocol}//${url.host}` : `${url.protocol}${url.pathname.split("/")[0]}`;
 }
 
+/**
+ * Where the consent form may send the browser. Chrome checks form-action against the redirect
+ * that answers the form too, so this lists where that goes: AniList, or back to the app.
+ */
+function formAction(redirectUri: string): string {
+  const url = new URL(redirectUri);
+  // An app scheme (cursor:), or a host CSP can't spell (Chrome ignores [::1]), is allowed by its scheme.
+  const app = /^https?:$/.test(url.protocol) && /^[a-z0-9-]+(\.[a-z0-9-]+)*(:\d+)?$/.test(url.host) ? url.origin : url.protocol;
+  return `'self' ${ANILIST_ORIGIN} ${app}`;
+}
+
 function consentPage(name: string | undefined, redirectUri: string, pending: string): string {
   const app = name ? `<b>${escapeHtml(name)}</b> (as the app calls itself)` : "An app";
   return `<!doctype html>
@@ -389,7 +401,7 @@ export class OAuthServer {
         // The cookie only comes back on a same-site request, so another site can't post the form for the user.
         // Named after this page, so a second consent page doesn't replace the first one's cookie.
         "Set-Cookie": `aniconnect_consent_${consent}=1; Path=/authorize; Max-Age=${PENDING_MS / 1000}; HttpOnly; SameSite=Strict${this.secure}`,
-        "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'",
+        "Content-Security-Policy": `default-src 'none'; style-src 'unsafe-inline'; form-action ${formAction(redirectUri)}; frame-ancestors 'none'`,
         "X-Frame-Options": "DENY",
       },
     });
