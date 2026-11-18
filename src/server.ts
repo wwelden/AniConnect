@@ -46,7 +46,7 @@ import {
   type Intent,
   type Resolution,
 } from "./resolve";
-import { formatFinished, formatHistory, historyUsesZone, parsePeriod } from "./history";
+import { formatFinished, formatHistory, parsePeriod } from "./history";
 import { tokenWatch } from "./token";
 import { Journal, snapshot, undoGroups, type EntryChange } from "./undo";
 import {
@@ -58,7 +58,6 @@ import {
   formatShow,
   moviesBesideSeries,
   nextSeasons,
-  reportHasAirTimes,
   upcoming,
 } from "./whatsnext";
 
@@ -625,7 +624,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
             ? media
             : ((await client.getMany([media.id], { links: true }))[0] ?? media);
         const sequels = nextSeasons([show], listStatus, await client.getMany(moviesBesideSeries([show])));
-        // The zone note only matters when an air time is printed.
+        // The zone note only matters when an air time is printed: formatShow prints one for the next episode alone.
         const timed = Boolean(upcoming(show, at));
         return text(`${note}${formatShow(show, sequels, listStatus, at, zone, titleLanguage)}${timed ? zoneNote : ""}`);
       }
@@ -634,12 +633,14 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
         .filter((m) => m.mediaListEntry!.status === "COMPLETED")
         .sort((a, b) => dateNum(b.mediaListEntry!.completedAt) - dateNum(a.mediaListEntry!.completedAt))
         .slice(0, SEQUEL_CHECK_LIMIT);
-      const withRelations = await client.getMany(finished.map((m) => m.id));
+      // AniList answers in its own order: put the most recently finished first again, as the report lists them.
+      const rank = new Map(finished.map((m, i) => [m.id, i]));
+      const withRelations = (await client.getMany(finished.map((m) => m.id))).sort(
+        (a, b) => (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0),
+      );
       // Usually no request: only shows with both a series and a movie sequel need one.
       const sequels = nextSeasons(withRelations, listStatus, await client.getMany(moviesBesideSeries(withRelations)));
-      const report = buildReport(list, sequels, at);
-      const timed = reportHasAirTimes(report, at, all);
-      return text(`${formatReport(report, at, zone, titleLanguage, all)}${timed ? zoneNote : ""}`);
+      return text(formatReport(buildReport(list, sequels, at), at, zone, titleLanguage, { all, zoneNote }));
     }),
   );
 
@@ -696,11 +697,12 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
         show: show && displayTitle(show.media.title, titleLanguage),
         truncated: hasNextPage,
         language: titleLanguage,
+        zoneNote,
       };
       const body = finished
         ? formatFinished(show ? list.filter((e) => e.media.id === show.media.id) : list, activities, options)
         : formatHistory(activities, options);
-      return text(`${show?.note ?? ""}${body}${historyUsesZone(activities, options, Boolean(finished)) ? zoneNote : ""}`);
+      return text(`${show?.note ?? ""}${body}`);
     }),
   );
 

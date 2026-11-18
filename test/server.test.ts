@@ -6,7 +6,7 @@ import { formatDate, todayFuzzy } from "../src/logic";
 import { createServer, INSTRUCTIONS, WRITE_TOOLS, type ServerOptions } from "../src/server";
 import pkg from "../package.json" with { type: "json" };
 import { HISTORY, PERSONA } from "./fixtures/persona";
-import { catalog, FakeAniList, type CatalogMedia } from "./support/fake-anilist";
+import { catalog, FakeAniList, findMedia, type CatalogMedia } from "./support/fake-anilist";
 
 let fake: FakeAniList;
 let client: Client;
@@ -1116,6 +1116,27 @@ describe("whats_next on a long list", () => {
   });
 });
 
+test("whats_next lists next seasons most recently finished first, whatever order AniList answers in", async () => {
+  fake = new FakeAniList().seed(PERSONA);
+  const finishedOn = { "Mob Psycho 100 II": [2026, 10, 25], "Sousou no Frieren": [2026, 10, 5], "SPY×FAMILY Part 2": [2025, 6, 1] };
+  for (const [title, [year, month, day]] of Object.entries(finishedOn)) {
+    fake.entries.get(findMedia(title).id)!.completedAt = { year: year!, month: month!, day: day! };
+  }
+  // AniList answers id_in in an order of its own: here, the reverse of the request's.
+  const original = fake.fetch;
+  fake.fetch = async (url, init) => {
+    const res = await original(url, init);
+    if (!String(init.body).includes("id_in")) return res;
+    const body = (await res.json()) as { data?: { Page?: { media: unknown[] } } };
+    body.data?.Page?.media.reverse();
+    return new Response(JSON.stringify(body), { status: res.status });
+  };
+  await connect({ now: () => NOW });
+  const r = await call("whats_next", {});
+  const next = r.text.split("\n\n").find((s) => s.startsWith("Next seasons"))!.split("\n").slice(1);
+  expect(next.map((l) => l.split(":")[0])).toEqual(["- After Mob Psycho 100 II", "- After Frieren", "- After SPY x FAMILY Cour 2"]);
+});
+
 describe("the UTC note on the hosted server appears only with a time or day it applies to", () => {
   const NOTE = "Times and days are in UTC";
   beforeEach(async () => {
@@ -1164,5 +1185,13 @@ describe("the UTC note on the hosted server appears only with a time or day it a
     const fromFeed = await call("watch_history", { period: "all time", finished: true });
     expect(fromFeed.text).toContain("Frieren");
     expect(fromFeed.text).toContain(NOTE);
+  });
+
+  test("watch_history finished: no note when the feed's finish disagrees with a corrected date on the list", async () => {
+    fake.entries.get(findMedia("Sousou no Frieren").id)!.completedAt = { year: 2026, month: 10, day: 20 };
+    fake.seedActivity([{ anime: "Sousou no Frieren", status: "completed", at: "2026-10-05T20:00:00Z" }]);
+    const r = await call("watch_history", { period: "all time", finished: true });
+    expect(r.text).toContain("- Tue, Oct 20: Frieren");
+    expect(r.text).not.toContain(NOTE);
   });
 });

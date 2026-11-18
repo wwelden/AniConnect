@@ -280,6 +280,12 @@ export interface HistoryOptions {
   /** More activity exists in the range than was fetched. */
   truncated: boolean;
   language: TitleLanguage;
+  /**
+   * Added at the end when the answer has a day or time read in `timeZone` (a note about the
+   * zone): any range but all time, and every feed update's time. Finish dates from the list
+   * are the user's own days, the same in any zone.
+   */
+  zoneNote?: string;
 }
 
 const INCOMPLETE =
@@ -297,7 +303,8 @@ export function formatHistory(activities: ListActivity[], o: HistoryOptions): st
   const span = rangeLabel(o);
   const about = o.show ? ` for ${o.show}` : "";
   if (activities.length === 0) {
-    return `No list activity${about} found (${span}, ${o.timeZone}). That doesn't prove nothing was watched: ${INCOMPLETE}`;
+    const note = o.range.start > 0 ? (o.zoneNote ?? "") : "";
+    return `No list activity${about} found (${span}, ${o.timeZone}). That doesn't prove nothing was watched: ${INCOMPLETE}${note}`;
   }
   const lines = [`List activity${about}, ${span} (${o.timeZone}), newest first:`];
   let currentDay = "";
@@ -317,22 +324,11 @@ export function formatHistory(activities: ListActivity[], o: HistoryOptions): st
     );
   }
   lines.push(`Episodes logged in one sitting show as one range. ${INCOMPLETE}`);
-  return lines.join("\n");
+  return `${lines.join("\n")}${o.zoneNote ?? ""}`;
 }
 
 /** A finish "completed" or "rewatched" in the feed; other updates aren't finishes. */
 const FINISH = /^(completed|rewatched)$/;
-
-/**
- * Whether the answer has a day or time read in `o.timeZone`, so a note about that zone
- * applies: a range other than all time was read in it, and feed updates are dated in it.
- * Finish dates from the list are the user's own days, the same in any zone.
- */
-export function historyUsesZone(activities: ListActivity[], o: HistoryOptions, finished: boolean): boolean {
-  if (o.range.start > 0) return true;
-  if (!finished) return activities.length > 0;
-  return (o.truncated && activities.length > 0) || activities.some((a) => a.media && FINISH.test(a.status ?? ""));
-}
 
 /** The time a finish date on the list could mean, as a Range: a day, a month, or a year. */
 function dateRange(d: FuzzyDate, timeZone: string): Range | null {
@@ -352,7 +348,8 @@ export function formatFinished(list: ListItem[], activities: ListActivity[], o: 
   const about = o.show ? ` (${o.show})` : "";
   const thisYear = parts(o.now, o.timeZone).year;
   const endOfToday = startOf(shift(dayOf(o.now, o.timeZone), { days: 1 }), o.timeZone);
-  const finishes = new Map<number, { title: string; when: string; at: number }>();
+  /** `fromFeed`: the day was read in the zone, rather than being a date from the list. */
+  const finishes = new Map<number, { title: string; when: string; at: number; fromFeed?: boolean }>();
   /** When each dated show on the list was finished, by the list. */
   const dated = new Map<number, Range>();
   for (const e of list) {
@@ -387,7 +384,7 @@ export function formatFinished(list: ListItem[], activities: ListActivity[], o: 
     exact.add(a.media.id);
     const when = dayLabel(at, o.timeZone, parts(at, o.timeZone).year !== thisYear);
     const title = `${displayTitle(a.media.title, o.language)}${a.status === "rewatched" ? " (rewatch)" : ""}`;
-    finishes.set(a.media.id, { title, when, at });
+    finishes.set(a.media.id, { title, when, at, fromFeed: true });
   }
   const sorted = [...finishes.values()].sort((x, y) => y.at - x.at);
   const lines =
@@ -400,11 +397,13 @@ export function formatFinished(list: ListItem[], activities: ListActivity[], o: 
           ...sorted.map((f) => `- ${f.when}: ${f.title}`),
           "Dates are from the activity feed, or the finish date on the list when the feed has none.",
         ];
-  if (o.truncated && activities.length > 0) {
+  const readBack = o.truncated && activities.length > 0;
+  if (readBack) {
     const oldest = dayLabel(activities.at(-1)!.createdAt * 1000, o.timeZone);
     lines.push(
       `The feed was read back to ${oldest}: a show finished before that with no finish date on the list, or removed from the list since, isn't included.`,
     );
   }
-  return lines.join("\n");
+  const zoned = o.range.start > 0 || readBack || sorted.some((f) => f.fromFeed);
+  return `${lines.join("\n")}${zoned ? (o.zoneNote ?? "") : ""}`;
 }

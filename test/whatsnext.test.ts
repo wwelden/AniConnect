@@ -12,7 +12,6 @@ import {
   formatReport,
   formatShow,
   nextSeasons,
-  reportHasAirTimes,
   SECTION_LIMITS,
   streamingLines,
   watchTime,
@@ -483,15 +482,14 @@ describe("a long list is cut to what matters most", () => {
       "Long sections are cut short: to list every show, call again with all: true.",
     ]);
     const lines = (i: number) => sections[i]!.split("\n").slice(1);
-    // Shows still airing lead, fewest episodes to go first; then the backlog closest to done.
+    // The cut keeps what just aired (airing, at most 3 behind), then the shows closest to
+    // done, airing first on a tie, and lists them in the usual order: airing shows first.
     expect(lines(0)).toHaveLength(SECTION_LIMITS.newEpisodes + 1);
-    expect(lines(0).slice(0, 6).map((l) => l.split(":")[0])).toEqual(
-      ["- Airing 1", "- Airing 2", "- Airing 3", "- Airing 4", "- Airing 5", "- Airing 6"],
-    );
-    expect(lines(0)[6]).toBe("- Backlog 1: 2 episodes to watch, about 50 minutes (on 48 of 50 aired).");
-    expect(lines(0)[7]).toStartWith("- Backlog 2: 3 episodes to watch");
-    expect(lines(0)[8]).toBe("...and 35 more.");
-    // The long-running backlog is what drops out.
+    expect(lines(0).map((l) => l.split(":")[0])).toEqual([
+      "- Airing 1", "- Airing 2", "- Airing 3", "- Airing 4", "- Airing 5",
+      "- Backlog 1", "- Backlog 2", "- Backlog 3", "...and 35 more.",
+    ]);
+    expect(lines(0)[5]).toBe("- Backlog 1: 2 episodes to watch, about 50 minutes (on 48 of 50 aired).");
     expect(text).not.toContain("Naruto");
     // Sections that fit aren't cut.
     expect(lines(1)).toHaveLength(5);
@@ -506,11 +504,11 @@ describe("a long list is cut to what matters most", () => {
     expect(lines(4).at(-1)).toBe("...and 4 more.");
     // Short enough to read at a glance; uncut, it's the owner's 75 lines and more.
     expect(text.split("\n").length).toBeLessThanOrEqual(35);
-    expect(formatReport(report, NOW, "UTC", "ENGLISH", true).split("\n").length).toBeGreaterThan(75);
+    expect(formatReport(report, NOW, "UTC", "ENGLISH", { all: true }).split("\n").length).toBeGreaterThan(75);
   });
 
   test("all: true lists every show, with no cut notes", () => {
-    const text = formatReport(report, NOW, "UTC", "ENGLISH", true);
+    const text = formatReport(report, NOW, "UTC", "ENGLISH", { all: true });
     expect(text).toContain("- Naruto: Shippuden: 134 episodes to watch, about 54 hours (on 366 of 500 aired).");
     expect(text.split("\n\n")[0]!.split("\n")).toHaveLength(1 + 43);
     expect(text.split("\n\n")[3]!.split("\n")).toHaveLength(1 + 12);
@@ -518,9 +516,24 @@ describe("a long list is cut to what matters most", () => {
     expect(text).not.toContain("all: true");
   });
 
-  test("air times count only when a show that has one is listed", () => {
-    expect(reportHasAirTimes(report, NOW)).toBe(true);
-    expect(reportHasAirTimes(buildReport([...backlog, naruto, ...onHold], [], NOW), NOW)).toBe(false);
+  test("a long backlog of an airing show is cut before a show that's nearly done", () => {
+    const longRunner = show(910, "Long Runner", { status: "RELEASING", nextAiringEpisode: { episode: 1101, airingAt: nowS + DAY } }, "CURRENT", 800);
+    const weekly = Array.from({ length: 7 }, (_, i) =>
+      show(920 + i, `Weekly ${i}`, { status: "RELEASING", nextAiringEpisode: { episode: 6, airingAt: nowS + DAY } }, "CURRENT", 4),
+    );
+    const nearlyDone = show(930, "Nearly Done", { episodes: 12 }, "CURRENT", 11);
+    const text = formatReport(buildReport([longRunner, ...weekly, nearlyDone], [], NOW), NOW, "UTC", "ENGLISH");
+    expect(text).toContain("- Nearly Done: 1 episode to watch");
+    expect(text).not.toContain("Long Runner");
+    expect(text).toContain("...and 1 more.");
+    // Listed in the usual order: airing shows first.
+    expect(text.split("\n")[8]).toStartWith("- Nearly Done");
+  });
+
+  test("the zone note is added only when an air time is listed", () => {
+    const note = "\nTimes are in UTC.";
+    expect(formatReport(report, NOW, "UTC", "ENGLISH", { zoneNote: note })).toEndWith(note);
+    expect(formatReport(buildReport([...backlog, naruto, ...onHold], [], NOW), NOW, "UTC", "ENGLISH", { zoneNote: note })).not.toContain(note);
     // Eight shows whose latest episode just aired (AniList hasn't moved the schedule on) rank
     // ahead of one with an air time ahead and more to watch, which is cut.
     const lagging = Array.from({ length: 8 }, (_, i) =>
@@ -528,8 +541,10 @@ describe("a long list is cut to what matters most", () => {
     );
     const later = show(900, "Later", { status: "RELEASING", nextAiringEpisode: { episode: 11, airingAt: nowS + DAY } }, "CURRENT", 1);
     const cut = buildReport([...lagging, later], [], NOW);
-    expect(formatReport(cut, NOW, "UTC", "ENGLISH")).not.toContain(" airs ");
-    expect(reportHasAirTimes(cut, NOW)).toBe(false);
-    expect(reportHasAirTimes(cut, NOW, true)).toBe(true);
+    expect(formatReport(cut, NOW, "UTC", "ENGLISH", { zoneNote: note })).not.toContain(" airs ");
+    expect(formatReport(cut, NOW, "UTC", "ENGLISH", { zoneNote: note })).not.toContain(note);
+    expect(formatReport(cut, NOW, "UTC", "ENGLISH", { all: true, zoneNote: note })).toEndWith(note);
+    expect(formatReport(buildReport([], [], NOW), NOW, "UTC", "ENGLISH", { zoneNote: note })).not.toContain(note);
   });
+
 });
