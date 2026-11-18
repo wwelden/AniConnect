@@ -21,6 +21,21 @@ export const IDLE_MS = 60 * 60_000;
 /** Open sessions one user may have; opening another closes their least recently used. */
 export const MAX_SESSIONS = 20;
 
+/**
+ * Largest request body accepted. Real requests (registration, token exchange, consent, MCP
+ * messages) are a few kilobytes; Bun's default of 128 MB would let anyone, signed in or not,
+ * make the server buffer huge requests. Larger bodies get 413.
+ */
+export const MAX_BODY_BYTES = 1024 * 1024;
+
+/** Options for `Bun.serve`. */
+export const SERVE_OPTIONS = {
+  // Refuses a body whose Content-Length is too large before reading it.
+  maxRequestBodySize: MAX_BODY_BYTES,
+  // Streams send a keep-alive every 15 seconds; Bun's default of 10 would cut them off.
+  idleTimeout: 60,
+};
+
 export interface HttpOptions {
   /** For AniList's GraphQL API and its token endpoint; tests pass a fake. */
   fetch?: FetchFn;
@@ -53,6 +68,29 @@ function withCors(res: Response): Response {
   const headers = new Headers(res.headers);
   for (const [k, v] of Object.entries(CORS)) headers.set(k, v);
   return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
+}
+
+/**
+ * Reads the body into memory, keeping at most MAX_BODY_BYTES; null if it was larger. Bun's
+ * maxRequestBodySize doesn't apply to chunked bodies, which have no Content-Length. An oversized
+ * body is still read to its end (and dropped): answering mid-upload lets the client reuse the
+ * connection with the rest of the body unsent, and its next request then gets a 400.
+ */
+async function capBody(req: Request): Promise<Request | null> {
+  if (!req.body) return req;
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for await (const chunk of req.body) {
+    size += chunk.byteLength;
+    if (size <= MAX_BODY_BYTES) chunks.push(chunk);
+    else chunks.length = 0;
+  }
+  if (size > MAX_BODY_BYTES) return null;
+  // Framing headers described the original stream, not this buffer.
+  const headers = new Headers(req.headers);
+  headers.delete("content-length");
+  headers.delete("transfer-encoding");
+  return new Request(req.url, { method: req.method, headers, body: Buffer.concat(chunks), signal: req.signal });
 }
 
 function rpcError(status: number, message: string, headers: Record<string, string> = {}): Response {
@@ -198,7 +236,9 @@ export async function createHttpApp(config: OAuthConfig, options: HttpOptions = 
     sweep,
     async fetch(req: Request): Promise<Response> {
       try {
-        return withCors(await route(req));
+        const capped = await capBody(req);
+        if (!capped) return withCors(new Response("Request body too large\n", { status: 413 }));
+        return withCors(await route(capped));
       } catch (err) {
         // Never echo request data (it may hold tokens); the message is enough to debug.
         console.error(`AniConnect: ${req.method} ${new URL(req.url).pathname} failed:`, (err as Error).message);
@@ -247,9 +287,8 @@ if (import.meta.main) {
   const app = await createHttpApp(config);
   setInterval(() => void app.sweep(), 10 * 60_000).unref();
   const server = Bun.serve({
+    ...SERVE_OPTIONS,
     port: Number(process.env.PORT) || 3000,
-    // Streams send a keep-alive every 15 seconds; Bun's default of 10 would cut them off.
-    idleTimeout: 60,
     fetch: app.fetch,
   });
   console.error(`AniConnect listening on port ${server.port}; MCP endpoint ${app.oauth.resource}`);

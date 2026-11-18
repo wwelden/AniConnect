@@ -7,7 +7,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { UnauthorizedError, type OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 import type { OAuthClientInformationMixed, OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
-import { configFromEnv, createHttpApp, IDLE_MS, MAX_SESSIONS } from "../src/http";
+import { configFromEnv, createHttpApp, IDLE_MS, MAX_SESSIONS, SERVE_OPTIONS } from "../src/http";
 import { ANILIST_AUTHORIZE, ANILIST_TOKEN } from "../src/oauth";
 import { PERSONA } from "./fixtures/persona";
 import { FakeAniList, findMedia } from "./support/fake-anilist";
@@ -63,7 +63,7 @@ beforeEach(async () => {
   };
   // Bind first so PUBLIC_URL can name the real port.
   let handler: (req: Request) => Promise<Response> = async () => new Response(null, { status: 503 });
-  server = Bun.serve({ port: 0, fetch: (req) => handler(req) });
+  server = Bun.serve({ ...SERVE_OPTIONS, port: 0, fetch: (req) => handler(req) });
   base = `http://localhost:${server.port}`;
   app = await createHttpApp(
     {
@@ -326,6 +326,31 @@ describe("authorization checks", () => {
       expect(body.error).toBe("invalid_redirect_uri");
     }
     expect((await register({ redirect_uris: [] })).status).toBe(400);
+  });
+
+  test("bodies over 1 MB are refused before they are read", async () => {
+    const pad = "x".repeat(1024 * 1024);
+    const post = (path: string, body: string | ReadableStream, type = "application/json") =>
+      fetch(`${base}${path}`, { method: "POST", headers: { "Content-Type": type }, body });
+    expect((await post("/register", JSON.stringify({ redirect_uris: [REDIRECT], pad }))).status).toBe(413);
+    expect((await post("/token", `grant_type=refresh_token&pad=${pad}`, "application/x-www-form-urlencoded")).status).toBe(413);
+    expect((await post("/mcp", JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping", pad }))).status).toBe(413);
+    // Sent chunked, with no Content-Length for Bun to check up front.
+    const chunked = (text: string) =>
+      new ReadableStream({
+        start(c) {
+          for (let i = 0; i < text.length; i += 64 * 1024) c.enqueue(new TextEncoder().encode(text.slice(i, i + 64 * 1024)));
+          c.close();
+        },
+      });
+    // Just under the limit is still served, chunked or not, including on a connection that
+    // just carried an oversized chunked body (answering that one mid-upload broke the next request).
+    const fits = JSON.stringify({ redirect_uris: [REDIRECT], pad: pad.slice(0, -1000) });
+    for (let i = 0; i < 5; i++) {
+      expect((await post("/register", chunked(JSON.stringify({ redirect_uris: [REDIRECT], pad })))).status).toBe(413);
+      expect((await post("/register", fits)).status).toBe(201);
+    }
+    expect((await post("/register", chunked(fits))).status).toBe(201);
   });
 
   test("an unregistered redirect URI gets an error page, never a redirect", async () => {
