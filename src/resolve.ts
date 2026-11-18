@@ -436,12 +436,13 @@ async function keepCompleted(pool: Scored[], source: AnimeSource, fetched: Media
   const completed = pool.filter((s) => status(s.media) === "COMPLETED");
   if (!completed.length || pool.some((s) => ranks[status(s.media)] < ranks.NONE)) return pool;
   const best = Math.max(...completed.map((s) => s.score));
-  const rivals = pool.filter(
-    (s) => status(s.media) === "NONE" && (s.score <= best || completed.some((c) => isRemake(s.media, c.media))),
-  );
-  if (!rivals.length) return pool;
+  const remake = (s: Scored) => completed.some((c) => isRemake(s.media, c.media));
+  const rivals = pool.filter((s) => status(s.media) === "NONE" && (s.score <= best || remake(s)));
+  // Only an aired rival that isn't another version could be the next season: walk chains just for those.
+  if (!rivals.some((s) => hasAired(s.media) && !remake(s))) return pool.filter((s) => !rivals.includes(s));
   const sequels = new Set<number>();
-  for (const c of completed) {
+  // Earliest first, so a later completed season is already in an earlier one's chain.
+  for (const c of [...completed].sort((a, b) => dateKey(a.media) - dateKey(b.media))) {
     if (!isSeries(c.media) || sequels.has(c.media.id)) continue;
     const chain = await seasonChain(c.media, Number.POSITIVE_INFINITY, source, fetched);
     for (const e of chain.slice(1)) if (hasAired(e.media)) sequels.add(e.media.id);
