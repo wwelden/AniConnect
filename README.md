@@ -48,7 +48,7 @@ Treat the token like a password: it can edit your list.
 ### 2. Install
 
 ```sh
-git clone git@github.com:wwelden/aniconnect.git
+git clone https://github.com/wwelden/aniconnect.git
 cd aniconnect
 bun install
 ```
@@ -130,3 +130,7 @@ Tests run against `test/fixtures/media.json`, a snapshot of real AniList data fo
 bun run eval -- --filter progress   # just the episode-progress cases
 bun run eval -- --model sonnet --concurrency 2
 ```
+
+## License
+
+[MIT](LICENSE)

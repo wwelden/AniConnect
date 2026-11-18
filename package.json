@@ -2,6 +2,7 @@
   "name": "aniconnect",
   "version": "0.3.0",
   "description": "MCP server for managing your AniList anime list",
+  "license": "MIT",
   "type": "module",
   "private": true,
   "module": "src/index.ts",
