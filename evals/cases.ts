@@ -175,6 +175,8 @@ export const CASES: EvalCase[] = [
     expect: { readOnly: true, tools: ["watch_history"], mentions: ["One Piece", "Dandadan"] } },
   { id: "history-finished-last-month", prompt: "Which shows did I finish last month?", idealCalls: 1,
     expect: { readOnly: true, tools: ["watch_history"], mentions: ["Frieren", "Mob Psycho"] } },
+  { id: "history-finished-this-year", prompt: "What did I finish this year?", idealCalls: 1,
+    expect: { readOnly: true, tools: ["watch_history"], mentions: ["Frieren", "Mob Psycho", "Bocchi"] } },
   { id: "history-in-march", prompt: "what anime did I complete in March?", idealCalls: 1,
     expect: { readOnly: true, tools: ["watch_history"], mentions: ["Bocchi"] } },
   { id: "history-when-finished", prompt: "When did I finish Frieren?", idealCalls: 1,
