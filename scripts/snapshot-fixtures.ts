@@ -35,6 +35,13 @@ const SEEDS = [
   "Naruto",
   // An adult (18+) title, for the tests that keep adult titles out of search.
   "A KITE",
+  // Spin-offs with the main show's name in their title (R1.10). FOLLOW leaves out SPIN_OFF
+  // edges, so each spin-off is a seed of its own.
+  "Kono Subarashii Sekai ni Shukufuku wo!",
+  "Kono Subarashii Sekai ni Bakuen wo!",
+  "Sword Art Online",
+  "Sword Art Online Alternative: Gun Gale Online",
+  "Tensura Nikki: Tensei shitara Slime Datta Ken",
 ];
 
 /** Relations followed when collecting a franchise. */

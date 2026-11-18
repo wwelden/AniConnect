@@ -236,7 +236,7 @@ export function matchScore(m: Media, q: ParsedQuery): number {
 export const SERIES_FORMATS = new Set(["TV", "TV_SHORT", "ONA"]);
 const FORMAT_ORDER: Record<string, number> = { TV: 0, ONA: 1, TV_SHORT: 2, MOVIE: 3, OVA: 3, SPECIAL: 3, MUSIC: 4 };
 
-function isSeries(m: Media): boolean {
+function isSeries(m: Pick<Media, "format">): boolean {
   return SERIES_FORMATS.has(m.format ?? "");
 }
 
@@ -300,7 +300,7 @@ function status(m: Media): Status {
   return m.mediaListEntry?.status ?? "NONE";
 }
 
-function dateKey(m: Media): number {
+function dateKey(m: Pick<Media, "startDate">): number {
   const d = m.startDate;
   return d?.year ? d.year * 10000 + (d.month ?? 12) * 100 + (d.day ?? 31) : 99_999_999;
 }
@@ -516,7 +516,8 @@ async function resolveParsed(
       };
     }
   }
-  return pick(query, intent, pool);
+  const r = pick(query, intent, pool);
+  return r.kind === "match" ? keepNamedShow(query, q, intent, r, pool, source, fetched) : r;
 }
 
 /** matchScore for an exact title or synonym. */
@@ -555,6 +556,106 @@ async function keepCompleted(pool: Scored[], source: AnimeSource, fetched: Media
 
 /** Formats a sequel chain passes through when checking what follows what: series and movies. */
 const CHAIN_FORMATS = new Set([...SERIES_FORMATS, "MOVIE"]);
+
+/** Intents whose pick rests on list status, so a listed spin-off can outrank the show named (see `keepNamedShow`). */
+const BY_STATUS = new Set<Intent>(["progress", "status", "show", "rate"]);
+
+/** How many anime `showOf` takes in, and how many requests it may make for their relations. */
+const SHOW_LIMIT = 25;
+const SHOW_FETCHES = 2;
+
+/**
+ * List status chooses a season within one show, not between shows (R1.10). When the pick only
+ * has the name in its title and isn't joined by sequels or prequels to the show titled exactly
+ * as asked (a spin-off or side story: "KONOSUBA -An Explosion on This Wonderful World!" for
+ * "konosuba"), its status settles it only when the named show has nothing left to watch, or when
+ * the pick is the one being watched and the request isn't a rating. Otherwise ask.
+ */
+async function keepNamedShow(
+  query: string,
+  q: ParsedQuery,
+  intent: Intent,
+  r: Extract<Resolution, { kind: "match" }>,
+  pool: Scored[],
+  source: AnimeSource,
+  fetched: Media[],
+): Promise<Resolution> {
+  if (!BY_STATUS.has(intent)) return r;
+  const best = Math.max(...pool.map((s) => s.score));
+  const chosen = pool.find((s) => s.media.id === r.media.id);
+  if (!chosen || best < NORMALIZED_EXACT || chosen.score === best) return r;
+  // Settled without a look at relations: the season being watched takes an episode or a status
+  // change (R1.4), and a title that is the name plus a season or part is that show's season.
+  const watching = status(chosen.media) === "CURRENT" || status(chosen.media) === "REPEATING";
+  if ((watching && intent !== "rate") || titledAs(chosen.media, q)) return r;
+  const named = pool.filter((s) => s.score === best).map((s) => s.media);
+  // The list carries no relations; one search does, for every anime with the name in its title.
+  const lookup = relationLookup(source, [...fetched, ...(await source.search(q.words.join(" ")))]);
+  const show = await showOf(named, lookup);
+  // A walk cut short can't tell what the named show has left, so the pick stands.
+  if (!show || show.some((m) => m.id === chosen.media.id)) return r;
+  const listed = new Map((await source.listMedia()).map((m) => [m.id, status(m)]));
+  const left = leftToWatch(show, (m) => listed.get(m.id) ?? status(m), intent);
+  if (!left) return r;
+  return {
+    kind: "ambiguous",
+    candidates: [left, chosen.media],
+    why: `"${query}" is the title of a show with more to watch, and a different show on your list has that name in its title.`,
+  };
+}
+
+/**
+ * The named show: `named` and every aired anime joined to it through SEQUEL and PREQUEL edges
+ * (its seasons, parts, movies, OVAs and specials, not its spin-offs). Relations come from what
+ * this call already fetched, else one request per step of the walk that lacks them. Undefined
+ * when the walk would take in more than SHOW_LIMIT anime or SHOW_FETCHES requests.
+ */
+async function showOf(named: Media[], lookup: ReturnType<typeof relationLookup>): Promise<Media[] | undefined> {
+  const seen = new Set(named.map((m) => m.id));
+  let frontier = named.map((m) => m.id);
+  const show: Media[] = [];
+  let fetches = 0;
+  while (frontier.length) {
+    const missing = frontier.filter((id) => !lookup.known.get(id)?.relations);
+    if (missing.length) {
+      if (fetches++ >= SHOW_FETCHES) return undefined;
+      await lookup.load(missing);
+    }
+    const next: number[] = [];
+    for (const id of frontier) {
+      const m = lookup.known.get(id);
+      if (!m) continue;
+      show.push(m);
+      for (const e of m.relations?.edges ?? []) {
+        if ((e.relationType !== "SEQUEL" && e.relationType !== "PREQUEL") || e.node.type !== "ANIME") continue;
+        if (seen.has(e.node.id)) continue;
+        seen.add(e.node.id);
+        // Nothing past an unaired entry has aired either; status unknown counts as aired.
+        if (e.node.status !== undefined && !hasAired({ status: e.node.status, startDate: e.node.startDate ?? null })) continue;
+        if (seen.size > SHOW_LIMIT) return undefined;
+        next.push(e.node.id);
+      }
+    }
+    frontier = next;
+  }
+  return show;
+}
+
+/**
+ * What the named show has left to watch, the likeliest for `intent` first: an aired entry of it
+ * on the list that isn't completed, else the first aired season that isn't on the list and
+ * started after every entry that is (a gap in the list isn't a season left). Undefined when
+ * everything that has aired is watched.
+ */
+function leftToWatch(show: Media[], statusOf: (m: Media) => Status, intent: Intent): Media | undefined {
+  const aired = show.filter(hasAired);
+  const ranks = STATUS_RANK[intent];
+  const listed = aired.filter((m) => statusOf(m) !== "NONE");
+  const unfinished = listed.filter((m) => statusOf(m) !== "COMPLETED");
+  if (unfinished.length) return unfinished.sort((a, b) => ranks[statusOf(a)] - ranks[statusOf(b)] || dateKey(a) - dateKey(b))[0];
+  const after = Math.max(-1, ...listed.map(dateKey));
+  return aired.filter((m) => statusOf(m) === "NONE" && isSeries(m) && dateKey(m) > after).sort((a, b) => dateKey(a) - dateKey(b))[0];
+}
 
 /**
  * Which of `wanted` follow `from` through SEQUEL edges, movies included (season 1, the movie,
@@ -651,7 +752,7 @@ function pick(query: string, intent: Intent, pool: Scored[]): Resolution {
 /** AniList statuses for something that has started airing. */
 export const AIRED = new Set(["RELEASING", "FINISHED", "HIATUS"]);
 
-function hasAired(m: Media): boolean {
+function hasAired(m: Pick<Media, "status" | "startDate">): boolean {
   return AIRED.has(m.status ?? "") && Boolean(m.startDate?.year);
 }
 
@@ -757,19 +858,22 @@ function relationLookup(source: AnimeSource, fetched: Media[]) {
     known.set(m.id, { ...keep, mediaListEntry: m.mediaListEntry ?? had?.mediaListEntry ?? null });
   };
   fetched.forEach(learn);
-  /** The anime with its relations, fetching it (and its related anime, in full) if needed. */
-  const full = async (id: number): Promise<Media | undefined> => {
-    if (known.get(id)?.relations) return known.get(id);
-    for (const m of await source.getRelated([id])) {
+  /** Fetches anime with their relations, and their related anime in full, in one request. */
+  const load = async (ids: number[]) => {
+    for (const m of await source.getRelated(ids)) {
       learn(m);
       for (const edge of m.relations?.edges ?? []) {
         const node = edge.node as RelationEdge["node"] & Partial<Media>;
         if (node.type === "ANIME" && node.relations) learn(node as Media);
       }
     }
+  };
+  /** The anime with its relations, fetching it (and its related anime, in full) if needed. */
+  const full = async (id: number): Promise<Media | undefined> => {
+    if (!known.get(id)?.relations) await load([id]);
     return known.get(id)?.relations ? known.get(id) : undefined;
   };
-  return { known, learn, full };
+  return { known, learn, full, load };
 }
 
 /**

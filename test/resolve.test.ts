@@ -3,7 +3,7 @@
  * -> the AniList entry it should resolve to, or "ambiguous".
  */
 import { beforeEach, describe, expect, test } from "bun:test";
-import { AniListClient, type Media } from "../src/anilist";
+import { AniListClient, type ListStatus, type Media } from "../src/anilist";
 import { normalize } from "../src/logic";
 import { parseQuery, resolveAnime, titleSeason, type AnimeSource, type Intent } from "../src/resolve";
 import { clientSource } from "../src/server";
@@ -691,5 +691,94 @@ describe("anime that share a name with a movie or a music video", () => {
   test("a music video still matches when nothing else does", async () => {
     const r = await resolveAnime("Idol", "add", from([media(164117, "Idol", "MUSIC", 2023)]), "ENGLISH");
     expect(r.kind === "match" && r.media.id).toBe(164117);
+  });
+});
+
+describe("a spin-off with the show's name doesn't take a request for the show (R1.10)", () => {
+  const KONOSUBA = "Kono Subarashii Sekai ni Shukufuku wo!";
+  const KONOSUBA_2 = "Kono Subarashii Sekai ni Shukufuku wo! 2";
+  const KONOSUBA_MOVIE = "Kono Subarashii Sekai ni Shukufuku wo! Kurenai Densetsu";
+  const KONOSUBA_3 = "Kono Subarashii Sekai ni Shukufuku wo! 3";
+  const EXPLOSION = "Kono Subarashii Sekai ni Bakuen wo!";
+
+  const list = (...entries: [anime: string, status: ListStatus][]) => {
+    fake = new FakeAniList().seed(entries.map(([anime, status]) => ({ anime, status, progress: status === "COMPLETED" ? undefined : 1 })));
+    client = new AniListClient("test", fake.fetch);
+  };
+  const expectAsk = async (query: string, intent: Intent, titles: string[]) => {
+    const r = await resolve(query, intent);
+    if (r.kind !== "ambiguous") throw new Error(`${intent}: expected ambiguous, got ${r.kind}: ${r.why}`);
+    expect(r.candidates.map((m) => m.title.romaji)).toEqual(titles);
+    return r;
+  };
+  const expectMatch = async (query: string, intent: Intent, title: string) => {
+    const r = await resolve(query, intent);
+    if (r.kind !== "match") throw new Error(`${intent}: expected a match, got ${r.kind}: ${r.why}`);
+    expect(r.media.title.romaji).toBe(title);
+  };
+
+  test("seasons 1 and 2 done, season 3 out, the spin-off planned: ask which", async () => {
+    list([KONOSUBA, "COMPLETED"], [KONOSUBA_2, "COMPLETED"], [EXPLOSION, "PLANNING"]);
+    for (const intent of ["progress", "status", "show"] as const) {
+      const r = await expectAsk("konosuba", intent, [KONOSUBA_3, EXPLOSION]);
+      expect(r.why).toBe('"konosuba" is the title of a show with more to watch, and a different show on your list has that name in its title.');
+    }
+    // Unchanged: a rating asks which finished season, a removal never guesses, adding means season 1.
+    await expectAsk("konosuba", "rate", [KONOSUBA, KONOSUBA_2]);
+    await expectAsk("konosuba", "remove", [KONOSUBA, KONOSUBA_2, EXPLOSION]);
+    await expectMatch("konosuba", "add", KONOSUBA);
+  });
+
+  test("the movie between seasons 2 and 3 is looked past, for one search and no other request", async () => {
+    list([KONOSUBA, "COMPLETED"], [KONOSUBA_2, "COMPLETED"], [KONOSUBA_MOVIE, "COMPLETED"], [EXPLOSION, "PLANNING"]);
+    await expectAsk("konosuba", "progress", [KONOSUBA_3, EXPLOSION]);
+    const kinds = fake.calls.map((c) => (c.query.includes("MediaListCollection") ? "list" : c.query.includes("search:") ? "search" : c.query.includes("id_in") ? "related" : "other"));
+    expect(kinds.filter((k) => k !== "other")).toEqual(["list", "search"]);
+  });
+
+  test("a season missing from the list before one that's on it isn't offered as left to watch", async () => {
+    // Season 2 was never logged, but the movie after it was: what's left is season 3.
+    list([KONOSUBA, "COMPLETED"], [KONOSUBA_MOVIE, "COMPLETED"], [EXPLOSION, "PLANNING"]);
+    await expectAsk("konosuba", "progress", [KONOSUBA_3, EXPLOSION]);
+  });
+
+  test("the spin-off keeps its status pick when the show has nothing left to watch", async () => {
+    // Season 4 is announced but hasn't aired.
+    list([KONOSUBA, "COMPLETED"], [KONOSUBA_2, "COMPLETED"], [KONOSUBA_MOVIE, "COMPLETED"], [KONOSUBA_3, "COMPLETED"], [EXPLOSION, "PLANNING"]);
+    for (const intent of ["progress", "status", "show"] as const) await expectMatch("konosuba", intent, EXPLOSION);
+  });
+
+  test("the spin-off being watched keeps episodes and status changes, not a rating", async () => {
+    list([KONOSUBA, "COMPLETED"], [KONOSUBA_2, "COMPLETED"], [EXPLOSION, "CURRENT"]);
+    for (const intent of ["progress", "status", "show"] as const) await expectMatch("konosuba", intent, EXPLOSION);
+    list([KONOSUBA, "CURRENT"], [EXPLOSION, "COMPLETED"]);
+    await expectAsk("konosuba", "rate", [KONOSUBA, EXPLOSION]);
+    await expectMatch("konosuba", "progress", KONOSUBA);
+  });
+
+  test("Sword Art Online: Gun Gale Online is a spin-off, its season II too", async () => {
+    for (const spinOff of ["Sword Art Online Alternative: Gun Gale Online", "Sword Art Online Alternative: Gun Gale Online II"]) {
+      list(["Sword Art Online", "COMPLETED"], [spinOff, "PLANNING"]);
+      for (const query of ["sword art online", "sao"]) await expectAsk(query, "progress", ["Sword Art Online II", spinOff]);
+    }
+  });
+
+  test("Tensura: season 2 follows an OVA, and the diary spin-off doesn't stand in for it", async () => {
+    list(["Tensei Shitara Slime Datta Ken", "COMPLETED"], ["Tensei Shitara Slime Datta Ken: Tensura Nikki", "PLANNING"]);
+    await expectAsk("tensura", "progress", ["Tensei Shitara Slime Datta Ken 2nd Season", "Tensei Shitara Slime Datta Ken: Tensura Nikki"]);
+  });
+
+  test("a later season of the named show is told by its title, with no search (R5.2)", async () => {
+    // "Jujutsu Kaisen 2nd Season" (watched), "Shingeki no Kyojin: The Final Season" (paused,
+    // synonym "Attack on Titan Season 4"), "SPY×FAMILY Season 2" (planned).
+    for (const [query, title] of [
+      ["jjk", "Jujutsu Kaisen 2nd Season"],
+      ["attack on titan", "Shingeki no Kyojin: The Final Season"],
+      ["spy x family", "SPY×FAMILY Season 2"],
+    ] as const) {
+      fake.calls.length = 0;
+      await expectMatch(query, "progress", title);
+      expect(fake.calls.some((c) => c.query.includes("search:"))).toBe(false);
+    }
   });
 });
