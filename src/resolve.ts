@@ -940,9 +940,14 @@ async function showGroups(items: Media[], source: AnimeSource, fetched: Media[])
   return [...groups.values()];
 }
 
-/** A title that is the query once its season and part words are left out ("My Hero Academia Season 2", "Mob Psycho 100 II"). */
+/**
+ * A title with the query's words once season and part words are left out ("My Hero Academia
+ * Season 2", "Mob Psycho 100 II"). Words, not `exact`, so "the second season of sword art
+ * online" compares like "sword art online season 2".
+ */
 function titledAs(m: Media, q: ParsedQuery): boolean {
-  return names(m).some((name) => parseQuery(name.replace(/ (?:ii|iii|iv|v|vi)$/, "")).exact === q.exact);
+  const asked = q.words.join(" ");
+  return names(m).some((name) => parseQuery(name.replace(/ (?:ii|iii|iv|v|vi)$/, "")).words.join(" ") === asked);
 }
 
 /** True when one of the show's titles is, or starts with, this number ("86", "86 Part 2"), not just contains it. */

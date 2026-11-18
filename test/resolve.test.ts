@@ -592,6 +592,15 @@ describe("a numbered season of two different shows asks which show (#62)", () =>
     expect(second.kind === "match" && second.media.id).toBe(1);
   });
 
+  test.each(["the second season of sword art online", "season 2 of sword art online", "sao 2nd season", "SAO S2"])(
+    "every season phrasing keeps the show titled as asked: \"%s\"",
+    async (query) => {
+      const all = [season2(2, "Sword Art Online Alternative: Gun Gale Online II"), season2(1, "Sword Art Online II")];
+      const r = await resolveAnime(query, "add", source(all), "ENGLISH");
+      expect(r.kind === "match" && r.media.id).toBe(1);
+    },
+  );
+
   test("two parts of one season (joined by a sequel edge) still pick the first part", async () => {
     const all = [season2(1, "Love Live! 2nd Season", [2]), season2(2, "Love Live! 2nd Season Part 2")];
     const r = await resolveAnime("love season 2", "add", source(all), "ENGLISH");
