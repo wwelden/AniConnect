@@ -94,6 +94,28 @@ describe("update_shows (R2.6)", () => {
     expect(fake.entries.get(id)).toMatchObject({ status: "CURRENT", progress: 2 });
   });
 
+  test("clearing something on a show that isn't on the list leaves it off", async () => {
+    const id = findMedia("Chainsaw Man").id;
+    const rated = await call("rate_anime", { anime: "chainsaw man", score: 0 });
+    expect(rated.isError).toBe(false);
+    expect(rated.text).toContain("Chainsaw Man isn't on your list, so there's no rating to clear.");
+    const r = await update(
+      { anime: "chainsaw man", notes: "" },
+      { anime: "chainsaw man", completedAt: "clear" },
+      { anime: "chainsaw man", score: 0, startedAt: "clear" },
+    );
+    expect(r.isError).toBe(true);
+    expect(r.text).toContain("Chainsaw Man isn't on your list, so there's nothing to clear.");
+    expect(fake.writes).toHaveLength(0);
+    expect(fake.entries.has(id)).toBe(false);
+  });
+
+  test("a clear with something to set still adds the show", async () => {
+    const r = await update({ anime: "chainsaw man", score: 0, status: "PLANNING" });
+    expect(r.text).toContain("Chainsaw Man: not on list -> Plan to watch");
+    expect(fake.entries.has(findMedia("Chainsaw Man").id)).toBe(true);
+  });
+
   test("the same show twice counts both", async () => {
     await update({ anime: "dandadan", watched: 1 }, { anime: "DAN DA DAN", watched: 2 });
     expect(fake.entries.get(DANDADAN)!.progress).toBe(10);

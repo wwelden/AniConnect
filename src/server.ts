@@ -686,6 +686,9 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       const [viewer, resolved] = await Promise.all([client.getViewer(), find(anime, "rate")]);
       const { note } = resolved;
       return onTurn(resolved.media, readAt, async (media) => {
+        if (score === 0 && !media.mediaListEntry) {
+          return text(`${note}${displayTitle(media.title, viewer.titleLanguage)} isn't on your list, so there's no rating to clear.`);
+        }
         const saved = await client.saveEntry({ mediaId: media.id, scoreRaw });
         journal.record("rate_anime", [change(media, media.mediaListEntry, saved)]);
         return text(
@@ -807,6 +810,13 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
   const saveUpdate = async (viewer: Viewer, resolved: { media: Media; note: string }, stale: boolean, u: Update) => {
     const media = stale ? await client.getAnime(resolved.media.id) : resolved.media;
     const entry = media.mediaListEntry;
+    // Clearing a score, note or date on a show that isn't on the list would only add it.
+    const clearsOnly =
+      u.status === undefined && u.episodes === undefined && u.watched === undefined && u.addNote === undefined &&
+      (u.score ?? 0) === 0 && (u.notes ?? "") === "" && (u.startedAt ?? "clear") === "clear" && (u.completedAt ?? "clear") === "clear";
+    if (!entry && clearsOnly) {
+      throw new Error(`${displayTitle(media.title, viewer.titleLanguage)} isn't on your list, so there's nothing to clear.`);
+    }
     const current = entry?.progress ?? 0;
     let progress: number | undefined;
     let stepNote = "";
