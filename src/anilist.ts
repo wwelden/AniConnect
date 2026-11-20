@@ -298,15 +298,28 @@ const ENTRY_FIELDS = `
 /** How long account settings (such as the 18+ content setting) are trusted before being read again. */
 const VIEWER_TTL_MS = 5 * 60_000;
 
+/**
+ * What a client caches about the user: their settings and list, and the writes in flight. The
+ * hosted server gives each of a user's sign-ins its own client (each with its own token) and
+ * lets them share one of these, so a write through one is seen by the others.
+ */
+export class UserCache {
+  viewer: Promise<Viewer> | null = null;
+  viewerAt = 0;
+  /** The whole list keyed by media ID, shared by calls that start while it loads. */
+  list: { fetchedAt: number; entries: Promise<Map<number, ListItem>> } | null = null;
+  /** Writes in flight, by media ID (null: any); each is flagged if another write to it overlapped. */
+  readonly writes = new Set<{ mediaId: number | null; overlapped: boolean }>();
+  /**
+   * How many clients have shared this cache. Never lowered: a sign-in left on its own may still
+   * hold data another one fetched, so it goes on being checked (see `confirm`).
+   */
+  clients = 0;
+}
+
 export class AniListClient {
-  private viewer: Promise<Viewer> | null = null;
-  private viewerAt = 0;
   /** When the token expires (ms), read from the JWT; null if it can't be decoded. */
   readonly tokenExpiresAt: number | null;
-  /** The whole list keyed by media ID, shared by calls that start while it loads. */
-  private list: { fetchedAt: number; entries: Promise<Map<number, ListItem>> } | null = null;
-  /** Writes in flight, by media ID (null: any); each is flagged if another write to it overlapped. */
-  private writes = new Set<{ mediaId: number | null; overlapped: boolean }>();
   /** Clock for the list cache; createServer sets it so tests control expiry. */
   now: () => number = Date.now;
   /** How long one request may take; tests shorten it. */
@@ -317,12 +330,36 @@ export class AniListClient {
   renew: string | null = null;
   /** Set once AniList has rejected the token (revoked, or expired early). */
   rejected = false;
+  /** When AniList last accepted this client's own token. */
+  private acceptedAt = Number.NEGATIVE_INFINITY;
+  /** A check of the token in flight (see `confirm`). */
+  private confirming: Promise<void> | null = null;
 
   constructor(
     private readonly token: string,
     private readonly fetchFn: FetchFn = (input, init) => fetch(input, init),
+    private readonly cache: UserCache = new UserCache(),
   ) {
     this.tokenExpiresAt = tokenExpiry(token);
+    cache.clients++;
+  }
+
+  /**
+   * With a cache shared by several sign-ins, makes sure AniList has accepted this one's own
+   * token lately (as often as the list is refetched) before it is answered from the cache, so a
+   * sign-in AniList has stopped accepting can't keep reading what the others fetched. The
+   * check isn't shared, so its failure is never another sign-in's.
+   */
+  private confirm(): Promise<void> {
+    if (this.cache.clients < 2 || this.now() - this.acceptedAt < LIST_TTL_MS) return Promise.resolve();
+    return (this.confirming ??= this.fetchViewer()
+      .then((viewer) => {
+        this.cache.viewer = Promise.resolve(viewer);
+        this.cache.viewerAt = this.now();
+      })
+      .finally(() => {
+        this.confirming = null;
+      }));
   }
 
   async request<T>(query: string, variables: Record<string, unknown> = {}): Promise<T> {
@@ -409,6 +446,7 @@ export class AniListClient {
     if (!res.ok || !body.data) {
       throw new AniListError(`AniList returned HTTP ${res.status}.`);
     }
+    this.acceptedAt = this.now();
     return { data: body.data };
   }
 
@@ -423,10 +461,22 @@ export class AniListClient {
    * Re-read every few minutes (settings can change), and cached as a promise so calls
    * that start together share one request.
    */
-  getViewer(): Promise<Viewer> {
-    if (this.viewer && this.now() - this.viewerAt < VIEWER_TTL_MS) return this.viewer;
-    this.viewerAt = this.now();
-    const pending: Promise<Viewer> = this.request<{
+  async getViewer(): Promise<Viewer> {
+    await this.confirm();
+    if (this.cache.viewer && this.now() - this.cache.viewerAt < VIEWER_TTL_MS) return this.cache.viewer;
+    this.cache.viewerAt = this.now();
+    const pending = this.fetchViewer()
+      // After the mapping, so a malformed response isn't cached either.
+      .catch((err) => {
+        if (this.cache.viewer === pending) this.cache.viewer = null; // Let the next call try again.
+        throw err;
+      });
+    this.cache.viewer = pending;
+    return this.cache.viewer;
+  }
+
+  private fetchViewer(): Promise<Viewer> {
+    return this.request<{
       Viewer: {
         id: number;
         name: string;
@@ -442,19 +492,12 @@ export class AniListClient {
         titleLanguage: data.Viewer.options?.titleLanguage ?? "ROMAJI",
         timeZone: parseTimeZone(data.Viewer.options?.timezone),
         displayAdultContent: data.Viewer.options?.displayAdultContent ?? false,
-      }))
-      // After the mapping, so a malformed response isn't cached either.
-      .catch((err) => {
-        if (this.viewer === pending) this.viewer = null; // Let the next call try again.
-        throw err;
-      });
-    this.viewer = pending;
-    return this.viewer;
+      }));
   }
 
   /** Drops the cached viewer, so the next call re-reads settings the user may have just changed. */
   forgetViewer(): void {
-    this.viewer = null;
+    this.cache.viewer = null;
   }
 
   /**
@@ -603,12 +646,13 @@ export class AniListClient {
 
   /** The user's list, from a cache that lives for LIST_TTL_MS and is patched by our own writes. */
   async getMyList(status?: ListStatus): Promise<ListItem[]> {
-    let list = this.list;
+    await this.confirm();
+    let list = this.cache.list;
     if (!list || this.now() - list.fetchedAt >= LIST_TTL_MS) {
       const fresh = { fetchedAt: this.now(), entries: this.fetchMyList() };
-      this.list = list = fresh;
+      this.cache.list = list = fresh;
       fresh.entries.catch(() => {
-        if (this.list === fresh) this.list = null;
+        if (this.cache.list === fresh) this.cache.list = null;
       });
     }
     const entries = [...(await list.entries).values()];
@@ -652,32 +696,32 @@ export class AniListClient {
     patch: (entries: Map<number, ListItem>, result: T) => void,
   ): Promise<T> {
     const self = { mediaId, overlapped: false };
-    const startList = this.list;
-    for (const other of this.writes) {
+    const startList = this.cache.list;
+    for (const other of this.cache.writes) {
       if (other.mediaId === null || mediaId === null || other.mediaId === mediaId) {
         other.overlapped = self.overlapped = true;
       }
     }
-    this.writes.add(self);
+    this.cache.writes.add(self);
     let result: T;
     try {
       result = await write;
     } catch (err) {
-      this.list = null;
+      this.cache.list = null;
       throw err;
     } finally {
-      this.writes.delete(self);
+      this.cache.writes.delete(self);
     }
     // A list fetched while the write was in flight may already hold something newer.
-    if (self.overlapped || this.list !== startList) this.list = null;
-    else if (this.list) {
-      const list = this.list;
+    if (self.overlapped || this.cache.list !== startList) this.cache.list = null;
+    else if (this.cache.list) {
+      const list = this.cache.list;
       list.entries = list.entries.then((entries) => {
         patch(entries, result);
         return entries;
       });
       list.entries.catch(() => {
-        if (this.list === list) this.list = null;
+        if (this.cache.list === list) this.cache.list = null;
       });
     }
     return result;

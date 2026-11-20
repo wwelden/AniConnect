@@ -130,7 +130,8 @@ const currentCall = new AsyncLocalStorage<string | number | undefined>();
  * one-line warning when it expires soon.
  */
 function safeFor(client: AniListClient, now: () => number, user: UserState) {
-  const watch = (user.watch ??= tokenWatch(client.tokenExpiresAt, client.renew ?? undefined));
+  let watch = user.watches.get(client);
+  if (!watch) user.watches.set(client, (watch = tokenWatch(client.tokenExpiresAt, client.renew ?? undefined)));
   return <A>(fn: (args: A) => Promise<ToolResult>) =>
     async (args: A, extra?: { requestId?: string | number }): Promise<ToolResult> =>
       currentCall.run(extra?.requestId, async () => {
@@ -392,7 +393,8 @@ export class UserState {
   /** The count when each show was last saved. */
   readonly lastSave = new Map<number, number>();
   undoing: Promise<unknown> = Promise.resolve();
-  watch?: ReturnType<typeof tokenWatch>;
+  /** Expiry warnings, one per client: on the hosted server, each sign-in's token expires on its own. */
+  readonly watches = new WeakMap<AniListClient, ReturnType<typeof tokenWatch>>();
 }
 
 /** After dates filled in as today on the hosted server when the user's time zone is unknown (#38). */
