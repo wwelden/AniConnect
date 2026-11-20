@@ -19,16 +19,28 @@ const RENEW =
 export const HOSTED_RENEW =
   "To renew it, sign in with AniList again: reconnect AniConnect in your MCP client's connector settings.";
 
-/** The token's expiry in ms, or null if it isn't a JWT with a numeric `exp`. */
-export function tokenExpiry(token: string): number | null {
+/** The token's JWT payload, or null if it isn't a JWT. */
+function claims(token: string): Record<string, unknown> | null {
   const parts = token.split(".");
   if (parts.length !== 3 || !parts[1]) return null;
   try {
-    const exp = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8"))?.exp;
-    return typeof exp === "number" && Number.isFinite(exp) && exp > 0 ? exp * 1000 : null;
+    const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8"));
+    return payload && typeof payload === "object" ? payload : null;
   } catch {
     return null;
   }
+}
+
+/** The token's expiry in ms, or null if it isn't a JWT with a numeric `exp`. */
+export function tokenExpiry(token: string): number | null {
+  const exp = claims(token)?.exp;
+  return typeof exp === "number" && Number.isFinite(exp) && exp > 0 ? exp * 1000 : null;
+}
+
+/** The AniList user ID the token is for (its `sub`), or null if it doesn't say. */
+export function tokenUser(token: string): string | null {
+  const sub = claims(token)?.sub;
+  return typeof sub === "string" && sub ? sub : typeof sub === "number" ? String(sub) : null;
 }
 
 /** e.g. "2026-11-27 03:00 UTC": a date alone can read as the wrong day outside UTC. */

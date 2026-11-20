@@ -35,6 +35,8 @@ let exchanges: Record<string, string>[];
 let revoked: Map<string, "errors" | "bare">;
 /** Delays AniList's answer to writes, so two of them overlap. */
 let slowWrites: boolean;
+/** Builds the app with the test settings, plus `extra`; tests call it again to restart the server. */
+let restart: (extra?: Partial<Parameters<typeof createHttpApp>[0]>) => Promise<void>;
 
 beforeEach(async () => {
   clock = START;
@@ -65,16 +67,20 @@ beforeEach(async () => {
   let handler: (req: Request) => Promise<Response> = async () => new Response(null, { status: 503 });
   server = Bun.serve({ ...SERVE_OPTIONS, port: 0, fetch: (req) => handler(req) });
   base = `http://localhost:${server.port}`;
-  app = await createHttpApp(
-    {
-      publicUrl: base,
-      anilistClientId: "4242",
-      anilistClientSecret: "anilist-secret",
-      authSecret: "test-secret-that-is-at-least-32-characters",
-    },
-    { fetch: fetchFn, now: () => clock },
-  );
-  handler = app.fetch;
+  restart = async (extra = {}) => {
+    app = await createHttpApp(
+      {
+        publicUrl: base,
+        anilistClientId: "4242",
+        anilistClientSecret: "anilist-secret",
+        authSecret: "test-secret-that-is-at-least-32-characters",
+        ...extra,
+      },
+      { fetch: fetchFn, now: () => clock },
+    );
+    handler = app.fetch;
+  };
+  await restart();
 });
 
 afterEach(() => {
@@ -604,6 +610,49 @@ describe("authorization checks", () => {
   });
 });
 
+describe("revoking one user", () => {
+  test("a listed user's access token is refused and they can't sign in again; others are unaffected", async () => {
+    const alice = await connectSignedIn("code-alice");
+    const bob = await connectSignedIn("code-bob");
+    await alice.client.close();
+    await bob.client.close();
+    await restart({ revokedUsers: ["alice"] });
+
+    const refused = await fetch(`${base}/mcp`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${alice.provider.saved!.access_token}`, "Content-Type": "application/json" },
+      body: "{}",
+    });
+    expect(refused.status).toBe(401);
+    expect(refused.headers.get("WWW-Authenticate")).toContain('error="invalid_token"');
+
+    // Signing in again goes back to the client with access_denied, and no code.
+    const provider = new MemoryProvider();
+    const transport = new StreamableHTTPClientTransport(new URL(`${base}/mcp`), { authProvider: provider });
+    await expect(new Client({ name: "test", version: "0" }).connect(transport)).rejects.toBeInstanceOf(UnauthorizedError);
+    const back = await approve(provider.authorizationUrl!, "code-alice");
+    expect(back.searchParams.get("error")).toBe("access_denied");
+    expect(back.searchParams.get("error_description")).toContain("has been revoked");
+    expect(back.searchParams.get("code")).toBeNull();
+
+    // Bob's sign-in from before the restart still works.
+    const client = new Client({ name: "test", version: "0" });
+    await client.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`), { authProvider: bob.provider }));
+    expect((await call(client, "search_my_list", { status: "CURRENT" })).isError).toBe(false);
+    await client.close();
+
+    // Taken off the list, Alice's old sign-in works again, and so does signing in.
+    await restart();
+    const old = new Client({ name: "test", version: "0" });
+    await old.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`), { authProvider: alice.provider }));
+    expect((await call(old, "search_my_list", { status: "CURRENT" })).isError).toBe(false);
+    await old.close();
+    const again = await connectSignedIn("code-alice");
+    expect((await call(again.client, "search_my_list", { status: "CURRENT" })).isError).toBe(false);
+    await again.client.close();
+  });
+});
+
 describe("sessions", () => {
   test("a user's conversations share one undo history", async () => {
     const first = await connectSignedIn();
@@ -779,5 +828,10 @@ describe("settings", () => {
     expect(() => configFromEnv({ ...env, PUBLIC_URL: "http://aniconnect.example.com" })).toThrow("must be https");
     expect(() => configFromEnv({ ...env, PUBLIC_URL: "http://localhost:3000" })).not.toThrow();
     expect(() => configFromEnv({ ...env, PUBLIC_URL: "http://[::1]:3000" })).not.toThrow();
+  });
+  test("REVOKED_USERS lists AniList user IDs", () => {
+    expect(configFromEnv({ ...env, REVOKED_USERS: " 123, 456 789 " }).revokedUsers).toEqual(["123", "456", "789"]);
+    expect(configFromEnv({ ...env, REVOKED_USERS: "" }).revokedUsers).toBeUndefined();
+    expect(() => configFromEnv({ ...env, REVOKED_USERS: "123,someone" })).toThrow('not "someone"');
   });
 });

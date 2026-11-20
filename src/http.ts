@@ -272,6 +272,12 @@ export function configFromEnv(env: Record<string, string | undefined> = process.
     anilistClientSecret: get("ANILIST_CLIENT_SECRET"),
     authSecret: get("AUTH_SECRET"),
   };
+  const revoked = env.REVOKED_USERS?.split(/[\s,]+/).filter(Boolean) ?? [];
+  if (revoked.length) {
+    const bad = revoked.find((id) => !/^\d+$/.test(id));
+    if (bad !== undefined) throw new Error(`REVOKED_USERS takes AniList user IDs (numbers), not ${JSON.stringify(bad.slice(0, 50))}.`);
+    config.revokedUsers = revoked;
+  }
   if (missing.length) throw new Error(`Set ${missing.join(", ")} (see the README, "Hosting").`);
   if (config.authSecret.length < 32) throw new Error("AUTH_SECRET must be at least 32 characters (try `openssl rand -base64 32`).");
   let url: URL;

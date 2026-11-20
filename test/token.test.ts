@@ -3,7 +3,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { AniListClient } from "../src/anilist";
 import { createServer } from "../src/server";
-import { tokenExpiry } from "../src/token";
+import { tokenExpiry, tokenUser } from "../src/token";
 import { FakeAniList } from "./support/fake-anilist";
 
 const NOW = Date.parse("2026-11-17T12:00:00Z");
@@ -41,6 +41,19 @@ describe("tokenExpiry", () => {
     expect(tokenExpiry("a.b.c")).toBeNull();
     expect(tokenExpiry(jwt({ sub: "1" }))).toBeNull();
     expect(tokenExpiry(jwt({ exp: "soon" }))).toBeNull();
+  });
+});
+
+describe("tokenUser", () => {
+  test("reads sub from a JWT", () => {
+    expect(tokenUser(jwt({ sub: "12345" }))).toBe("12345");
+    expect(tokenUser(jwt({ sub: 12345 }))).toBe("12345");
+  });
+
+  test("null when the token doesn't say", () => {
+    expect(tokenUser("test-token")).toBeNull();
+    expect(tokenUser(jwt({ exp: 1800000000 }))).toBeNull();
+    expect(tokenUser(jwt({ sub: "" }))).toBeNull();
   });
 });
 
