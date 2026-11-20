@@ -275,7 +275,7 @@ describe("sign-in", () => {
       expect((await call(client, "update_shows", { updates: [{ anime: DANDADAN, notes: "a private note" }] })).isError).toBe(false);
       expect((await call(client, "undo")).isError).toBe(false);
       // A sign-in AniList refuses, and a token AniList stops accepting.
-      await codeFor((await register()).body.client_id!, undefined, "code-nobody");
+      expect(await codeFor((await register()).body.client_id!, undefined, "code-nobody")).toBeNull();
       revoked.set(anilistToken("alice"), "errors");
       clock += 2 * 60_000; // past the list cache, so the read reaches AniList
       expect((await call(client, "search_my_list", {})).isError).toBe(true);
