@@ -173,7 +173,7 @@ export async function createHttpApp(config: OAuthConfig, options: HttpOptions = 
       // Sign this sign-in out here too, so the client asks the user to sign in again.
       // Kept from the first refusal, so a client that keeps retrying still gets a fresh check after IDLE_MS.
       if (!rejected.has(hash)) rejected.set(hash, now());
-      if (found?.clients.delete(hash)) found.cache.clients--;
+      found?.clients.delete(hash);
       if (found?.clients.size === 0) accounts.delete(key);
       for (const [id, s] of sessions) if (s.token === hash) await close(id);
     }

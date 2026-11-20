@@ -310,7 +310,10 @@ export class UserCache {
   list: { fetchedAt: number; entries: Promise<Map<number, ListItem>> } | null = null;
   /** Writes in flight, by media ID (null: any); each is flagged if another write to it overlapped. */
   readonly writes = new Set<{ mediaId: number | null; overlapped: boolean }>();
-  /** How many clients share this cache. */
+  /**
+   * How many clients have shared this cache. Never lowered: a sign-in left on its own may still
+   * hold data another one fetched, so it goes on being checked (see `confirm`).
+   */
   clients = 0;
 }
 

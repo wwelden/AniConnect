@@ -772,22 +772,36 @@ describe("sessions", () => {
       body: "{}",
     });
     expect(next.status).toBe(401);
-    // The new sign-in carries on, with its session and the account, and as the only sign-in
-    // left it is answered from the cache with no check of its token.
+    // The new sign-in carries on, with its session and the account.
     expect(app.stats()).toEqual({ sessions: 1, accounts: 1, rejected: 1 });
-    clock += LIST_TTL_MS - 1;
-    let requests = 0;
-    const seen = fake.fetch.bind(fake);
-    fake.fetch = (url, init) => {
-      requests++;
-      return seen(url, init);
-    };
     expect((await call(again, "search_my_list", { status: "CURRENT" })).isError).toBe(false);
-    clock += 2;
-    expect((await call(again, "search_my_list", { status: "CURRENT" })).isError).toBe(false);
-    expect(requests).toBe(1); // the list, refetched once it expired; no Viewer check
     await old.close().catch(() => {});
     await again.close();
+  });
+
+  test("a sign-in that hasn't called AniList since the user revoked can't read what another one cached", async () => {
+    anilistCodes.set("code-alice-2", anilistToken("alice", START / 1000 + YEAR_S + 60));
+    const web = await connectSignedIn("code-alice");
+    const code = await connectSignedIn("code-alice-2");
+    clock += LIST_TTL_MS; // web's sign-in was last accepted a while ago
+    expect((await call(code.client, "search_my_list", { status: "CURRENT" })).isError).toBe(false);
+    // The user revokes AniConnect on AniList; code finds out first and is signed out.
+    revoked.set(anilistToken("alice"), "errors");
+    revoked.set(anilistToken("alice", START / 1000 + YEAR_S + 60), "errors");
+    expect((await call(code.client, "whats_next")).isError).toBe(true);
+    const out = await fetch(`${base}/mcp`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${code.provider.saved!.access_token}`, "Content-Type": "application/json" },
+      body: "{}",
+    });
+    expect(out.status).toBe(401);
+    await code.client.close().catch(() => {});
+    expect(app.stats()).toEqual({ sessions: 1, accounts: 1, rejected: 1 });
+    // web is now the account's only sign-in, but the list in the cache was fetched by code.
+    const refused = await call(web.client, "search_my_list", { status: "CURRENT" });
+    expect(refused.isError).toBe(true);
+    expect(refused.text).toContain("sign in with AniList again");
+    await web.client.close().catch(() => {});
   });
 
   test("a user's oldest session closes when they open too many", async () => {
