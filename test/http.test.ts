@@ -8,6 +8,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { UnauthorizedError, type OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 import type { OAuthClientInformationMixed, OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { configFromEnv, createHttpApp, IDLE_MS, MAX_SESSIONS, SERVE_OPTIONS } from "../src/http";
+import { LIST_TTL_MS } from "../src/anilist";
 import { ANILIST_AUTHORIZE, ANILIST_TOKEN } from "../src/oauth";
 import { PERSONA } from "./fixtures/persona";
 import { FakeAniList, findMedia } from "./support/fake-anilist";
@@ -681,6 +682,112 @@ describe("sessions", () => {
     expect(fake.entries.get(DANDADAN)?.progress).toBe(9);
     await first.client.close();
     await second.close();
+  });
+
+  test("a user signed in from two apps has one account: one undo history and one write order", async () => {
+    // Each app's sign-in gets its own AniList token for the same user; the second, made later, lasts longer.
+    anilistCodes.set("code-alice-2", anilistToken("alice", START / 1000 + YEAR_S + 60));
+    const web = await connectSignedIn("code-alice");
+    const code = await connectSignedIn("code-alice-2");
+    expect(web.provider.saved!.access_token).not.toBe(code.provider.saved!.access_token);
+    expect(app.stats()).toEqual({ sessions: 2, accounts: 1, rejected: 0 });
+
+    // One app can undo the other's change.
+    expect((await call(web.client, "set_progress", { anime: DANDADAN, episodes: 9 })).isError).toBe(false);
+    expect((await call(code.client, "undo")).isError).toBe(false);
+    expect(fake.entries.get(DANDADAN)?.progress).toBe(7);
+
+    // Writes from both apps to one show take turns, so neither is lost.
+    await call(web.client, "search_my_list", { status: "CURRENT" });
+    slowWrites = true;
+    const results = await Promise.all([
+      call(web.client, "mark_episodes_watched", { anime: "dandadan" }),
+      call(code.client, "mark_episodes_watched", { anime: "dandadan" }),
+    ]);
+    expect(results.map((r) => r.isError)).toEqual([false, false]);
+    expect(fake.entries.get(DANDADAN)?.progress).toBe(9);
+    await web.client.close();
+    await code.client.close();
+  });
+
+  test("each app calls AniList with its own sign-in, and only it can use its sessions", async () => {
+    const second = anilistToken("alice", START / 1000 + YEAR_S + 60);
+    anilistCodes.set("code-alice-2", second);
+    const used: string[] = [];
+    const seen = fake.fetch.bind(fake);
+    fake.fetch = (url, init) => {
+      used.push(new Headers(init.headers).get("Authorization")!.slice(7));
+      return seen(url, init);
+    };
+    const web = await connectSignedIn("code-alice");
+    const code = await connectSignedIn("code-alice-2");
+    expect((await call(web.client, "set_progress", { anime: DANDADAN, episodes: 9 })).isError).toBe(false);
+    expect(new Set(used)).toEqual(new Set([anilistToken("alice")]));
+    used.length = 0;
+    expect((await call(code.client, "set_progress", { anime: DANDADAN, episodes: 10 })).isError).toBe(false);
+    expect(new Set(used)).toEqual(new Set([second]));
+    // One app's sign-in can't use the other's session.
+    const res = await fetch(`${base}/mcp`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${code.provider.saved!.access_token}`,
+        "Mcp-Session-Id": (web.client.transport as StreamableHTTPClientTransport).sessionId!,
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 9, method: "tools/call", params: { name: "undo", arguments: {} } }),
+    });
+    expect(res.status).toBe(404);
+    await web.client.close();
+    await code.client.close();
+  });
+
+  test("an app whose token AniList stops accepting stays signed out after the user signs in again elsewhere", async () => {
+    const web = await connectSignedIn("code-alice");
+    // The user revokes AniConnect on AniList, then signs in again from another app.
+    revoked.set(anilistToken("alice"), "errors");
+    expect((await call(web.client, "search_my_list", { status: "CURRENT" })).isError).toBe(true);
+    await web.client.close().catch(() => {});
+    anilistCodes.set("code-alice-2", anilistToken("alice", START / 1000 + YEAR_S + 60));
+    const code = await connectSignedIn("code-alice-2");
+    await code.client.close();
+    // Once the refusal is forgotten, the old sign-in can open a session in the user's new
+    // account, but AniList is asked about its own token before it gets anything, and refuses it again.
+    clock += IDLE_MS;
+    await app.sweep();
+    expect(app.stats().rejected).toBe(0);
+    const again = new Client({ name: "test", version: "0" });
+    await again.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`), { authProvider: code.provider }));
+    const old = new Client({ name: "test", version: "0" });
+    await old.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`), { authProvider: web.provider }));
+    expect(app.stats()).toEqual({ sessions: 2, accounts: 1, rejected: 0 });
+    // Not even from what the new sign-in just fetched.
+    expect((await call(again, "search_my_list", { status: "CURRENT" })).isError).toBe(false);
+    const refused = await call(old, "search_my_list", { status: "CURRENT" });
+    expect(refused.isError).toBe(true);
+    expect(refused.text).toContain("sign in with AniList again");
+    const next = await fetch(`${base}/mcp`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${web.provider.saved!.access_token}`, "Content-Type": "application/json" },
+      body: "{}",
+    });
+    expect(next.status).toBe(401);
+    // The new sign-in carries on, with its session and the account, and as the only sign-in
+    // left it is answered from the cache with no check of its token.
+    expect(app.stats()).toEqual({ sessions: 1, accounts: 1, rejected: 1 });
+    clock += LIST_TTL_MS - 1;
+    let requests = 0;
+    const seen = fake.fetch.bind(fake);
+    fake.fetch = (url, init) => {
+      requests++;
+      return seen(url, init);
+    };
+    expect((await call(again, "search_my_list", { status: "CURRENT" })).isError).toBe(false);
+    clock += 2;
+    expect((await call(again, "search_my_list", { status: "CURRENT" })).isError).toBe(false);
+    expect(requests).toBe(1); // the list, refetched once it expired; no Viewer check
+    await old.close().catch(() => {});
+    await again.close();
   });
 
   test("a user's oldest session closes when they open too many", async () => {

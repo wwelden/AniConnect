@@ -4,16 +4,17 @@
  * "Sign in with AniList" instead of a pasted token, so it works as a remote connector in
  * claude.ai and on mobile. Run it with `bun src/http.ts`; see the README for the settings.
  *
- * Each signed-in user gets one AniList client (so the list cache serves all their
- * conversations) and one undo history. Each MCP session gets its own server on top.
+ * Each AniList user gets one account, shared by every app they sign in from: one list cache
+ * and one undo history. Each sign-in calls AniList with its own token, and each MCP session
+ * gets its own server on top.
  */
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { AniListClient, type FetchFn } from "./anilist";
+import { AniListClient, UserCache, type FetchFn } from "./anilist";
 import { OAuthServer, sha256, type OAuthConfig } from "./oauth";
 import { createServer, UserState } from "./server";
-import { HOSTED_RENEW } from "./token";
+import { HOSTED_RENEW, tokenUser } from "./token";
 
 /** Sessions and users idle this long are dropped (the client starts a new session if it comes back). */
 export const IDLE_MS = 60 * 60_000;
@@ -43,7 +44,9 @@ export interface HttpOptions {
 }
 
 interface Account {
-  client: AniListClient;
+  /** One client per sign-in, by its AniList token's hash, so each is refused when AniList refuses its own token. */
+  clients: Map<string, AniListClient>;
+  cache: UserCache;
   user: UserState;
   lastUsed: number;
 }
@@ -52,7 +55,21 @@ interface Session {
   transport: WebStandardStreamableHTTPServerTransport;
   server: McpServer;
   account: string;
+  /** The hash of the AniList token it was opened with; only that sign-in may use it. */
+  token: string;
   lastUsed: number;
+}
+
+/**
+ * Whose account a token belongs to. AniList's tokens are JWTs whose `sub` is the user's ID, so
+ * a user who signs in from two apps (claude.ai and Claude Code, say) gets one account, with one
+ * undo history and one write order per show, and no request to AniList to find out who they
+ * are. The claim can be trusted: the token came out of an access token only this server can
+ * seal, which it made from AniList's own answer. A token without one gets an account of its own.
+ */
+function accountKey(token: string, hash: string): string {
+  const user = tokenUser(token);
+  return user ? `user:${user}` : `token:${hash}`;
 }
 
 const CORS = {
@@ -106,22 +123,26 @@ export async function createHttpApp(config: OAuthConfig, options: HttpOptions = 
   const accounts = new Map<string, Account>();
   const sessions = new Map<string, Session>();
   /**
-   * Users whose AniList token AniList has rejected, with when it first did: their access
-   * token is refused, so the client signs in again. Forgotten after IDLE_MS, after which a
-   * retry asks AniList again.
+   * Hashes of AniList tokens AniList has rejected, with when it first did: access tokens
+   * holding them are refused, so the client signs in again. Forgotten after IDLE_MS, after
+   * which a retry asks AniList again.
    */
   const rejected = new Map<string, number>();
 
-  function account(key: string, token: string): Account {
+  function account(key: string, token: string, hash: string): { account: Account; client: AniListClient } {
     let found = accounts.get(key);
     if (!found) {
-      const client = new AniListClient(token, options.fetch);
-      client.renew = HOSTED_RENEW;
-      found = { client, user: new UserState(), lastUsed: now() };
+      found = { clients: new Map(), cache: new UserCache(), user: new UserState(), lastUsed: now() };
       accounts.set(key, found);
     }
+    let client = found.clients.get(hash);
+    if (!client) {
+      client = new AniListClient(token, options.fetch, found.cache);
+      client.renew = HOSTED_RENEW;
+      found.clients.set(hash, client);
+    }
     found.lastUsed = now();
-    return found;
+    return { account: found, client };
   }
 
   async function close(id: string): Promise<void> {
@@ -145,15 +166,18 @@ export async function createHttpApp(config: OAuthConfig, options: HttpOptions = 
     const auth = req.headers.get("Authorization");
     const bearer = auth?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim() ?? null;
     const token = await oauth.anilistToken(bearer);
-    const key = token && (await sha256(token));
-    if (key && (rejected.has(key) || accounts.get(key)?.client.rejected)) {
-      // Sign the user out here too, so the client asks them to sign in again.
+    const hash = token && (await sha256(token));
+    const key = token && hash && accountKey(token, hash);
+    const found = key ? accounts.get(key) : undefined;
+    if (key && hash && (rejected.has(hash) || found?.clients.get(hash)?.rejected)) {
+      // Sign this sign-in out here too, so the client asks the user to sign in again.
       // Kept from the first refusal, so a client that keeps retrying still gets a fresh check after IDLE_MS.
-      if (!rejected.has(key)) rejected.set(key, now());
-      accounts.delete(key);
-      for (const [id, s] of sessions) if (s.account === key) await close(id);
+      if (!rejected.has(hash)) rejected.set(hash, now());
+      if (found?.clients.delete(hash)) found.cache.clients--;
+      if (found?.clients.size === 0) accounts.delete(key);
+      for (const [id, s] of sessions) if (s.token === hash) await close(id);
     }
-    if (!token || !key || rejected.has(key)) {
+    if (!token || !hash || !key || rejected.has(hash)) {
       return rpcError(401, bearer ? "Invalid or expired access token; sign in again." : "Sign in with AniList first.", {
         "WWW-Authenticate": oauth.challenge(bearer ? "invalid_token" : undefined),
       });
@@ -162,10 +186,10 @@ export async function createHttpApp(config: OAuthConfig, options: HttpOptions = 
 
     if (sessionId) {
       const session = sessions.get(sessionId);
-      // Another user's session looks the same as an unknown one.
-      if (!session || session.account !== key) return rpcError(404, "Session not found; start a new one.");
+      // Another user's or sign-in's session looks the same as an unknown one.
+      if (!session || session.token !== hash) return rpcError(404, "Session not found; start a new one.");
       session.lastUsed = now();
-      account(key, token);
+      account(key, token, hash);
       return session.transport.handleRequest(req);
     }
 
@@ -184,12 +208,12 @@ export async function createHttpApp(config: OAuthConfig, options: HttpOptions = 
       return rpcError(400, "Start a session with an initialize request first.");
     }
 
-    const user = account(key, token);
-    const server = createServer(user.client, { now, user: user.user, hosted: true });
+    const { account: user, client } = account(key, token, hash);
+    const server = createServer(client, { now, user: user.user, hosted: true });
     const transport: WebStandardStreamableHTTPServerTransport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: () => crypto.randomUUID(),
       onsessioninitialized: (id) => {
-        sessions.set(id, { transport, server, account: key, lastUsed: now() });
+        sessions.set(id, { transport, server, account: key, token: hash, lastUsed: now() });
         // Counted when the session joins, with no wait in between, so parallel requests can't all slip under the cap.
         const open = [...sessions].filter(([, s]) => s.account === key).sort(([, a], [, b]) => a.lastUsed - b.lastUsed);
         for (const [old] of open.slice(0, Math.max(0, open.length - MAX_SESSIONS))) void close(old);
