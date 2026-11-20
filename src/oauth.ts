@@ -10,9 +10,12 @@
  * sealed with AES-GCM under AUTH_SECRET, each kind under its own label so one can't be passed
  * off as another. A restart or a second instance signs nobody out. The one piece of memory is
  * the set of codes already used, so a code works once per instance.
+ *
+ * Since access tokens are stateless, one user is signed out by listing their AniList user ID in
+ * `revokedUsers`: their access tokens are refused, and they can't sign in again while listed.
  */
 import type { FetchFn } from "./anilist";
-import { tokenExpiry } from "./token";
+import { tokenExpiry, tokenUser } from "./token";
 
 export const ANILIST_AUTHORIZE = "https://anilist.co/api/v2/oauth/authorize";
 const ANILIST_ORIGIN = new URL(ANILIST_AUTHORIZE).origin;
@@ -35,6 +38,8 @@ export interface OAuthConfig {
   anilistClientSecret: string;
   /** Seals everything the server hands out. Changing it signs everyone out. */
   authSecret: string;
+  /** AniList user IDs refused access: their access tokens stop working and they can't sign in. */
+  revokedUsers?: readonly string[];
 }
 
 const enc = new TextEncoder();
@@ -242,6 +247,7 @@ export class OAuthServer {
   readonly callbackUrl: string;
   /** Codes already swapped for a token, and sign-ins already finished, until they expire. */
   private used = new Map<string, number>();
+  private readonly revoked: ReadonlySet<string>;
 
   private constructor(
     private readonly config: OAuthConfig,
@@ -252,6 +258,13 @@ export class OAuthServer {
     this.origin = new URL(config.publicUrl).origin;
     this.resource = `${this.origin}/mcp`;
     this.callbackUrl = `${this.origin}/oauth/callback`;
+    this.revoked = new Set(config.revokedUsers ?? []);
+  }
+
+  /** Whether the AniList token belongs to a user listed in `revokedUsers`. */
+  private isRevoked(anilistToken: string): boolean {
+    const user = tokenUser(anilistToken);
+    return user !== null && this.revoked.has(user);
   }
 
   static async create(
@@ -480,6 +493,9 @@ export class OAuthServer {
     } catch (err) {
       return back({ error: "server_error", error_description: `AniList sign-in failed: ${(err as Error).message}` });
     }
+    if (this.isRevoked(token)) {
+      return back({ error: "access_denied", error_description: "This AniList account's access to this server has been revoked." });
+    }
     const ours: Code = { ...pending, t: token, te: expiresAt, j: crypto.randomUUID(), exp: this.now() + CODE_MS };
     return back({ code: await this.sealer.seal("code", ours) });
   }
@@ -573,7 +589,8 @@ export class OAuthServer {
 
   /** The AniList token inside a bearer token we issued, or null if it isn't valid now. */
   async anilistToken(bearer: string | null): Promise<string | null> {
-    return (await this.sealer.open<Access>("access", bearer, this.now()))?.t ?? null;
+    const token = (await this.sealer.open<Access>("access", bearer, this.now()))?.t;
+    return token && !this.isRevoked(token) ? token : null;
   }
 
   /** The WWW-Authenticate header that points a client at sign-in (RFC 9728). */
