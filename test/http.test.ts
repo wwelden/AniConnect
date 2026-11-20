@@ -641,8 +641,12 @@ describe("revoking one user", () => {
     expect((await call(client, "search_my_list", { status: "CURRENT" })).isError).toBe(false);
     await client.close();
 
-    // Taken off the list, Alice can sign in again.
+    // Taken off the list, Alice's old sign-in works again, and so does signing in.
     await restart();
+    const old = new Client({ name: "test", version: "0" });
+    await old.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`), { authProvider: alice.provider }));
+    expect((await call(old, "search_my_list", { status: "CURRENT" })).isError).toBe(false);
+    await old.close();
     const again = await connectSignedIn("code-alice");
     expect((await call(again.client, "search_my_list", { status: "CURRENT" })).isError).toBe(false);
     await again.client.close();
