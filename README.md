@@ -106,6 +106,10 @@ A sign-in lasts as long as the AniList token behind it, a year; then the client 
 
 The sign-in endpoints have no per-IP rate limit. They're cheap: they keep nothing but the IDs of finished sign-ins and used codes, which expire within 10 minutes, and each finished sign-in makes one request to AniList. So the risk is low. If you ever see abuse, put Cloudflare (or another proxy with rate limiting) in front.
 
+### Privacy
+
+AniConnect keeps no database and writes nothing to disk. Once you've signed in, the only lasting copy of your AniList token is inside the access token AniConnect gives your MCP client, encrypted with the server's `AUTH_SECRET` so that only the server can read it. While you use it, the server keeps your token, your AniList settings, a copy of your list (reused for up to a minute before it's fetched again) and your undo history in memory, and drops them once you've been idle for an hour (it checks every ten minutes) or when it restarts. It reads or changes your list only when a tool call asks it to, sends tool results only to the MCP client that asked, and makes list changes, including undos, only through AniList. It doesn't log your list reads or writes: it logs its address when it starts and, when a request fails unexpectedly, the method, path and error message, never the request or its results. To cut off access, revoke AniConnect in your AniList settings. Run locally, AniConnect talks only to your MCP client and to AniList, with the token you give it in `ANILIST_TOKEN`.
+
 ## Notes
 
 - Undo covers changes AniConnect made since it started (the last 50), not ones made on anilist.co. A show changed elsewhere after AniConnect changed it is left alone. AniList's activity feed keeps its posts about an undone change.

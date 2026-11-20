@@ -2,7 +2,7 @@
  * The hosted server (R7.2) over real HTTP: the MCP SDK's own OAuth client discovers it,
  * registers, signs in through a stand-in for AniList's sign-in page, and calls tools.
  */
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { UnauthorizedError, type OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
@@ -262,6 +262,29 @@ describe("sign-in", () => {
     expect(write.isError).toBe(false);
     expect(fake.entries.get(DANDADAN)?.progress).toBe(9);
     await client.close();
+  });
+
+  test("logs nothing while users sign in and use their lists (README, Privacy)", async () => {
+    const logged: unknown[][] = [];
+    const spies = (["log", "info", "warn", "error", "debug", "trace"] as const).map((level) =>
+      spyOn(console, level).mockImplementation((...args: unknown[]) => void logged.push(args)),
+    );
+    try {
+      const { client } = await connectSignedIn();
+      expect((await call(client, "search_my_list", { status: "CURRENT" })).isError).toBe(false);
+      expect((await call(client, "set_progress", { anime: DANDADAN, episodes: 9 })).isError).toBe(false);
+      expect((await call(client, "update_shows", { updates: [{ anime: DANDADAN, notes: "a private note" }] })).isError).toBe(false);
+      expect((await call(client, "undo")).isError).toBe(false);
+      // A sign-in AniList refuses, and a token AniList stops accepting.
+      expect(await codeFor((await register()).body.client_id!, undefined, "code-nobody")).toBeNull();
+      revoked.set(anilistToken("alice"), "errors");
+      clock += 2 * 60_000; // past the list cache, so the read reaches AniList
+      expect((await call(client, "search_my_list", {})).isError).toBe(true);
+      await client.close().catch(() => {});
+    } finally {
+      for (const spy of spies) spy.mockRestore();
+    }
+    expect(logged).toEqual([]);
   });
 
   test("advertises how to sign in, and turns away requests without a valid token", async () => {
