@@ -917,6 +917,11 @@ describe("giving way, with made-up shows (R1.11, PR #87 review)", () => {
     expect(r.kind === "match" && r.media.id).toBe(1);
   });
 
+  test("a music video not on the list doesn't make a series give way (R1.8)", async () => {
+    const r = await run("alpha", "add", [show(1, "Beta", 100, { synonyms: ["Alpha"] }), show(2, "Alpha", 500, { format: "MUSIC" })]);
+    expect(r.kind === "match" && r.media.id).toBe(1);
+  });
+
   test("a status change asks when a show titled exactly as asked isn't on the list (R1.3), even beside the one being watched", async () => {
     const r = await run("alpha", "status", [show(1, "Alpha", 500), on(show(2, "Beta", 100, { synonyms: ["Alpha"] }), "CURRENT")]);
     expect(r.kind).toBe("ambiguous");

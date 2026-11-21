@@ -390,7 +390,10 @@ function score(items: Media[], q: ParsedQuery): Scored[] {
   for (const s of scored) {
     if (s.own >= s.score) continue;
     const over = scored.filter(
-      (o) => o.own >= 2 && o.own > s.own && morePopular(o.media, s.media) && (!q.hint.movie || o.media.format === "MOVIE"),
+      (o) =>
+        o.own >= 2 && o.own > s.own && morePopular(o.media, s.media) && (!q.hint.movie || o.media.format === "MOVIE") &&
+        // A music video not on the list only counts when nothing else matches (`preferSeries`).
+        !(o.media.format === "MUSIC" && !o.media.mediaListEntry),
     );
     const known = (o: Scored) => Boolean(o.media.relations || s.media.relations);
     if (over.some((o) => known(o) && !seasonsOf(o.media, s.media))) {
