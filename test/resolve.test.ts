@@ -820,9 +820,21 @@ describe("a synonym or a match inside a word gives way to a more popular show ti
     await expectMatch("demon slayer", "add", KNY);
   });
 
-  test("Onigiri on the list is still offered, beside the show titled with the words", async () => {
+  test("Onigiri being watched keeps episodes and status changes, not a rating (R1.10)", async () => {
     list(["Onigiri", "CURRENT"]);
-    for (const intent of ["progress", "status", "show"] as const) await expectAsk("demon slayer", intent, [KNY, "Onigiri"]);
+    for (const intent of ["progress", "status", "show"] as const) await expectMatch("demon slayer", intent, "Onigiri");
+    await expectAsk("demon slayer", "rate", [KNY, "Onigiri"]);
+  });
+
+  test("a season being watched with the name inside a word keeps the episode (R1.4)", async () => {
+    // "Owarimonogatari" has "monogatari" only inside a word; more popular seasons have it as one.
+    list(["Owarimonogatari", "CURRENT"]);
+    await expectMatch("monogatari", "progress", "Owarimonogatari");
+    // Words run together from the start of a word still count as the title's: no extra search.
+    list(["Re:Zero kara Hajimeru Isekai Seikatsu", "CURRENT"]);
+    fake.calls.length = 0;
+    await expectMatch("rezero", "progress", "Re:Zero kara Hajimeru Isekai Seikatsu");
+    expect(fake.calls.some((c) => c.query.includes("search:"))).toBe(false);
   });
 
   test('"naruto" is Naruto: "NARUTO (2026)" is a synonym of NARUTO×NINKU, not a second version', async () => {
@@ -837,12 +849,19 @@ describe("a synonym or a match inside a word gives way to a more popular show ti
 
   test("a listed show with the name inside a word isn't picked by its status: ask, or add the one titled with it", async () => {
     list([LONER, "COMPLETED"]);
-    for (const intent of ["status", "show", "rate"] as const) await expectAsk("bocchi", intent, [BTR, LONER]);
+    for (const intent of ["status", "show", "rate"] as const) {
+      const r = await resolve("bocchi", intent);
+      if (r.kind !== "ambiguous") throw new Error(`${intent}: expected ambiguous, got ${r.kind}: ${r.why}`);
+      expect(r.candidates.map((m) => m.title.romaji)).toEqual([BTR, LONER]);
+      expect(r.why).toBe('"bocchi" is in the title of a show with more to watch, and a different show on your list only has it in another name or inside a word.');
+    }
     // A completed show takes an episode only when nothing else fits; adding means the titled show.
     await expectMatch("bocchi", "progress", BTR);
     await expectMatch("bocchi", "add", BTR);
+    // The one being watched keeps episodes and status changes, as a spin-off does (R1.10).
     list([LONER, "CURRENT"]);
-    await expectAsk("bocchi", "progress", [BTR, LONER]);
+    await expectMatch("bocchi", "progress", LONER);
+    await expectAsk("bocchi", "rate", [BTR, LONER]);
     // The listed show titled with the word settles it.
     list([LONER, "COMPLETED"], [BTR, "COMPLETED"]);
     for (const intent of ["progress", "show", "rate"] as const) await expectMatch("bocchi", intent, BTR);
