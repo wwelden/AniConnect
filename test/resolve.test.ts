@@ -8,7 +8,7 @@ import { normalize } from "../src/logic";
 import { parseQuery, resolveAnime, titleSeason, type AnimeSource, type Intent } from "../src/resolve";
 import { clientSource } from "../src/server";
 import { PERSONA } from "./fixtures/persona";
-import { FakeAniList, findMedia } from "./support/fake-anilist";
+import { catalog, FakeAniList, findMedia } from "./support/fake-anilist";
 
 let fake: FakeAniList;
 let client: AniListClient;
@@ -780,5 +780,71 @@ describe("a spin-off with the show's name doesn't take a request for the show (R
       await expectMatch(query, "progress", title);
       expect(fake.calls.some((c) => c.query.includes("search:"))).toBe(false);
     }
+  });
+});
+
+describe("a synonym or a match inside a word gives way to a more popular show titled with the words", () => {
+  const KNY = "Kimetsu no Yaiba";
+  const BTR = "Bocchi the Rock!";
+  const LONER = "Hitoribocchi no Isekai Kouryaku";
+
+  const list = (...entries: [anime: string, status: ListStatus][]) => {
+    fake = new FakeAniList().seed(entries.map(([anime, status]) => ({ anime, status, progress: status === "COMPLETED" ? undefined : 1 })));
+    client = new AniListClient("test", fake.fetch);
+  };
+  const expectMatch = async (query: string, intent: Intent, title: string) => {
+    const r = await resolve(query, intent);
+    if (r.kind !== "match") throw new Error(`${intent}: expected a match, got ${r.kind}: ${r.why}`);
+    expect(r.media.title.romaji).toBe(title);
+  };
+  const expectAsk = async (query: string, intent: Intent, titles: string[]) => {
+    const r = await resolve(query, intent);
+    if (r.kind !== "ambiguous") throw new Error(`${intent}: expected ambiguous, got ${r.kind}: ${r.why}`);
+    expect(r.candidates.map((m) => m.title.romaji)).toEqual(titles);
+  };
+  const ALL: Intent[] = ["add", "progress", "status", "show", "rate"];
+
+  test('"demon slayer" is Kimetsu no Yaiba, not Onigiri, whose synonym it is', async () => {
+    list();
+    for (const intent of ALL) await expectMatch("demon slayer", intent, KNY);
+  });
+
+  test("with every Demon Slayer entry completed, an episode update doesn't add Onigiri", async () => {
+    const done = catalog.filter((m) => m.franchise === KNY && m.status === "FINISHED").map((m) => m.title.romaji);
+    list(...done.map((anime) => [anime, "COMPLETED"] as [string, ListStatus]));
+    for (const intent of ["progress", "status", "rate", "show"] as const) {
+      const r = await resolve("demon slayer", intent);
+      const ids = r.kind === "match" ? [r.media.id] : r.kind === "ambiguous" ? r.candidates.map((m) => m.id) : [];
+      expect(ids).not.toContain(findMedia("Onigiri").id);
+    }
+    await expectMatch("demon slayer", "add", KNY);
+  });
+
+  test("Onigiri on the list is still offered, beside the show titled with the words", async () => {
+    list(["Onigiri", "CURRENT"]);
+    for (const intent of ["progress", "status", "show"] as const) await expectAsk("demon slayer", intent, [KNY, "Onigiri"]);
+  });
+
+  test('"naruto" is Naruto: "NARUTO (2026)" is a synonym of NARUTO×NINKU, not a second version', async () => {
+    list();
+    for (const intent of ["add", "progress", "show"] as const) await expectMatch("naruto", intent, "NARUTO");
+  });
+
+  test('"bocchi" is Bocchi the Rock!, a word of its title, over shows with it inside a word', async () => {
+    list();
+    for (const intent of ALL) await expectMatch("bocchi", intent, BTR);
+  });
+
+  test("a listed show with the name inside a word isn't picked by its status: ask, or add the one titled with it", async () => {
+    list([LONER, "COMPLETED"]);
+    for (const intent of ["status", "show", "rate"] as const) await expectAsk("bocchi", intent, [BTR, LONER]);
+    // A completed show takes an episode only when nothing else fits; adding means the titled show.
+    await expectMatch("bocchi", "progress", BTR);
+    await expectMatch("bocchi", "add", BTR);
+    list([LONER, "CURRENT"]);
+    await expectAsk("bocchi", "progress", [BTR, LONER]);
+    // The listed show titled with the word settles it.
+    list([LONER, "COMPLETED"], [BTR, "COMPLETED"]);
+    for (const intent of ["progress", "show", "rate"] as const) await expectMatch("bocchi", intent, BTR);
   });
 });

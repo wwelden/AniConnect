@@ -73,6 +73,8 @@ export interface Media {
   seasonYear: number | null;
   startDate: FuzzyDate | null;
   averageScore: number | null;
+  /** How many AniList users have it on their list; the resolver weighs a synonym against it. */
+  popularity?: number | null;
   siteUrl: string;
   /** Present while a show is airing on a known schedule. `airingAt` is in Unix seconds. */
   nextAiringEpisode: { episode: number; airingAt: number } | null;
@@ -328,8 +330,8 @@ export const ANILIST_LIMITER = new RateLimiter();
 
 /**
  * Title searches sent in one request (aliased Page queries). AniList refuses a query over 500
- * complexity; each search of 15 results with relations counts 58, or 77 with the one-show
- * fields (streaming links 6, details 13; measured 2026-11-18), so 7 fit, or 6 with them.
+ * complexity; each search of 15 results with relations counts 59, or 78 with the one-show
+ * fields (streaming links 6, details 13; measured 2026-11-20, with popularity), so 7 fit, or 6 with them.
  */
 const SEARCH_BATCH = 7;
 const ONE_SHOW_SEARCH_BATCH = 6;
@@ -385,6 +387,7 @@ const MEDIA_FIELDS = `
   seasonYear
   startDate { year month day }
   averageScore
+  popularity
   siteUrl
   nextAiringEpisode { episode airingAt }
 `;

@@ -160,12 +160,13 @@ function finish(q: string, hint: SeasonHint, expand = true): ParsedQuery {
   return parsed;
 }
 
-function rawNames(m: Media): string[] {
-  return [m.title.romaji, m.title.english, m.title.native, ...m.synonyms].filter((n): n is string => Boolean(n));
+/** `own` leaves out AniList's synonyms: only the show's titles (romaji, English, native). */
+function rawNames(m: Media, own = false): string[] {
+  return [m.title.romaji, m.title.english, m.title.native, ...(own ? [] : m.synonyms)].filter((n): n is string => Boolean(n));
 }
 
-function names(m: Media): string[] {
-  return rawNames(m).map(normalize).filter(Boolean);
+function names(m: Media, own = false): string[] {
+  return rawNames(m, own).map(normalize).filter(Boolean);
 }
 
 /**
@@ -175,8 +176,8 @@ function names(m: Media): string[] {
 const FORMAT_TAG = /\s*\((?:TV|ONA|OVA|OAD|Movie|Special)\)\s*$/i;
 
 /** Titles with a format tag, without it: the name the show goes by. */
-function untagged(m: Media): string[] {
-  return rawNames(m).filter((n) => FORMAT_TAG.test(n)).map((n) => n.replace(FORMAT_TAG, ""));
+function untagged(m: Media, own = false): string[] {
+  return rawNames(m, own).filter((n) => FORMAT_TAG.test(n)).map((n) => n.replace(FORMAT_TAG, ""));
 }
 
 function levenshtein(a: string, b: string): number {
@@ -198,12 +199,13 @@ const LATIN = /^[a-z0-9]+$/;
 /** Numbers and Roman numerals: "ii" must not match "iii", "1" must not match "100". */
 const NUMBERISH = /^(\d+|[ivx]+)$/;
 
-function wordHit(word: string, name: string, nameWords: string[]): boolean {
+/** `inside` also counts a Latin word found inside a word of the name ("bocchi" in "hitoribocchi"). */
+function wordHit(word: string, name: string, nameWords: string[], inside = true): boolean {
   if (NUMBERISH.test(word)) return nameWords.some((nw) => nw === word || nw === `${word}st` || nw === `${word}nd` || nw === `${word}rd` || nw === `${word}th`);
   if (nameWords.some((nw) => nw.startsWith(word))) return true;
   // Scripts without spaces (Japanese), or words run together ("spyxfamily", "rezero").
   if (!LATIN.test(word)) return name.includes(word);
-  return word.length >= 4 && name.replace(/ /g, "").includes(word);
+  return inside && word.length >= 4 && name.replace(/ /g, "").includes(word);
 }
 
 function typoHit(word: string, nameWords: string[]): boolean {
@@ -215,20 +217,21 @@ function typoHit(word: string, nameWords: string[]): boolean {
 /**
  * 4 = exact title or synonym, 3 = acronym of a title, 2 = every word appears,
  * 1 = every word appears allowing small typos, 0 = no match.
+ * `own` scores the show's titles alone, by whole words: no synonyms, no match inside a word.
  */
-export function matchScore(m: Media, q: ParsedQuery): number {
+export function matchScore(m: Media, q: ParsedQuery, own = false): number {
   if (q.words.length === 0) return 0;
-  if (untagged(m).some((n) => normalize(n) === q.exact)) return 4;
+  if (untagged(m, own).some((n) => normalize(n) === q.exact)) return 4;
   let best = 0;
-  for (const name of names(m)) {
+  for (const name of names(m, own)) {
     if (name === q.exact) return 4;
     const nameWords = name.split(" ");
     if (nameWords.length >= 2 && !q.exact.includes(" ") && nameWords.map((w) => w[0]).join("") === q.exact) {
       best = Math.max(best, 3);
     }
     if (best >= 2) continue;
-    if (q.words.every((w) => wordHit(w, name, nameWords))) best = 2;
-    else if (best < 1 && q.words.every((w) => wordHit(w, name, nameWords) || typoHit(w, nameWords))) best = 1;
+    if (q.words.every((w) => wordHit(w, name, nameWords, !own))) best = 2;
+    else if (best < 1 && q.words.every((w) => wordHit(w, name, nameWords, !own) || typoHit(w, nameWords))) best = 1;
   }
   return best;
 }
@@ -315,17 +318,26 @@ function sharedLead(a: string, b: string): number {
 
 /** Same franchise when titles start with the same words ("sousou no frieren 2nd season" / "... 3rd season"). */
 function sameFranchise(items: Media[]): boolean {
-  const all = items.map(names);
+  const all = items.map((m) => names(m));
   return all.every((ns) => all.every((other) => ns.some((a) => other.some((b) => sharedLead(a, b) >= 6))));
 }
 
 const YEAR_SUFFIX = / (19|20)\d\d$/;
 
-/** A remake shares its original's title plus a year ("Hunter x Hunter" / "Hunter x Hunter (2011)"). */
+/** True when both popularities are known and `a`'s is the higher. */
+function morePopular(a: Media, b: Media): boolean {
+  return a.popularity != null && b.popularity != null && a.popularity > b.popularity;
+}
+
+/**
+ * A remake shares its original's title plus a year ("Hunter x Hunter" / "Hunter x Hunter (2011)").
+ * A less popular show's synonyms don't make it a version of the other: "NARUTO (2026)" is a
+ * synonym of NARUTO×NINKU, a different show.
+ */
 function isRemake(a: Media, b: Media): boolean {
   if (a.id === b.id || !isSeries(a) || !isSeries(b)) return false;
-  return names(a).some((na) =>
-    names(b).some(
+  return names(a, morePopular(b, a)).some((na) =>
+    names(b, morePopular(a, b)).some(
       (nb) => na !== nb && (YEAR_SUFFIX.test(na) || YEAR_SUFFIX.test(nb)) && na.replace(YEAR_SUFFIX, "") === nb.replace(YEAR_SUFFIX, ""),
     ),
   );
@@ -339,6 +351,10 @@ function isRoot(m: Media): boolean {
 interface Scored {
   media: Media;
   score: number;
+  /** matchScore of the show's own titles (see `matchScore`). */
+  own: number;
+  /** Set when the score fell to `own`, giving way to a more popular show titled with the words (see `score`). */
+  yielded?: boolean;
 }
 
 function dedupe(items: Media[]): Media[] {
@@ -352,7 +368,16 @@ function dedupe(items: Media[]): Media[] {
 }
 
 function score(items: Media[], q: ParsedQuery): Scored[] {
-  const scored = items.map((media) => ({ media, score: matchScore(media, q) }));
+  const scored: Scored[] = items.map((media) => ({ media, score: matchScore(media, q), own: matchScore(media, q, true) }));
+  // A show that matches only through a synonym or inside a word ("Demon Slayer" is a synonym of
+  // Onigiri; "bocchi" is inside "Hitoribocchi") gives way to a more popular show whose own title
+  // has the words, and keeps only what its titles match.
+  for (const s of scored) {
+    if (s.own < s.score && scored.some((o) => o.own >= 2 && o.own > s.own && morePopular(o.media, s.media))) {
+      s.score = s.own;
+      s.yielded = true;
+    }
+  }
   // "Kaguya-sama: Love is War?" and "Kaguya-sama: Love is War" normalize alike (#61): when a
   // title is written exactly as asked, the others that only match once normalized rank below it.
   if (q.typed) {
@@ -362,7 +387,9 @@ function score(items: Media[], q: ParsedQuery): Scored[] {
     if (exact.some((e) => e.typed)) for (const e of exact) if (!e.typed) e.s.score = NORMALIZED_EXACT;
   }
   const strong = scored.filter((s) => s.score >= 2);
-  return strong.length ? strong : scored.filter((s) => s.score === 1);
+  if (!strong.length) return scored.filter((s) => s.score === 1);
+  // A show on the list that gave way stays, so `pick` asks rather than pass over the user's own show.
+  return [...strong, ...scored.filter((s) => s.yielded && s.score < 2 && s.media.mediaListEntry)];
 }
 
 /**
@@ -471,8 +498,13 @@ async function resolveParsed(
     const listed = pool.filter((s) => s.media.mediaListEntry);
     // Look beyond the list when nothing there is a likely target, or, for a status or a
     // rating, when nothing there is titled exactly that: "Naruto" may be a show the user
-    // hasn't listed, not the Shippuden they have.
-    if (!listed.some((s) => ranks[status(s.media)] < ranks.NONE) || (exactOnly(intent) && !listed.some((s) => s.score === EXACT))) {
+    // hasn't listed, not the Shippuden they have. Also when every listed match comes through a
+    // synonym or inside a word: a more popular show may have the words in its title (`score`).
+    if (
+      !listed.some((s) => ranks[status(s.media)] < ranks.NONE) ||
+      (exactOnly(intent) && !listed.some((s) => s.score === EXACT)) ||
+      (listed.length && listed.every((s) => s.own < s.score))
+    ) {
       await searchAll();
     }
   }
@@ -496,9 +528,11 @@ async function resolveParsed(
     return { kind: "none", why: `Couldn't find "${query}" ${where}.` };
   }
 
-  if (q.hint.latest || q.hint.next) return resolveRelative(query, q, pool, source, fetched, language);
+  // A season named or relative is counted within the show titled with the words.
+  const titled = pool.filter((s) => !s.yielded);
+  if (q.hint.latest || q.hint.next) return resolveRelative(query, q, titled, source, fetched, language);
   if (q.hint.season !== undefined || q.hint.part !== undefined) {
-    return resolveSeason(q, intent, pool, source, fetched);
+    return resolveSeason(q, intent, titled, source, fetched);
   }
   if (intent === "progress") pool = await keepCompleted(pool, source, fetched);
   if (exactOnly(intent)) {
@@ -704,6 +738,16 @@ function pick(query: string, intent: Intent, pool: Scored[]): Resolution {
   const sorted = [...pool].sort(cmp);
   const top = sorted[0]!;
   const tied = sorted.filter((s) => key(s).every((v, i) => v === key(top)[i]));
+
+  // The list status would pick a show that gave way to one titled with the words: either could be meant.
+  const titled = sorted.find((s) => !s.yielded);
+  if (top.yielded && titled) {
+    return {
+      kind: "ambiguous",
+      candidates: [titled, ...sorted.filter((s) => s.yielded)].slice(0, MAX_CANDIDATES).map((s) => s.media),
+      why: `"${query}" is in the title of one show, and only in another name, or inside a word, of one on your list.`,
+    };
+  }
 
   const remakes = sorted.filter(
     (s) => ranks[status(s.media)] === ranks[status(top.media)] && isRemake(s.media, top.media),
