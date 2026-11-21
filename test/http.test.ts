@@ -36,6 +36,8 @@ let exchanges: Record<string, string>[];
 let revoked: Map<string, "errors" | "bare">;
 /** Delays AniList's answer to writes, so two of them overlap. */
 let slowWrites: boolean;
+/** Called when a delayed write reaches AniList. */
+let onSlowWrite: (() => void) | undefined;
 /** Builds the app with the test settings, plus `extra`; tests call it again to restart the server. */
 let restart: (extra?: Partial<Parameters<typeof createHttpApp>[0]>) => Promise<void>;
 
@@ -50,6 +52,7 @@ beforeEach(async () => {
   exchanges = [];
   revoked = new Map();
   slowWrites = false;
+  onSlowWrite = undefined;
   const fetchFn = async (url: string, init: RequestInit) => {
     if (url === ANILIST_TOKEN) {
       const body = JSON.parse(init.body as string) as Record<string, string>;
@@ -61,7 +64,10 @@ beforeEach(async () => {
     const refusal = revoked.get(new Headers(init.headers).get("Authorization")!.slice(7));
     if (refusal === "errors") return Response.json({ errors: [{ message: "Invalid token", status: 401 }], data: null }, { status: 401 });
     if (refusal === "bare") return new Response("Unauthorized", { status: 401 });
-    if (slowWrites && /^\s*mutation/.test(JSON.parse(init.body as string).query)) await Bun.sleep(50);
+    if (slowWrites && /^\s*mutation/.test(JSON.parse(init.body as string).query)) {
+      onSlowWrite?.();
+      await Bun.sleep(50);
+    }
     return fake.fetch(url, init);
   };
   // Bind first so PUBLIC_URL can name the real port.
@@ -681,8 +687,9 @@ describe("sessions", () => {
   test("shutting down lets a write in progress finish, then closes every session", async () => {
     const { client } = await connectSignedIn();
     slowWrites = true;
+    const atAniList = new Promise<void>((resolve) => (onSlowWrite = resolve));
     const write = call(client, "mark_episodes_watched", { anime: "dandadan" });
-    await Bun.sleep(20); // the write is now waiting on AniList
+    await atAniList; // the write is now waiting on AniList
     const started = Date.now();
     // The client's open notification stream is ended, so this doesn't wait out the grace period.
     await shutdown(server, app, 10_000);
@@ -690,6 +697,24 @@ describe("sessions", () => {
     expect((await write).isError).toBe(false);
     expect(fake.entries.get(DANDADAN)?.progress).toBe(8);
     expect(app.stats().sessions).toBe(0);
+    await client.close();
+  });
+
+  test("shutting down refuses new notification streams but still answers tool calls", async () => {
+    const provider = (await connectSignedIn()).provider;
+    const transport = new StreamableHTTPClientTransport(new URL(`${base}/mcp`), { authProvider: provider });
+    const client = new Client({ name: "test", version: "0" });
+    await client.connect(transport);
+    app.endStreams();
+    const reopen = await fetch(`${base}/mcp`, {
+      headers: {
+        Authorization: `Bearer ${provider.saved!.access_token}`,
+        Accept: "text/event-stream",
+        "Mcp-Session-Id": transport.sessionId!,
+      },
+    });
+    expect(reopen.status).toBe(503);
+    expect((await call(client, "search_my_list", { status: "CURRENT" })).isError).toBe(false);
     await client.close();
   });
 

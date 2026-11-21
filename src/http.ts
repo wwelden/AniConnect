@@ -135,6 +135,8 @@ export async function createHttpApp(config: OAuthConfig, options: HttpOptions = 
    * which a retry asks AniList again.
    */
   const rejected = new Map<string, number>();
+  /** Shutting down: notification streams are ended and no new ones opened. */
+  let draining = false;
 
   function account(key: string, token: string, hash: string): { account: Account; client: AniListClient } {
     let found = accounts.get(key);
@@ -195,6 +197,8 @@ export async function createHttpApp(config: OAuthConfig, options: HttpOptions = 
       const session = sessions.get(sessionId);
       // Another user's or sign-in's session looks the same as an unknown one.
       if (!session || session.token !== hash) return rpcError(404, "Session not found; start a new one.");
+      // A client reopening its notification stream over a kept-alive connection would keep the shutdown waiting.
+      if (draining && req.method === "GET") return rpcError(503, "Shutting down; try again shortly.");
       session.lastUsed = now();
       account(key, token, hash);
       return session.transport.handleRequest(req);
@@ -275,8 +279,9 @@ export async function createHttpApp(config: OAuthConfig, options: HttpOptions = 
     /** Open sessions, signed-in users and refused tokens, for tests. */
     stats: () => ({ sessions: sessions.size, accounts: accounts.size, rejected: rejected.size }),
     sweep,
-    /** Ends each session's stream for server-sent notifications, which never ends by itself. */
+    /** Ends each session's stream for server-sent notifications, which never ends by itself, and refuses new ones. */
     endStreams(): void {
+      draining = true;
       for (const s of sessions.values()) s.transport.closeStandaloneSSEStream();
     },
     /** Closes every session. */
@@ -337,16 +342,20 @@ export function configFromEnv(env: Record<string, string | undefined> = process.
  * a list write off halfway. Clients whose session is closed start a new one with the new copy.
  */
 export async function shutdown(
-  server: { stop(): Promise<void> },
+  server: { stop(): Promise<void>; pendingRequests: number },
   app: { endStreams(): void; close(): Promise<void> },
   graceMs = SHUTDOWN_GRACE_MS,
 ): Promise<void> {
-  const stopped = server.stop();
+  const stopped = server.stop().then(() => true);
   // Open notification streams would otherwise keep `stopped` waiting for the whole grace period.
   app.endStreams();
   let timer: ReturnType<typeof setTimeout> | undefined;
-  await Promise.race([stopped, new Promise((resolve) => (timer = setTimeout(resolve, graceMs)))]);
+  const finished = await Promise.race([stopped, new Promise<false>((resolve) => (timer = setTimeout(() => resolve(false), graceMs)))]);
   clearTimeout(timer);
+  if (!finished) {
+    // Most likely a tool call waiting on the user to answer a form.
+    console.error(`AniConnect: ${server.pendingRequests} request(s) still open after ${graceMs / 1000}s; closing them`);
+  }
   await app.close();
 }
 
@@ -373,7 +382,13 @@ if (import.meta.main) {
     if (stopping) process.exit(1);
     stopping = true;
     console.error(`AniConnect: ${signal}, finishing requests in progress`);
-    void shutdown(server, app).finally(() => process.exit(0));
+    shutdown(server, app).then(
+      () => process.exit(0),
+      (err) => {
+        console.error("AniConnect: shutdown failed:", (err as Error).message);
+        process.exit(1);
+      },
+    );
   };
   process.on("SIGTERM", () => stop("SIGTERM"));
   process.on("SIGINT", () => stop("SIGINT"));
