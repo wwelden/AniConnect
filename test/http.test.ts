@@ -8,7 +8,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { UnauthorizedError, type OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 import type { OAuthClientInformationMixed, OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { configFromEnv, createHttpApp, IDLE_MS, MAX_SESSIONS, SERVE_OPTIONS, shutdown } from "../src/http";
-import { LIST_TTL_MS } from "../src/anilist";
+import { LIST_TTL_MS, RateLimiter } from "../src/anilist";
 import { ANILIST_AUTHORIZE, ANILIST_TOKEN } from "../src/oauth";
 import { PERSONA } from "./fixtures/persona";
 import { FakeAniList, findMedia } from "./support/fake-anilist";
@@ -39,7 +39,7 @@ let slowWrites: boolean;
 /** Called when a delayed write reaches AniList. */
 let onSlowWrite: (() => void) | undefined;
 /** Builds the app with the test settings, plus `extra`; tests call it again to restart the server. */
-let restart: (extra?: Partial<Parameters<typeof createHttpApp>[0]>) => Promise<void>;
+let restart: (extra?: Partial<Parameters<typeof createHttpApp>[0]>, http?: Parameters<typeof createHttpApp>[1]) => Promise<void>;
 
 beforeEach(async () => {
   clock = START;
@@ -74,7 +74,7 @@ beforeEach(async () => {
   let handler: (req: Request) => Promise<Response> = async () => new Response(null, { status: 503 });
   server = Bun.serve({ ...SERVE_OPTIONS, port: 0, fetch: (req) => handler(req) });
   base = `http://localhost:${server.port}`;
-  restart = async (extra = {}) => {
+  restart = async (extra = {}, http = {}) => {
     app = await createHttpApp(
       {
         publicUrl: base,
@@ -83,7 +83,7 @@ beforeEach(async () => {
         authSecret: "test-secret-that-is-at-least-32-characters",
         ...extra,
       },
-      { fetch: fetchFn, now: () => clock },
+      { fetch: fetchFn, now: () => clock, ...http },
     );
     handler = app.fetch;
   };
@@ -716,6 +716,19 @@ describe("sessions", () => {
     expect(reopen.status).toBe(503);
     expect((await call(client, "search_my_list", { status: "CURRENT" })).isError).toBe(false);
     await client.close();
+  });
+
+  test("every user's requests count against one rate limit, since AniList's is per server IP", async () => {
+    await restart({}, { limiter: new RateLimiter(3) });
+    const alice = await connectSignedIn("code-alice");
+    const bob = await connectSignedIn("code-bob");
+    expect((await call(alice.client, "search_my_list", { status: "CURRENT" })).isError).toBe(false); // viewer and list
+    const refused = await call(bob.client, "search_my_list", { status: "CURRENT" }); // viewer, then no slot for the list
+    expect(refused.text).toContain("AniList rate limit hit (3 requests a minute). Try again in 60 seconds.");
+    clock += 60_000;
+    expect((await call(bob.client, "search_my_list", { status: "CURRENT" })).isError).toBe(false);
+    await alice.client.close();
+    await bob.client.close();
   });
 
   test("a user's conversations share one undo history", async () => {
