@@ -4,7 +4,11 @@
  * the test moves it to them, so a minute passes at once.
  */
 import { describe, expect, test } from "bun:test";
-import { AniListClient, RateLimiter } from "../src/anilist";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { AniListClient, CALL_WAIT_MS, RateLimiter, withWaitDeadline } from "../src/anilist";
+import { createServer } from "../src/server";
+import { FakeAniList } from "./support/fake-anilist";
 
 class FakeClock {
   t = 0;
@@ -157,7 +161,8 @@ describe("shared rate limit", () => {
       })(),
     );
     expect(results).toEqual(["ok", "ok"]);
-    expect(sent.map((s) => `${s.name}@${s.at / 1000}`)).toEqual(["a@0", "a@20", "b@75", "a@80"]);
+    // b waited out the pause; a's refused request, which AniList didn't run, gave its slot back.
+    expect(sent.map((s) => `${s.name}@${s.at / 1000}`).sort()).toEqual(["a@0", "a@20", "a@75", "b@75"]);
   });
 
   test("a request counts from when it is really sent, and not at all if it gives up", () => {
@@ -169,19 +174,63 @@ describe("shared rate limit", () => {
     expect(limiter.book(81_000)).toEqual({ at: 81_000 });
   });
 
-  test("follows the limit and the requests left that AniList reports", async () => {
-    let headers: Record<string, string> = { "X-RateLimit-Limit": "90", "X-RateLimit-Remaining": "89" };
-    const { clock, sent, client, outcome } = setup(new RateLimiter(), () => Response.json({ data: { Viewer: { id: 1 } } }, { headers }));
+  test("follows the limit AniList reports", async () => {
+    const { clock, sent, client } = setup(new RateLimiter(), () =>
+      Response.json({ data: { Viewer: { id: 1 } } }, { headers: { "X-RateLimit-Limit": "90", "X-RateLimit-Remaining": "89" } }),
+    );
     const a = client("a");
     // Not degraded: 90 a minute, so once AniList has said so, 40 at once all go.
     await clock.run(a.request(QUERY));
     await clock.run(Promise.all(Array.from({ length: 40 }, () => a.request(QUERY))));
     expect(sent.length).toBe(41);
-    // AniList counts requests this process didn't send (another app on the same IP): none left.
-    headers = { "X-RateLimit-Limit": "90", "X-RateLimit-Remaining": "0" };
-    await clock.run(a.request(QUERY));
-    expect(await clock.run(outcome(a.request(QUERY)))).toBe("AniList rate limit hit (90 requests a minute). Try again in 60 seconds.");
-    expect(sent.length).toBe(42);
+    expect(sent.every((s) => s.at === 0)).toBe(true);
+  });
+
+  test("a tool call's requests together stop waiting 40 seconds after it starts", async () => {
+    const { clock, sent, client, outcome } = setup(new RateLimiter(2));
+    const [a, b] = [client("a"), client("b")];
+    const result = await clock.run(
+      (async () => {
+        await a.request(QUERY);
+        await clock.sleep(30_000);
+        await a.request(QUERY); // the window is full until 60s, then until 90s
+        await clock.sleep(5_000);
+        // A tool call starting at 35s: its first request waits 25 seconds; its second would
+        // wait until 90s, within 30 seconds of asking but past the call's 75s deadline.
+        return withWaitDeadline(clock.t + CALL_WAIT_MS, async () => {
+          await b.request(QUERY);
+          return outcome(b.request(QUERY));
+        });
+      })(),
+    );
+    expect(result).toBe("AniList rate limit hit (2 requests a minute). Try again in 30 seconds.");
+    expect(sent.map((s) => `${s.name}@${s.at / 1000}`)).toEqual(["a@0", "a@30", "b@60"]);
+    // Past its deadline, a call's requests still go when there's room.
+    clock.t = 200_000;
+    await clock.run(withWaitDeadline(0, () => b.request(QUERY)));
+    expect(sent.length).toBe(4);
+  });
+
+  test("every tool call gets that deadline", async () => {
+    const fake = new FakeAniList();
+    const { clock, sent, client } = setup(new RateLimiter(2), (_, __, init) => fake.fetch("", init));
+    const [a, b] = [client("a"), client("b")];
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    const mcp = new Client({ name: "t", version: "0" });
+    await Promise.all([createServer(b, { now: clock.now }).connect(st), mcp.connect(ct)]);
+    const text = await clock.run(
+      (async () => {
+        await a.request(QUERY);
+        await clock.sleep(30_000);
+        await a.request(QUERY);
+        await clock.sleep(5_000);
+        // The viewer waits until 60s; the list would go at 90s, past the call's 75s deadline.
+        const r = (await mcp.callTool({ name: "search_my_list", arguments: {} })) as { content: { text: string }[] };
+        return r.content.map((c) => c.text).join("\n");
+      })(),
+    );
+    expect(text).toContain("AniList rate limit hit (2 requests a minute). Try again in 30 seconds.");
+    expect(sent.map((s) => `${s.name}@${s.at / 1000}`)).toEqual(["a@0", "a@30", "b@60"]);
   });
 });
 

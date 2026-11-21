@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { tokenExpiry } from "./token";
 
 export const ANILIST_ENDPOINT = "https://graphql.anilist.co";
@@ -232,6 +233,18 @@ export const RATE_LIMIT_WAIT_MS = 30_000;
 const RATE_LIMIT_RETRIES = 1;
 
 /**
+ * How long after a tool call starts its requests may still be sent after waiting for the rate
+ * limit, so a call of several requests that each wait still answers within that minute.
+ */
+export const CALL_WAIT_MS = 40_000;
+const callDeadline = new AsyncLocalStorage<number>();
+
+/** Runs a tool call, whose requests' rate-limit waits must end by `deadline` (the client's clock). */
+export function withWaitDeadline<T>(deadline: number, fn: () => Promise<T>): Promise<T> {
+  return callDeadline.run(deadline, fn);
+}
+
+/**
  * Reads that fail with a 5xx or a network error are sent once more after this pause, which
  * hides AniList's brief blips. Writes never are: the change may have been saved. Nor are
  * timeouts: a second 15-second wait would take most of a tool call's minute, and an AniList
@@ -258,14 +271,15 @@ export class RateLimiter {
   constructor(public limit = RATE_LIMIT) {}
 
   /**
-   * Books the first slot at or after `now`, unless it is more than RATE_LIMIT_WAIT_MS away.
-   * Returns the slot's time, or how long to wait (nothing booked).
+   * Books the first slot at or after `now`, unless it is after `deadline`. Returns the slot's
+   * time, or how long to wait (nothing booked).
    */
-  book(now: number): { at: number } | { waitMs: number } {
+  book(now: number, deadline = now + RATE_LIMIT_WAIT_MS): { at: number } | { waitMs: number } {
     while (this.sent.length && this.sent[0]! <= now - RATE_WINDOW_MS) this.sent.shift();
     const full = this.sent.length >= this.limit ? this.sent[this.sent.length - this.limit]! + RATE_WINDOW_MS : now;
     const at = Math.max(now, this.pausedUntil, full);
-    if (at - now > RATE_LIMIT_WAIT_MS) return { waitMs: at - now };
+    // A request that needn't wait goes, however late its tool call is.
+    if (at > now && at > deadline) return { waitMs: at - now };
     if (Number.isFinite(this.limit)) this.insert(at);
     return { at };
   }
@@ -276,8 +290,9 @@ export class RateLimiter {
   }
 
   /**
-   * A booked request goes at `to` instead (it waited out a 429), or, with null, not at all:
-   * so the window counts it when it is really sent.
+   * A booked request goes at `to` instead (it waited out a 429), or, with null, not at all
+   * (it gave up, or AniList refused it with a 429 and so didn't run it): so the window counts
+   * requests when they are really sent.
    */
   move(from: number, to: number | null): void {
     if (!Number.isFinite(this.limit)) return;
@@ -292,17 +307,13 @@ export class RateLimiter {
   }
 
   /**
-   * Follows the limit AniList states, and counts requests it saw that this didn't (another
-   * process on the same IP) when it has fewer left than this thinks.
+   * Follows the limit AniList states. `X-RateLimit-Remaining` isn't used: it can't say when
+   * requests this process didn't send (another app on the IP) leave AniList's window, so
+   * counting them would block slots on a guess; a 429 pauses everyone instead.
    */
-  observe(now: number, headers: Headers): void {
-    if (!Number.isFinite(this.limit)) return;
+  follow(headers: Headers): void {
     const limit = Number(headers.get("X-RateLimit-Limit") ?? Number.NaN);
-    if (Number.isInteger(limit) && limit > 0) this.limit = limit;
-    const remaining = Number(headers.get("X-RateLimit-Remaining") ?? Number.NaN);
-    if (!Number.isInteger(remaining) || remaining < 0) return;
-    const used = this.sent.filter((t) => t > now - RATE_WINDOW_MS && t <= now).length;
-    for (let unseen = this.limit - used - remaining; unseen > 0; unseen--) this.insert(now);
+    if (Number.isFinite(this.limit) && Number.isInteger(limit) && limit > 0) this.limit = limit;
   }
 
   private insert(at: number): void {
@@ -478,7 +489,7 @@ export class AniListClient {
     let rateLimited = 0;
     let failed = 0;
     for (;;) {
-      await this.waitForSlot();
+      const sentAt = await this.waitForSlot();
       const result = await this.attempt<T>(query, variables);
       if ("data" in result) return result.data;
       if ("failed" in result) {
@@ -486,30 +497,37 @@ export class AniListClient {
         await this.sleep(RETRY_PAUSE_MS);
         continue;
       }
-      // A rate-limited request wasn't run, so even a write is safe to send again, after the
-      // pause that every client sharing the limiter now waits out.
-      this.limiter.pause(this.now() + result.retryAfterMs);
-      if (rateLimited++ >= RATE_LIMIT_RETRIES) throw this.rateLimitError(result.retryAfterMs);
+      // A rate-limited request wasn't run: it gives its slot back, and even a write is safe to
+      // send again, after the pause that every client sharing the limiter now waits out.
+      this.limiter.move(sentAt, null);
+      const now = this.now();
+      this.limiter.pause(now + result.retryAfterMs);
+      if (rateLimited++ >= RATE_LIMIT_RETRIES) throw this.rateLimitError(this.limiter.resumesAt(now) - now);
     }
   }
 
-  /** Waits for this request's turn under the rate limit, or fails if that's too far off. */
-  private async waitForSlot(): Promise<void> {
+  /**
+   * Waits for this request's turn under the rate limit and returns when that was, or fails if
+   * it's too far off: more than RATE_LIMIT_WAIT_MS, or past the tool call's deadline.
+   */
+  private async waitForSlot(): Promise<number> {
     const start = this.now();
-    const slot = this.limiter.book(start);
+    const deadline = Math.min(start + RATE_LIMIT_WAIT_MS, callDeadline.getStore() ?? Number.POSITIVE_INFINITY);
+    const slot = this.limiter.book(start, deadline);
     if ("waitMs" in slot) throw this.rateLimitError(slot.waitMs);
     // A 429 seen by another client while this one waits pauses it too; `at` is when it last
     // woke (a fake clock may not have moved).
     let at = start;
     for (let until = slot.at; until > at; until = this.limiter.resumesAt(at)) {
-      if (until - start > RATE_LIMIT_WAIT_MS) {
+      if (until > deadline) {
         this.limiter.move(slot.at, null);
         throw this.rateLimitError(until - at);
       }
       await this.sleep(until - at);
       at = Math.max(this.now(), until);
     }
-    if (at > slot.at) this.limiter.move(slot.at, at);
+    if (at !== slot.at) this.limiter.move(slot.at, at);
+    return at;
   }
 
   private rateLimitError(waitMs: number): AniListError {
@@ -552,7 +570,7 @@ export class AniListClient {
       if (signal.aborted) throw timedOut();
       return { failed: new AniListError(`Could not reach AniList: ${(err as Error).message}`) };
     }
-    this.limiter.observe(this.now(), res.headers);
+    this.limiter.follow(res.headers);
     if (res.status === 429) return { retryAfterMs: retryAfter(res.headers, this.now()) };
     // A 5xx is AniList's own trouble, which a read may get past by asking again.
     const fail = (err: AniListError) => {
