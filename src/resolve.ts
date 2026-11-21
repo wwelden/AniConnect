@@ -577,7 +577,9 @@ async function resolveParsed(
       };
     }
   }
-  const r = pick(query, intent, pool);
+  const { planned, ...picked } = pick(query, intent, pool);
+  let r: Resolution = picked;
+  if (planned) r = (await nextPlanned(q, planned, source, fetched, language)) ?? r;
   return r.kind === "match" ? keepNamedShow(query, q, intent, r, pool, source, fetched) : r;
 }
 
@@ -674,9 +676,10 @@ async function keepNamedShow(
  * The named show: `named` and every aired anime joined to it through SEQUEL and PREQUEL edges
  * (its seasons, parts, movies, OVAs and specials, not its spin-offs). Relations come from what
  * this call already fetched, else one request per step of the walk that lacks them. Undefined
- * when the walk would take in more than SHOW_LIMIT anime or SHOW_FETCHES requests.
+ * when the walk would take in more than SHOW_LIMIT anime or SHOW_FETCHES requests. `unaired`
+ * collects the IDs of the unaired anime the walk reached and didn't walk past.
  */
-async function showOf(named: Media[], lookup: ReturnType<typeof relationLookup>): Promise<Media[] | undefined> {
+async function showOf(named: Media[], lookup: ReturnType<typeof relationLookup>, unaired?: Set<number>): Promise<Media[] | undefined> {
   const seen = new Set(named.map((m) => m.id));
   let frontier = named.map((m) => m.id);
   const show: Media[] = [];
@@ -697,7 +700,10 @@ async function showOf(named: Media[], lookup: ReturnType<typeof relationLookup>)
         if (seen.has(e.node.id)) continue;
         seen.add(e.node.id);
         // Nothing past an unaired entry has aired either; status unknown counts as aired.
-        if (e.node.status !== undefined && !hasAired({ status: e.node.status, startDate: e.node.startDate ?? null })) continue;
+        if (e.node.status !== undefined && !hasAired({ status: e.node.status, startDate: e.node.startDate ?? null })) {
+          unaired?.add(e.node.id);
+          continue;
+        }
         if (seen.size > SHOW_LIMIT) return undefined;
         next.push(e.node.id);
       }
@@ -705,6 +711,72 @@ async function showOf(named: Media[], lookup: ReturnType<typeof relationLookup>)
     frontier = next;
   }
   return show;
+}
+
+/**
+ * Several planned seasons tie (R1.12). When they're seasons of one show, the next one to watch
+ * is the earliest in sequel order, as long as every aired season before it is completed on the
+ * list (a gap may be a season the user is watching but never logged). Only aired seasons are
+ * taken; one that hasn't aired counts when the walk reaches it, and comes after them. Undefined,
+ * so the caller asks, when none has aired, the walk can't join them all, or the sequel order
+ * doesn't put them in one line that agrees with the air dates (a prequel made later). Costs one
+ * search (none when the call already made it) and at most SHOW_FETCHES relation fetches.
+ */
+async function nextPlanned(
+  q: ParsedQuery,
+  tied: Media[],
+  source: AnimeSource,
+  fetched: Media[],
+  language: TitleLanguage,
+): Promise<Extract<Resolution, { kind: "match" }> | undefined> {
+  const aired = tied.filter(hasAired);
+  if (!aired.length) return undefined;
+  // The list carries no relations; one search does, for every anime with the name in its title.
+  const lookup = relationLookup(source, [...fetched, ...(await source.search(q.words.join(" ")))]);
+  const unaired = new Set<number>();
+  const show = await showOf([aired[0]!], lookup, unaired);
+  if (!show) return undefined;
+  const members = new Map(show.map((m) => [m.id, m]));
+  if (!tied.every((m) => members.has(m.id) || unaired.has(m.id))) return undefined;
+  // What follows what within the show, from the SEQUEL and PREQUEL edges either side carries.
+  const sequels = new Map<number, Set<number>>(show.map((m) => [m.id, new Set<number>()]));
+  for (const m of show) {
+    for (const e of m.relations?.edges ?? []) {
+      if (!members.has(e.node.id)) continue;
+      if (e.relationType === "SEQUEL") sequels.get(m.id)!.add(e.node.id);
+      if (e.relationType === "PREQUEL") sequels.get(e.node.id)!.add(m.id);
+    }
+  }
+  const after = (id: number): Set<number> => {
+    const reached = new Set<number>();
+    const stack = [...(sequels.get(id) ?? [])];
+    while (stack.length) {
+      const next = stack.pop()!;
+      if (reached.has(next)) continue;
+      reached.add(next);
+      stack.push(...(sequels.get(next) ?? []));
+    }
+    return reached;
+  };
+  // The earliest: every other aired one follows it, and none comes before it in either order.
+  const first = aired.find((m) => {
+    const later = after(m.id);
+    return aired.every((o) => o === m || (later.has(o.id) && !after(o.id).has(m.id) && dateKey(o) >= dateKey(m)));
+  });
+  if (!first) return undefined;
+  const listed = new Map((await source.listMedia()).map((m) => [m.id, status(m)]));
+  const before = show.filter((m) => m.id !== first.id && after(m.id).has(first.id) && isSeries(m) && hasAired(m));
+  // A season before it that isn't completed (skipped in the list, dropped, or planned but not
+  // tied): the user may be watching that one.
+  if (before.some((m) => listed.get(m.id) !== "COMPLETED")) return undefined;
+  const last = before.sort((a, b) => dateKey(b) - dateKey(a))[0];
+  return {
+    kind: "match",
+    media: first,
+    why: last
+      ? `it's on your plan-to-watch list and comes next after ${displayTitle(last.title, language)}`
+      : "it's on your plan-to-watch list and comes first in the show",
+  };
 }
 
 /**
@@ -746,7 +818,13 @@ async function sequelsReached(from: Media[], wanted: number[], source: AnimeSour
   return found;
 }
 
-function pick(query: string, intent: Intent, pool: Scored[]): Resolution {
+/** A pick, or a question; `planned` holds a tie between plan-to-watch entries that `nextPlanned` may settle. */
+type Picked = Resolution & { planned?: Media[] };
+
+/** Intents for which a tie between planned seasons of one show means the next one to watch (see `nextPlanned`). */
+const NEXT_PLANNED = new Set<Intent>(["progress", "status", "show"]);
+
+function pick(query: string, intent: Intent, pool: Scored[]): Picked {
   const ranks = STATUS_RANK[intent];
   if (intent === "add") {
     // "Add Frieren" means season 1, unless a later season matches the words clearly better.
@@ -772,7 +850,12 @@ function pick(query: string, intent: Intent, pool: Scored[]): Resolution {
   const sorted = [...pool].sort(cmp);
   const top = sorted[0]!;
   const tied = sorted.filter((s) => key(s).every((v, i) => v === key(top)[i]));
-
+  // Only a full tie (status, match and format) between planned seasons: never a remake, and
+  // not between movies, OVAs or music videos.
+  const planned =
+    NEXT_PLANNED.has(intent) && status(top.media) === "PLANNING" && tied.length > 1 && tied.every((s) => isSeries(s.media))
+      ? tied.map((s) => s.media)
+      : undefined;
 
   const remakes = sorted.filter(
     (s) => ranks[status(s.media)] === ranks[status(top.media)] && isRemake(s.media, top.media),
@@ -795,6 +878,8 @@ function pick(query: string, intent: Intent, pool: Scored[]): Resolution {
         kind: "ambiguous",
         candidates: alike.slice(0, MAX_CANDIDATES).map((s) => s.media),
         why: `"${query}" matches ${alike.length} shows equally well.`,
+        // Titles that don't start alike may still be seasons of one show; not when formats differ.
+        ...(planned && alike.length === tied.length && { planned }),
       };
     }
   }
@@ -815,6 +900,7 @@ function pick(query: string, intent: Intent, pool: Scored[]): Resolution {
     kind: "ambiguous",
     candidates: tied.slice(0, MAX_CANDIDATES).map((s) => s.media),
     why: `"${query}" matches ${tied.length} shows equally well.`,
+    ...(planned && { planned }),
   };
 }
 

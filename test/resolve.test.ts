@@ -783,6 +783,83 @@ describe("a spin-off with the show's name doesn't take a request for the show (R
   });
 });
 
+describe("planned seasons of one show that tie: the next one to watch (R1.12)", () => {
+  const S1 = "Tensei Shitara Slime Datta Ken";
+  const S2 = "Tensei Shitara Slime Datta Ken 2nd Season";
+  const S2P2 = "Tensei Shitara Slime Datta Ken 2nd Season Part 2";
+  const S3 = "Tensei Shitara Slime Datta Ken 3rd Season";
+  const S4 = "Tensei Shitara Slime Datta Ken 4th Season Part 1 & 2";
+  const S4P3 = "Tensei Shitara Slime Datta Ken 4th Season Part 3"; // not yet aired
+  const NIKKI = "Tensei Shitara Slime Datta Ken: Tensura Nikki"; // a spin-off, not a season
+  const NEXT = ["progress", "status", "show"] as const;
+
+  const list = (...entries: [anime: string, status: ListStatus][]) => {
+    fake = new FakeAniList().seed(entries.map(([anime, status]) => ({ anime, status, progress: status === "COMPLETED" ? undefined : 0 })));
+    client = new AniListClient("test", fake.fetch);
+  };
+  const expectMatch = async (query: string, intent: Intent, title: string) => {
+    const r = await resolve(query, intent);
+    if (r.kind !== "match") throw new Error(`${intent}: expected a match, got ${r.kind}: ${r.why}`);
+    expect(r.media.title.romaji).toBe(title);
+    return r;
+  };
+  const expectAsk = async (query: string, intent: Intent, titles: string[]) => {
+    const r = await resolve(query, intent);
+    if (r.kind !== "ambiguous") throw new Error(`${intent}: expected ambiguous, got ${r.kind}: ${r.why}`);
+    expect(r.candidates.map((m) => m.title.romaji)).toEqual(titles);
+  };
+  const kinds = () =>
+    fake.calls
+      .map((c) => (c.query.includes("MediaListCollection") ? "list" : c.query.includes("search:") ? "search" : c.query.includes("id_in") ? "related" : "other"))
+      .filter((k) => k !== "other");
+
+  test("seasons 1 and 2 done, the rest planned: the one after season 2, past the OVA after season 1", async () => {
+    const seed = () => list([S1, "COMPLETED"], [S2, "COMPLETED"], [S2P2, "PLANNING"], [S3, "PLANNING"], [S4, "PLANNING"]);
+    for (const intent of NEXT) {
+      seed();
+      const r = await expectMatch("tensura", intent, S2P2);
+      expect(r.why).toBe("it's on your plan-to-watch list and comes next after That Time I Got Reincarnated as a Slime Season 2");
+      // The list and one search, which carries the relations; no other request.
+      expect(kinds()).toEqual(["list", "search"]);
+    }
+    // Unchanged: a rating asks which finished season, a removal never guesses.
+    seed();
+    await expectAsk("tensura", "rate", [S1, S2]);
+    await expectAsk("tensura", "remove", [S1, S2, S2P2, S3, S4]);
+  });
+
+  test("nothing started: the first season", async () => {
+    // "slime datta ken" is no season's exact title, so all three tie.
+    list([S1, "PLANNING"], [S2, "PLANNING"], [S2P2, "PLANNING"]);
+    for (const intent of NEXT) {
+      const r = await expectMatch("slime datta ken", intent, S1);
+      expect(r.why).toBe("it's on your plan-to-watch list and comes first in the show");
+    }
+  });
+
+  test("a season that hasn't aired never goes before one that has", async () => {
+    list([S1, "COMPLETED"], [S2, "COMPLETED"], [S2P2, "COMPLETED"], [S3, "COMPLETED"], [S4P3, "PLANNING"], [S4, "PLANNING"]);
+    for (const intent of NEXT) await expectMatch("tensura", intent, S4);
+  });
+
+  test("planned shows that aren't seasons of one show: ask", async () => {
+    list([S1, "COMPLETED"], [S2, "COMPLETED"], [S2P2, "COMPLETED"], [S3, "PLANNING"], [NIKKI, "PLANNING"]);
+    for (const intent of NEXT) await expectAsk("tensura", intent, [NIKKI, S3]);
+  });
+
+  test("a season missing from the list before the planned ones: ask", async () => {
+    // Season 2 and its part 2 were never logged: the user may be watching them.
+    list([S1, "COMPLETED"], [S3, "PLANNING"], [S4, "PLANNING"]);
+    for (const intent of NEXT) await expectAsk("tensura", intent, [S3, S4]);
+  });
+
+  test("a season before them that isn't completed: ask", async () => {
+    // Season 1 dropped: the user may be picking it back up.
+    list([S1, "DROPPED"], [S2, "PLANNING"], [S2P2, "PLANNING"]);
+    for (const intent of NEXT) await expectAsk("tensura", intent, [S2, S2P2]);
+  });
+});
+
 describe("a synonym or a match inside a word gives way to a more popular show titled with the words", () => {
   const KNY = "Kimetsu no Yaiba";
   const BTR = "Bocchi the Rock!";
