@@ -46,7 +46,7 @@ import {
   type Intent,
   type Resolution,
 } from "./resolve";
-import { formatFinished, formatHistory, parsePeriod } from "./history";
+import { formatFinished, formatHistory, isPlanAdd, parsePeriod } from "./history";
 import { tokenWatch } from "./token";
 import { Journal, snapshot, undoGroups, type EntryChange } from "./undo";
 import {
@@ -363,8 +363,13 @@ function change(media: Pick<Media, "id" | "title">, before: Partial<ListEntry> |
   return { mediaId: media.id, title: media.title, before: snapshot(before), after: snapshot(after) };
 }
 
-/** Activity feed pages (50 updates each) watch_history reads at most: "last month" for someone logging every episode. */
+/** Activity feed pages (50 updates each) watch_history reads: "last month" for someone logging every episode. */
 const HISTORY_PAGES = 3;
+/**
+ * The most pages it reads when plan-to-watch adds (a list import) fill the feed: each 50 adds
+ * read buy one more page, so an import doesn't push the watching out. At most 3 more requests.
+ */
+const HISTORY_MAX_PAGES = 6;
 
 function dateNum(d: { year: number | null; month: number | null; day: number | null } | null | undefined): number {
   return d?.year ? d.year * 10000 + (d.month ?? 0) * 100 + (d.day ?? 0) : 0;
@@ -721,14 +726,17 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       const show =
         anime === undefined ? undefined : await find(anime, "remove", undefined, false, "lookup");
       const { titleLanguage } = await client.getViewer(); // cached: getMyActivity needs it too
-      // Up to HISTORY_PAGES feed pages, and for finished shows the (usually cached) list,
-      // whose finish dates cover any range: a few requests (R5.2).
+      // Up to HISTORY_PAGES feed pages (HISTORY_MAX_PAGES after a list import), and for
+      // finished shows the (usually cached) list, whose finish dates cover any range: a few
+      // requests (R5.2).
       const [{ activities, hasNextPage }, list] = await Promise.all([
         client.getMyActivity({
           from: range.start > 0 ? Math.floor(range.start / 1000) : undefined,
           to: Math.ceil(range.end / 1000),
           mediaId: show?.media.id,
           pages: HISTORY_PAGES,
+          maxPages: HISTORY_MAX_PAGES,
+          light: isPlanAdd,
         }),
         finished ? client.getMyList() : [],
       ]);

@@ -5,7 +5,7 @@ import { AniListClient } from "../src/anilist";
 import { describeActivity, parsePeriod } from "../src/history";
 import { createServer } from "../src/server";
 import { HISTORY, PERSONA } from "./fixtures/persona";
-import { FakeAniList, findMedia } from "./support/fake-anilist";
+import { catalog, FakeAniList, findMedia } from "./support/fake-anilist";
 
 /** Tuesday. */
 const NOW = Date.parse("2026-11-17T12:00:00Z");
@@ -285,6 +285,62 @@ describe("watch_history tool", () => {
     const r = await call("watch_history", { period: "all time", timeZone: "UTC" });
     expect(r.text).toContain("Showing the 150 most recent updates; ask about a shorter range to see earlier ones, or pass finished: true");
     expect(fake.calls.length).toBe(4);
+  });
+
+  /** `n` plan-to-watch adds spread evenly from `from` to `to` (ISO times), as a list import makes them. */
+  function importList(n: number, from: string, to: string) {
+    const [start, end] = [Date.parse(from), Date.parse(to)];
+    fake.seedActivity(
+      Array.from({ length: n }, (_, i) => ({
+        anime: catalog[i % catalog.length]!.id,
+        status: "plans to watch",
+        at: new Date(start + Math.round(((end - start) * i) / Math.max(1, n - 1) / 1000) * 1000).toISOString(),
+      })),
+    );
+  }
+
+  const feedPages = () => fake.calls.map((c) => c.variables.page).filter(Boolean);
+
+  test("a list import reads as one line and doesn't push the week's watching out", async () => {
+    // Saturday. Monday and Tuesday's watching is in the persona's history.
+    clock = Date.parse("2026-11-21T12:00:00Z");
+    fake.seedActivity([{ anime: "Dandadan", status: "watched episode", progress: "8", at: "2026-11-18T20:00:00Z" }]);
+    importList(135, "2026-11-20T06:16:00Z", "2026-11-20T06:43:00Z");
+    // Then twenty episodes, one every half hour: with the import, more than 150 updates.
+    for (let i = 0; i < 20; i++) {
+      const at = new Date(Date.parse("2026-11-20T13:00:00Z") + i * 30 * 60_000).toISOString();
+      fake.seedActivity([{ anime: "ONE PIECE", status: "watched episode", progress: String(1101 + i), at }]);
+    }
+    const r = await call("watch_history", { period: "this week", timeZone: "UTC" });
+    expect(r.isError).toBe(false);
+    expect(r.text).toContain("watched episode 1120");
+    expect(r.text).toMatch(/\n- 6:16-6:43 AM: added 135 shows to plan to watch \([^\n]+ and 132 more\)\n/);
+    expect(r.text.match(/plan to watch/g)).toHaveLength(1);
+    expect(r.text).toMatch(/Wed, Nov 18\n- 8:00 PM DAN DA DAN[^\n]*: watched episode 8/);
+    expect(r.text).toContain("Tue, Nov 17\n- 2:00 AM ONE PIECE: watched episodes 1098-1100");
+    expect(r.text).toMatch(/Mon, Nov 16\n- 9:10 PM DAN DA DAN[^\n]*: watched episodes 6-7/);
+    expect(r.text).not.toContain("Showing the");
+    // 130 adds in the first three pages buy two more; the fourth is the last.
+    expect(feedPages()).toEqual([1, 2, 3, 4]);
+  });
+
+  test("a huge import reads at most six pages, and says so", async () => {
+    importList(400, "2026-11-17T08:00:00Z", "2026-11-17T09:00:00Z");
+    const r = await call("watch_history", { period: "this week", timeZone: "UTC" });
+    expect(r.text).toMatch(/\n- 8:15-9:00 AM: added 300 shows to plan to watch \([^\n]+ and 297 more\)\n/);
+    expect(r.text).not.toContain("ONE PIECE");
+    expect(r.text).toContain("Showing the 300 most recent updates; ask about a shorter range");
+    expect(feedPages()).toEqual([1, 2, 3, 4, 5, 6]);
+  });
+
+  test("a few adds read one per line; a run across noon names both halves of the day", async () => {
+    importList(4, "2026-11-17T09:00:00Z", "2026-11-17T09:30:00Z");
+    importList(5, "2026-11-17T11:58:00Z", "2026-11-17T12:02:00Z");
+    clock = Date.parse("2026-11-17T13:00:00Z");
+    const r = await call("watch_history", { period: "today", timeZone: "UTC" });
+    expect(r.text).toContain("- 11:58 AM-12:02 PM: added 5 shows to plan to watch (");
+    expect(r.text.match(/: added to plan to watch\n/g)).toHaveLength(4);
+    expect(r.text).toMatch(/- 9:00 AM [^\n]+: added to plan to watch\n/);
   });
 
   test("finished shows over a long range come from the list's finish dates (#42)", async () => {
