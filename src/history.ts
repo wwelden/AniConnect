@@ -280,8 +280,8 @@ export function isPlanAdd(a: Pick<ListActivity, "status">): boolean {
 const BULK_ADDS = 5;
 /** Adds further apart than this (seconds) start a new run. */
 const BULK_GAP = 30 * 60;
-/** Titles a collapsed run of adds names. */
-const BULK_TITLES = 3;
+/** A collapsed run of adds up to this long names every show; a longer one names 3. */
+const BULK_ALL_TITLES = 8;
 
 /** "6:16-6:43 AM", "11:50 AM-12:10 PM", or one time when both are the same. */
 function timeSpan(from: string, to: string): string {
@@ -335,6 +335,7 @@ export function formatHistory(activities: ListActivity[], o: HistoryOptions): st
   const titleOf = (a: ListActivity) => (a.media ? displayTitle(a.media.title, o.language) : "(deleted show)");
   const timeOf = (a: ListActivity) => parts(a.createdAt * 1000, o.timeZone).time;
   let currentDay = "";
+  let grouped = false;
   for (let i = 0; i < activities.length; i++) {
     const a = activities[i]!;
     const day = dayOfUpdate(a);
@@ -350,10 +351,14 @@ export function formatHistory(activities: ListActivity[], o: HistoryOptions): st
     while (isPlanAdd(a) && joins(activities[end]!, activities[end + 1])) end++;
     const run = activities.slice(i, end + 1);
     if (run.length >= BULK_ADDS) {
-      const titles = run.slice(0, BULK_TITLES).map(titleOf).join(", ");
+      const titles =
+        run.length <= BULK_ALL_TITLES
+          ? run.map(titleOf).join(", ")
+          : `${run.slice(0, 3).map(titleOf).join(", ")} and ${run.length - 3} more`;
       // Newest first, so the run starts at its last update.
       const when = timeSpan(timeOf(run.at(-1)!), timeOf(a));
-      lines.push(`- ${when}: added ${run.length} shows to plan to watch (${titles} and ${run.length - BULK_TITLES} more)`);
+      lines.push(`- ${when}: added ${run.length} shows to plan to watch (${titles})`);
+      grouped = true;
       i = end;
       continue;
     }
@@ -361,7 +366,7 @@ export function formatHistory(activities: ListActivity[], o: HistoryOptions): st
   }
   if (o.truncated) {
     lines.push(
-      `Showing the ${activities.length} most recent updates; ask about a shorter range to see earlier ones, or pass finished: true for the shows finished in this range.`,
+      `Showing the ${activities.length} most recent updates${grouped ? " (plan-to-watch adds in a row grouped)" : ""}; ask about a shorter range to see earlier ones, or pass finished: true for the shows finished in this range.`,
     );
   }
   lines.push(`Episodes logged in one sitting show as one range. ${INCOMPLETE}`);

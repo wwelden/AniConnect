@@ -329,7 +329,7 @@ describe("watch_history tool", () => {
     const r = await call("watch_history", { period: "this week", timeZone: "UTC" });
     expect(r.text).toMatch(/\n- 8:15-9:00 AM: added 300 shows to plan to watch \([^\n]+ and 297 more\)\n/);
     expect(r.text).not.toContain("ONE PIECE");
-    expect(r.text).toContain("Showing the 300 most recent updates; ask about a shorter range");
+    expect(r.text).toContain("Showing the 300 most recent updates (plan-to-watch adds in a row grouped); ask about a shorter range");
     expect(feedPages()).toEqual([1, 2, 3, 4, 5, 6]);
   });
 
@@ -338,7 +338,8 @@ describe("watch_history tool", () => {
     importList(5, "2026-11-17T11:58:00Z", "2026-11-17T12:02:00Z");
     clock = Date.parse("2026-11-17T13:00:00Z");
     const r = await call("watch_history", { period: "today", timeZone: "UTC" });
-    expect(r.text).toContain("- 11:58 AM-12:02 PM: added 5 shows to plan to watch (");
+    // A run this short names every show.
+    expect(r.text).toMatch(/- 11:58 AM-12:02 PM: added 5 shows to plan to watch \((?:[^,\n]+, ){4}[^,\n]+\)\n/);
     expect(r.text.match(/: added to plan to watch\n/g)).toHaveLength(4);
     expect(r.text).toMatch(/- 9:00 AM [^\n]+: added to plan to watch\n/);
   });
