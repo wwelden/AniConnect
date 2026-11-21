@@ -6040,6 +6040,72 @@
   "franchise": "Naruto"
  },
  {
+  "id": 7956,
+  "title": {
+   "romaji": "Cybot Robocchi",
+   "english": "Robby the Rascal",
+   "native": "サイボットロボッチ"
+  },
+  "synonyms": [
+   "Saibotto Robocchi",
+   "Cybot Robotchi"
+  ],
+  "episodes": 39,
+  "duration": 24,
+  "format": "TV",
+  "status": "FINISHED",
+  "isAdult": false,
+  "season": "FALL",
+  "genres": [
+   "Comedy",
+   "Sci-Fi"
+  ],
+  "seasonYear": 1982,
+  "startDate": {
+   "year": 1982,
+   "month": 10,
+   "day": 7
+  },
+  "averageScore": 63,
+  "popularity": 340,
+  "siteUrl": "https://anilist.co/anime/7956",
+  "nextAiringEpisode": null,
+  "externalLinks": [],
+  "description": "Apparently inspired largely by Akira Toriyama's popular Dr. Slump, Cybot Robocchi is the story of Robocchi, a fun-loving, mischievous robot with a TV set in his stomach.<br><br>\nRobocchi lives in a peaceful village with various other robots, all created by the eccentric and somewhat lecherous Dr. Art Deko. Although he is an android, Robocchi has a warm, kind heart and is always willing to help out a friend in need. With his human girlfriend Kurumi, he gets into a variety of wacky adventures.<br><br>\n(Source: Wikipedia)",
+  "source": null,
+  "studios": {
+   "edges": [
+    {
+     "isMain": false,
+     "node": {
+      "id": 452,
+      "name": "Knack Productions"
+     }
+    }
+   ]
+  },
+  "tags": [
+   {
+    "name": "Cyborg",
+    "rank": 20,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Robots",
+    "rank": 20,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   }
+  ],
+  "relations": {
+   "edges": []
+  },
+  "franchise": "Cybot Robocchi"
+ },
+ {
   "id": 9135,
   "title": {
    "romaji": "Hagane no Renkinjutsushi: Milos no Seinaru Hoshi",
@@ -14206,6 +14272,130 @@
   "franchise": "Kono Subarashii Sekai ni Shukufuku wo!"
  },
  {
+  "id": 21612,
+  "title": {
+   "romaji": "Onigiri",
+   "english": "Onigiri",
+   "native": "鬼斬"
+  },
+  "synonyms": [
+   "Demon Slayer",
+   "Demon Cutter"
+  ],
+  "episodes": 13,
+  "duration": 4,
+  "format": "TV_SHORT",
+  "status": "FINISHED",
+  "isAdult": false,
+  "season": "SPRING",
+  "genres": [
+   "Adventure",
+   "Comedy",
+   "Fantasy"
+  ],
+  "seasonYear": 2016,
+  "startDate": {
+   "year": 2016,
+   "month": 4,
+   "day": 7
+  },
+  "averageScore": 48,
+  "popularity": 9121,
+  "siteUrl": "https://anilist.co/anime/21612",
+  "nextAiringEpisode": null,
+  "externalLinks": [
+   {
+    "site": "Official Site",
+    "url": "http://www.onigiri-anime.com/",
+    "type": "INFO",
+    "notes": null,
+    "isDisabled": false
+   },
+   {
+    "site": "Twitter",
+    "url": "https://twitter.com/onigiri_anime",
+    "type": "SOCIAL",
+    "notes": null,
+    "isDisabled": false
+   }
+  ],
+  "description": "The MMORPG Onigiri thrusts its players into mystical Japan, a land filled with mythical creatures of Japanese legend. Starting as a lone Oni, players fight against the malevolent influence of the Kamikui as their miasma spreads over the land. 8 NPCS, each with their own distinct personality and skills, ally themselves with the player to help build a legend, and quell the evil that has arisen. As you grow stronger together, so do the bonds binding you to each other.\n<br><br>\n(Source: Anime News Network)",
+  "source": "VIDEO_GAME",
+  "studios": {
+   "edges": [
+    {
+     "isMain": true,
+     "node": {
+      "id": 6109,
+      "name": "Studio Signpost"
+     }
+    }
+   ]
+  },
+  "tags": [
+   {
+    "name": "Video Games",
+    "rank": 80,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Demons",
+    "rank": 79,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Primarily Female Cast",
+    "rank": 65,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Parody",
+    "rank": 60,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Surreal Comedy",
+    "rank": 50,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Crossdressing",
+    "rank": 20,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Kemonomimi",
+    "rank": 20,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Idol",
+    "rank": 20,
+    "isAdult": false,
+    "isMediaSpoiler": true,
+    "isGeneralSpoiler": false
+   }
+  ],
+  "relations": {
+   "edges": []
+  },
+  "franchise": "Onigiri"
+ },
+ {
   "id": 21624,
   "title": {
    "romaji": "Steins;Gate: Kyoukaimenjou no Missing Link - Divide By Zero",
@@ -18072,6 +18262,174 @@
    ]
   },
   "franchise": "Vinland Saga"
+ },
+ {
+  "id": 101386,
+  "title": {
+   "romaji": "Hitoribocchi no ○○ Seikatsu",
+   "english": "Hitoribocchi no Marumaruseikatsu",
+   "native": "ひとりぼっちの○○生活"
+  },
+  "synonyms": [
+   "Hitoribocchi",
+   "Bocchi Seikatsu",
+   "一个人的○○小日子",
+   "Hitoribocchi no Marumaru Seikatsu"
+  ],
+  "episodes": 12,
+  "duration": 24,
+  "format": "TV",
+  "status": "FINISHED",
+  "isAdult": false,
+  "season": "SPRING",
+  "genres": [
+   "Comedy",
+   "Slice of Life"
+  ],
+  "seasonYear": 2019,
+  "startDate": {
+   "year": 2019,
+   "month": 4,
+   "day": 6
+  },
+  "averageScore": 73,
+  "popularity": 74854,
+  "siteUrl": "https://anilist.co/anime/101386",
+  "nextAiringEpisode": null,
+  "externalLinks": [
+   {
+    "site": "Official Site",
+    "url": "http://hitoribocchi.jp/",
+    "type": "INFO",
+    "notes": null,
+    "isDisabled": false
+   },
+   {
+    "site": "Twitter",
+    "url": "https://twitter.com/bocchi_anime",
+    "type": "SOCIAL",
+    "notes": null,
+    "isDisabled": false
+   },
+   {
+    "site": "Crunchyroll",
+    "url": "http://www.crunchyroll.com/hitoribocchi-no-marumaruseikatsu",
+    "type": "STREAMING",
+    "notes": null,
+    "isDisabled": false
+   },
+   {
+    "site": "YouTube",
+    "url": "https://www.youtube.com/playlist?list=PLwLSw1_eDZl0ZiaSDAvwTj-UdetIHI6xm",
+    "type": "STREAMING",
+    "notes": null,
+    "isDisabled": false
+   },
+   {
+    "site": "Bilibili TV",
+    "url": "https://www.bilibili.tv/en/media/34771",
+    "type": "STREAMING",
+    "notes": null,
+    "isDisabled": false
+   }
+  ],
+  "description": "Hitori Bocchi suffers from extreme social anxiety, she’s not good at talking to people, takes pretty extreme actions, is surprisingly adept at avoiding people, her legs cramp when she overexerts herself, gets full of herself when alone, will vomit when exposed to extreme tension and often comes up with plans. Now she is entering middle school and her only friend, Yawara Kai, is attending a different school. This leaves Bocchi alone, surrounded by new classmates with whom she must make friends before Kai will talk to her again.<br><br>\n\n(Source: Doki)",
+  "source": "MANGA",
+  "studios": {
+   "edges": [
+    {
+     "isMain": true,
+     "node": {
+      "id": 6052,
+      "name": "C2C"
+     }
+    }
+   ]
+  },
+  "tags": [
+   {
+    "name": "Cute Girls Doing Cute Things",
+    "rank": 94,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Female Protagonist",
+    "rank": 92,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Slapstick",
+    "rank": 91,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "School",
+    "rank": 88,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Primarily Female Cast",
+    "rank": 84,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Primarily Child Cast",
+    "rank": 82,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Primarily Teen Cast",
+    "rank": 72,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Ensemble Cast",
+    "rank": 60,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Coming of Age",
+    "rank": 60,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Tsundere",
+    "rank": 43,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   }
+  ],
+  "relations": {
+   "edges": [
+    {
+     "relationType": "ADAPTATION",
+     "node": {
+      "id": 86206,
+      "type": "MANGA"
+     }
+    }
+   ]
+  },
+  "franchise": "Hitoribocchi no Marumaruseikatsu"
  },
  {
   "id": 101921,
@@ -32517,6 +32875,132 @@
   "franchise": "Shingeki no Kyojin"
  },
  {
+  "id": 162561,
+  "title": {
+   "romaji": "NARUTO×NINKU",
+   "english": null,
+   "native": "NARUTO-ナルト-×NINKU-忍空-"
+  },
+  "synonyms": [
+   "NARUTO -ナルト- (2026)",
+   "NARUTO (2026)",
+   "NARUTO×NINKŪ"
+  ],
+  "episodes": 4,
+  "duration": null,
+  "format": "TV",
+  "status": "NOT_YET_RELEASED",
+  "isAdult": false,
+  "season": null,
+  "genres": [
+   "Action",
+   "Adventure",
+   "Comedy"
+  ],
+  "seasonYear": null,
+  "startDate": {
+   "year": null,
+   "month": null,
+   "day": null
+  },
+  "averageScore": null,
+  "popularity": 15996,
+  "siteUrl": "https://anilist.co/anime/162561",
+  "nextAiringEpisode": null,
+  "externalLinks": [
+   {
+    "site": "Twitter",
+    "url": "https://twitter.com/NARUTOtoBORUTO",
+    "type": "SOCIAL",
+    "notes": null,
+    "isDisabled": false
+   },
+   {
+    "site": "Official Site",
+    "url": "https://naruto-official.com/en/special/naruto-ninku",
+    "type": "INFO",
+    "notes": null,
+    "isDisabled": false
+   },
+   {
+    "site": "Official Site",
+    "url": "https://naruto-official.com/special/naruto-ninku",
+    "type": "INFO",
+    "notes": null,
+    "isDisabled": false
+   }
+  ],
+  "description": "<i>\"I'm heading out on a mission for the ages, ya hear me?!\"</i>\n<br><br>\nTeam 7 members Naruto, Sasuke, and Sakura are given a mission by Kakashi.\nSince Kakashi cannot participate himself, Naruto is appointed acting leader.\nAs a result of this decision, Naruto is fully motivated to make the mission a success.\nHowever, on the way, Team 7 finds themselves lost in another world.<br><br>\nWhat appears before the bewildered trio is a boy with a face resembling a frog's, named Fūsuke.\nWhat awaits them in this strange new world?\n<br><br>\n(Source: NARUTO x NINKŪ Official Site) <br><br>\n<i>Note: The official website for the <i>NARUTO</i> anime franchise announced a new anime project: to air four \"brand-new\" episodes to celebrate the TV anime's 20th anniversary back in 2022. <br><br>(Source: Anime News Network, edited) </i>",
+  "source": "ORIGINAL",
+  "studios": {
+   "edges": [
+    {
+     "isMain": true,
+     "node": {
+      "id": 7517,
+      "name": "PIERROT FILMS"
+     }
+    }
+   ]
+  },
+  "tags": [
+   {
+    "name": "Ninja",
+    "rank": 95,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Shounen",
+    "rank": 80,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Male Protagonist",
+    "rank": 70,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Crossover",
+    "rank": 60,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   }
+  ],
+  "relations": {
+   "edges": [
+    {
+     "relationType": "OTHER",
+     "node": {
+      "id": 155348,
+      "type": "ANIME"
+     }
+    },
+    {
+     "relationType": "CHARACTER",
+     "node": {
+      "id": 912,
+      "type": "ANIME"
+     }
+    },
+    {
+     "relationType": "CHARACTER",
+     "node": {
+      "id": 20,
+      "type": "ANIME"
+     }
+    }
+   ]
+  },
+  "franchise": "NARUTO×NINKU"
+ },
+ {
   "id": 163134,
   "title": {
    "romaji": "Re:Zero kara Hajimeru Isekai Seikatsu 3rd Season",
@@ -35364,6 +35848,247 @@
    ]
   },
   "franchise": "Jujutsu Kaisen"
+ },
+ {
+  "id": 173693,
+  "title": {
+   "romaji": "Hitoribocchi no Isekai Kouryaku",
+   "english": "Loner Life in Another World",
+   "native": "ひとりぼっちの異世界攻略"
+  },
+  "synonyms": [],
+  "episodes": 12,
+  "duration": 24,
+  "format": "ONA",
+  "status": "FINISHED",
+  "isAdult": false,
+  "season": "FALL",
+  "genres": [
+   "Action",
+   "Adventure",
+   "Fantasy"
+  ],
+  "seasonYear": 2024,
+  "startDate": {
+   "year": 2024,
+   "month": 9,
+   "day": 27
+  },
+  "averageScore": 65,
+  "popularity": 70683,
+  "siteUrl": "https://anilist.co/anime/173693",
+  "nextAiringEpisode": null,
+  "externalLinks": [
+   {
+    "site": "Official Site",
+    "url": "http://bocchi-kouryaku.com",
+    "type": "INFO",
+    "notes": null,
+    "isDisabled": false
+   },
+   {
+    "site": "Twitter",
+    "url": "https://twitter.com/bocchi_PR/",
+    "type": "SOCIAL",
+    "notes": null,
+    "isDisabled": false
+   },
+   {
+    "site": "Instagram",
+    "url": "http://www.instagram.com/bocchikouryaku_pr",
+    "type": "SOCIAL",
+    "notes": null,
+    "isDisabled": false
+   },
+   {
+    "site": "HIDIVE",
+    "url": "https://www.hidive.com/season/26571",
+    "type": "STREAMING",
+    "notes": null,
+    "isDisabled": false
+   },
+   {
+    "site": "YouTube",
+    "url": "https://www.youtube.com/playlist?list=PLwLSw1_eDZl1P3W7ws_S-dsq2zV3aIj-S",
+    "type": "STREAMING",
+    "notes": "Muse Asia",
+    "isDisabled": false
+   },
+   {
+    "site": "Bilibili TV",
+    "url": "http://bilibili.tv/media/2116452",
+    "type": "STREAMING",
+    "notes": null,
+    "isDisabled": false
+   },
+   {
+    "site": "Netflix",
+    "url": "https://www.netflix.com/title/81955440",
+    "type": "STREAMING",
+    "notes": null,
+    "isDisabled": false
+   }
+  ],
+  "description": "Haruka has been living his high school life as a loner, but all of a sudden, he and his classmates are summoned into another world. A God gives him a list of skills he can freely pick... Or at least that was how it was supposed to be, as all the valuable skills have been taken by the other classmates first. After Haruka scolded God, he snapped back and gave all the remaining bad skills to Haruka. Thanks to the \"Loner\" skill, Haruka begins his lonely adventure in another world.\n<br><br>\n(Source: Muse Asia)<br><br>\n<i>Note: Each episode streamed a week early on some streaming services. The original TV broadcast started on October 4th, 2024.</i>",
+  "source": "LIGHT_NOVEL",
+  "studios": {
+   "edges": [
+    {
+     "isMain": false,
+     "node": {
+      "id": 144,
+      "name": "Pony Canyon"
+     }
+    },
+    {
+     "isMain": true,
+     "node": {
+      "id": 7066,
+      "name": "Hayabusa Film"
+     }
+    },
+    {
+     "isMain": true,
+     "node": {
+      "id": 911,
+      "name": "Passione"
+     }
+    },
+    {
+     "isMain": false,
+     "node": {
+      "id": 7237,
+      "name": "GREE Entertainment"
+     }
+    },
+    {
+     "isMain": false,
+     "node": {
+      "id": 7010,
+      "name": "OVERLAP"
+     }
+    },
+    {
+     "isMain": false,
+     "node": {
+      "id": 166,
+      "name": "Movic"
+     }
+    },
+    {
+     "isMain": false,
+     "node": {
+      "id": 6259,
+      "name": "TOKYO MX"
+     }
+    },
+    {
+     "isMain": false,
+     "node": {
+      "id": 843,
+      "name": "BS Fuji"
+     }
+    }
+   ]
+  },
+  "tags": [
+   {
+    "name": "Isekai",
+    "rank": 85,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Male Protagonist",
+    "rank": 80,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Meta",
+    "rank": 74,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Magic",
+    "rank": 66,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Female Harem",
+    "rank": 61,
+    "isAdult": false,
+    "isMediaSpoiler": true,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Hikikomori",
+    "rank": 60,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Surreal Comedy",
+    "rank": 55,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Survival",
+    "rank": 35,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Slapstick",
+    "rank": 33,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Skeleton",
+    "rank": 33,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   }
+  ],
+  "relations": {
+   "edges": [
+    {
+     "relationType": "ADAPTATION",
+     "node": {
+      "id": 107541,
+      "type": "MANGA"
+     }
+    },
+    {
+     "relationType": "ALTERNATIVE",
+     "node": {
+      "id": 107540,
+      "type": "MANGA"
+     }
+    },
+    {
+     "relationType": "SEQUEL",
+     "node": {
+      "id": 213872,
+      "type": "ANIME"
+     }
+    }
+   ]
+  },
+  "franchise": "Hitoribocchi no Isekai Kouryaku"
  },
  {
   "id": 174871,
@@ -41411,6 +42136,106 @@
    ]
   },
   "franchise": "Sousou no Frieren"
+ },
+ {
+  "id": 213872,
+  "title": {
+   "romaji": "Hitoribocchi no Isekai Kouryaku 2nd Season",
+   "english": null,
+   "native": "ひとりぼっちの異世界攻略 第2期"
+  },
+  "synonyms": [],
+  "episodes": null,
+  "duration": null,
+  "format": "TV",
+  "status": "NOT_YET_RELEASED",
+  "isAdult": false,
+  "season": null,
+  "genres": [
+   "Action",
+   "Adventure",
+   "Fantasy"
+  ],
+  "seasonYear": null,
+  "startDate": {
+   "year": null,
+   "month": null,
+   "day": null
+  },
+  "averageScore": null,
+  "popularity": 6821,
+  "siteUrl": "https://anilist.co/anime/213872",
+  "nextAiringEpisode": null,
+  "externalLinks": [
+   {
+    "site": "Twitter",
+    "url": "https://twitter.com/bocchi_PR",
+    "type": "SOCIAL",
+    "notes": null,
+    "isDisabled": false
+   },
+   {
+    "site": "Official Site",
+    "url": "https://bocchi-kouryaku.com/",
+    "type": "INFO",
+    "notes": null,
+    "isDisabled": false
+   },
+   {
+    "site": "Instagram",
+    "url": "http://www.instagram.com/bocchikouryaku_pr",
+    "type": "SOCIAL",
+    "notes": null,
+    "isDisabled": false
+   }
+  ],
+  "description": "The second season of <i>Hitoribocchi no Isekai Kouryaku</i>.",
+  "source": "LIGHT_NOVEL",
+  "studios": {
+   "edges": []
+  },
+  "tags": [
+   {
+    "name": "Isekai",
+    "rank": 75,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Male Protagonist",
+    "rank": 60,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   }
+  ],
+  "relations": {
+   "edges": [
+    {
+     "relationType": "ADAPTATION",
+     "node": {
+      "id": 107541,
+      "type": "MANGA"
+     }
+    },
+    {
+     "relationType": "ALTERNATIVE",
+     "node": {
+      "id": 107540,
+      "type": "MANGA"
+     }
+    },
+    {
+     "relationType": "PREQUEL",
+     "node": {
+      "id": 173693,
+      "type": "ANIME"
+     }
+    }
+   ]
+  },
+  "franchise": "Hitoribocchi no Isekai Kouryaku"
  },
  {
   "id": 214031,

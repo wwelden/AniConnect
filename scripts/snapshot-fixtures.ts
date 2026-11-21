@@ -42,6 +42,13 @@ const SEEDS = [
   "Sword Art Online",
   "Sword Art Online Alternative: Gun Gale Online",
   "Tensura Nikki: Tensei shitara Slime Datta Ken",
+  // Less popular shows that share a name with a popular one through a synonym ("Demon Slayer"
+  // is a synonym of Onigiri, "NARUTO (2026)" of NARUTO×NINKU) or inside a word ("bocchi").
+  "Onigiri",
+  "NARUTO×NINKU",
+  "Cybot Robocchi",
+  "Hitoribocchi no Marumaruseikatsu",
+  "Hitoribocchi no Isekai Kouryaku",
 ];
 
 /** Relations followed when collecting a franchise. */

@@ -8,7 +8,7 @@ import { normalize } from "../src/logic";
 import { parseQuery, resolveAnime, titleSeason, type AnimeSource, type Intent } from "../src/resolve";
 import { clientSource } from "../src/server";
 import { PERSONA } from "./fixtures/persona";
-import { FakeAniList, findMedia } from "./support/fake-anilist";
+import { catalog, FakeAniList, findMedia } from "./support/fake-anilist";
 
 let fake: FakeAniList;
 let client: AniListClient;
@@ -780,5 +780,153 @@ describe("a spin-off with the show's name doesn't take a request for the show (R
       await expectMatch(query, "progress", title);
       expect(fake.calls.some((c) => c.query.includes("search:"))).toBe(false);
     }
+  });
+});
+
+describe("a synonym or a match inside a word gives way to a more popular show titled with the words", () => {
+  const KNY = "Kimetsu no Yaiba";
+  const BTR = "Bocchi the Rock!";
+  const LONER = "Hitoribocchi no Isekai Kouryaku";
+
+  const list = (...entries: [anime: string, status: ListStatus][]) => {
+    fake = new FakeAniList().seed(entries.map(([anime, status]) => ({ anime, status, progress: status === "COMPLETED" ? undefined : 1 })));
+    client = new AniListClient("test", fake.fetch);
+  };
+  const expectMatch = async (query: string, intent: Intent, title: string) => {
+    const r = await resolve(query, intent);
+    if (r.kind !== "match") throw new Error(`${intent}: expected a match, got ${r.kind}: ${r.why}`);
+    expect(r.media.title.romaji).toBe(title);
+  };
+  const expectAsk = async (query: string, intent: Intent, titles: string[]) => {
+    const r = await resolve(query, intent);
+    if (r.kind !== "ambiguous") throw new Error(`${intent}: expected ambiguous, got ${r.kind}: ${r.why}`);
+    expect(r.candidates.map((m) => m.title.romaji)).toEqual(titles);
+  };
+  const ALL: Intent[] = ["add", "progress", "status", "show", "rate"];
+
+  test('"demon slayer" is Kimetsu no Yaiba, not Onigiri, whose synonym it is', async () => {
+    list();
+    for (const intent of ALL) await expectMatch("demon slayer", intent, KNY);
+  });
+
+  test("with every Demon Slayer entry completed, an episode update doesn't add Onigiri", async () => {
+    const done = catalog.filter((m) => m.franchise === KNY && m.status === "FINISHED").map((m) => m.title.romaji);
+    list(...done.map((anime) => [anime, "COMPLETED"] as [string, ListStatus]));
+    for (const intent of ["progress", "status", "rate", "show"] as const) {
+      const r = await resolve("demon slayer", intent);
+      const ids = r.kind === "match" ? [r.media.id] : r.kind === "ambiguous" ? r.candidates.map((m) => m.id) : [];
+      expect(ids).not.toContain(findMedia("Onigiri").id);
+    }
+    await expectMatch("demon slayer", "add", KNY);
+  });
+
+  test("Onigiri being watched keeps episodes and status changes, not a rating (R1.10)", async () => {
+    list(["Onigiri", "CURRENT"]);
+    for (const intent of ["progress", "status", "show"] as const) await expectMatch("demon slayer", intent, "Onigiri");
+    await expectAsk("demon slayer", "rate", [KNY, "Onigiri"]);
+  });
+
+  test("a season being watched with the name inside a word keeps the episode (R1.4)", async () => {
+    // "Owarimonogatari" has "monogatari" only inside a word; more popular seasons have it as one.
+    list(["Owarimonogatari", "CURRENT"]);
+    await expectMatch("monogatari", "progress", "Owarimonogatari");
+    // Words run together from the start of a word still count as the title's: no extra search.
+    list(["Re:Zero kara Hajimeru Isekai Seikatsu", "CURRENT"]);
+    fake.calls.length = 0;
+    await expectMatch("rezero", "progress", "Re:Zero kara Hajimeru Isekai Seikatsu");
+    expect(fake.calls.some((c) => c.query.includes("search:"))).toBe(false);
+  });
+
+  test('"naruto" is Naruto: "NARUTO (2026)" is a synonym of NARUTO×NINKU, not a second version', async () => {
+    list();
+    for (const intent of ["add", "progress", "show"] as const) await expectMatch("naruto", intent, "NARUTO");
+  });
+
+  test('"bocchi" is Bocchi the Rock!, a word of its title, over shows with it inside a word', async () => {
+    list();
+    for (const intent of ALL) await expectMatch("bocchi", intent, BTR);
+  });
+
+  test("a listed show with the name inside a word isn't picked by its status: ask, or add the one titled with it", async () => {
+    list([LONER, "COMPLETED"]);
+    for (const intent of ["status", "show", "rate"] as const) {
+      const r = await resolve("bocchi", intent);
+      if (r.kind !== "ambiguous") throw new Error(`${intent}: expected ambiguous, got ${r.kind}: ${r.why}`);
+      expect(r.candidates.map((m) => m.title.romaji)).toEqual([BTR, LONER]);
+      expect(r.why).toBe('"bocchi" is in the title of a show with more to watch, and a different show on your list only has it in another name or inside a word.');
+    }
+    // A completed show takes an episode only when nothing else fits; adding means the titled show.
+    await expectMatch("bocchi", "progress", BTR);
+    await expectMatch("bocchi", "add", BTR);
+    // The one being watched keeps episodes and status changes, as a spin-off does (R1.10).
+    list([LONER, "CURRENT"]);
+    await expectMatch("bocchi", "progress", LONER);
+    await expectAsk("bocchi", "rate", [BTR, LONER]);
+    // The listed show titled with the word settles it.
+    list([LONER, "COMPLETED"], [BTR, "COMPLETED"]);
+    for (const intent of ["progress", "show", "rate"] as const) await expectMatch("bocchi", intent, BTR);
+  });
+});
+
+describe("giving way, with made-up shows (R1.11, PR #87 review)", () => {
+  const show = (id: number, romaji: string, popularity: number, more: Partial<Media> = {}): Media => ({
+    id, title: { romaji, english: null, native: null }, synonyms: [], episodes: 12, duration: 24, format: "TV",
+    status: "FINISHED", seasonYear: 2020, startDate: { year: 2020, month: 1, day: 1 }, averageScore: null, popularity,
+    siteUrl: "", nextAiringEpisode: null, mediaListEntry: null, relations: { edges: [] }, ...more,
+  });
+  const on = (m: Media, status: ListStatus): Media => ({ ...m, mediaListEntry: { status, progress: 1 } as Media["mediaListEntry"] });
+  /** AniList search returns every show with relations; the list carries none, as fetchMyList does. */
+  const source = (all: Media[]): AnimeSource => ({
+    listMedia: async () => all.filter((m) => m.mediaListEntry).map((m) => ({ ...m, relations: undefined })),
+    search: async () => all,
+    getRelated: async (ids) => all.filter((m) => ids.includes(m.id)),
+  });
+  const edge = (relationType: string, m: Media) => ({
+    relationType, node: { id: m.id, type: "ANIME", format: m.format, status: m.status, episodes: m.episodes, title: m.title, startDate: m.startDate },
+  });
+  const run = async (query: string, intent: Intent, all: Media[]) => resolveAnime(query, intent, source(all), "ENGLISH");
+
+  test("a listed sequel known by a synonym doesn't give way to its listed prequel", async () => {
+    const first = show(1, "Alpha Chronicles", 200);
+    const sequel = show(2, "Beta Odyssey", 100, { synonyms: ["Alpha"], startDate: { year: 2022, month: 1, day: 1 } });
+    first.relations = { edges: [edge("SEQUEL", sequel)] as never };
+    sequel.relations = { edges: [edge("PREQUEL", first)] as never };
+    const r = await run("alpha", "progress", [on(first, "PLANNING"), on(sequel, "PLANNING")]);
+    expect(r.kind === "match" && r.media.id).toBe(2);
+  });
+
+  test("a movie asked for isn't lost to a more popular series titled with the name", async () => {
+    const r = await run("alpha movie", "add", [show(1, "Alpha", 500), show(2, "Beta Gekijouban", 100, { format: "MOVIE", synonyms: ["Alpha"] })]);
+    expect(r.kind === "match" && r.media.id).toBe(2);
+  });
+
+  test("a listed movie being watched that gave way keeps the episode", async () => {
+    const r = await run("alpha", "progress", [show(1, "Alpha Chronicles", 500), on(show(2, "Beta", 100, { format: "MOVIE", synonyms: ["Alpha"] }), "CURRENT")]);
+    expect(r.kind === "match" && r.media.id).toBe(2);
+  });
+
+  test("a season asked for isn't taken by a listed movie that gave way", async () => {
+    const tv = show(1, "Alpha 2nd Season", 500, { title: { romaji: "Alpha 2nd Season", english: "Alpha", native: null } });
+    const movie = on(show(2, "Beta 2nd Season", 100, { format: "MOVIE", synonyms: ["Alpha"] }), "PLANNING");
+    const r = await run("alpha season 2", "progress", [tv, movie]);
+    expect(r.kind === "match" && r.media.id).toBe(1);
+  });
+
+  test("a rating goes to the completed show titled as asked over a completed one that gave way", async () => {
+    const r = await run("alpha", "rate", [on(show(1, "Alpha", 500), "COMPLETED"), on(show(2, "Beta", 100, { synonyms: ["Alpha"] }), "COMPLETED")]);
+    expect(r.kind === "match" && r.media.id).toBe(1);
+  });
+
+  test("a music video not on the list doesn't make a series give way (R1.8)", async () => {
+    const r = await run("alpha", "add", [show(1, "Beta", 100, { synonyms: ["Alpha"] }), show(2, "Alpha", 500, { format: "MUSIC" })]);
+    expect(r.kind === "match" && r.media.id).toBe(1);
+  });
+
+  test("a status change asks when a show titled exactly as asked isn't on the list (R1.3), even beside the one being watched", async () => {
+    const r = await run("alpha", "status", [show(1, "Alpha", 500), on(show(2, "Beta", 100, { synonyms: ["Alpha"] }), "CURRENT")]);
+    expect(r.kind).toBe("ambiguous");
+    // An episode goes to the one being watched.
+    const p = await run("alpha", "progress", [show(1, "Alpha", 500), on(show(2, "Beta", 100, { synonyms: ["Alpha"] }), "CURRENT")]);
+    expect(p.kind === "match" && p.media.id).toBe(2);
   });
 });
