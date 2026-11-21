@@ -730,18 +730,30 @@ export class AniListClient {
   /**
    * The user's own anime list activity, newest first: up to `pages` pages (default 1) of 50,
    * one request each, stopping at the last. `from` and `to` are Unix seconds (from
-   * inclusive, to exclusive).
+   * inclusive, to exclusive). Updates `light` is true for (a bulk import's adds) don't use
+   * up `pages`: each 50 of them read buys one more page, up to `maxPages` in all.
    */
   async getMyActivity(options: {
     from?: number;
     to?: number;
     mediaId?: number;
     pages?: number;
+    maxPages?: number;
+    light?: (a: ListActivity) => boolean;
   }): Promise<{ activities: ListActivity[]; hasNextPage: boolean }> {
     const viewer = await this.getViewer();
     const activities = new Map<number, ListActivity>();
+    const pages = options.pages ?? 1;
+    const maxPages = Math.max(pages, options.maxPages ?? pages);
+    const light = options.light;
+    const allowed = () => {
+      if (!light) return pages;
+      let n = 0;
+      for (const a of activities.values()) if (light(a)) n++;
+      return Math.min(maxPages, pages + Math.floor(n / 50));
+    };
     let hasNextPage = true;
-    for (let page = 1; hasNextPage && page <= (options.pages ?? 1); page++) {
+    for (let page = 1; hasNextPage && page <= allowed(); page++) {
       const data = await this.request<{
         Page: { pageInfo: { hasNextPage: boolean }; activities: (ListActivity | Record<string, never>)[] };
       }>(

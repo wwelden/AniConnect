@@ -271,6 +271,26 @@ export function describeActivity(a: Pick<ListActivity, "status" | "progress">): 
   return progress ? `${status} ${progress}` : status;
 }
 
+/** An update that put a show in Plan to watch: a list import makes hundreds in minutes. */
+export function isPlanAdd(a: Pick<ListActivity, "status">): boolean {
+  return a.status === "plans to watch";
+}
+
+/** Plan-to-watch adds in a row that read as one line ("added 135 shows to plan to watch"). */
+const BULK_ADDS = 5;
+/** Adds further apart than this (seconds) start a new run. */
+const BULK_GAP = 30 * 60;
+/** A collapsed run of adds up to this long names every show; a longer one names 3. */
+const BULK_ALL_TITLES = 8;
+
+/** "6:16-6:43 AM", "11:50 AM-12:10 PM", or one time when both are the same. */
+function timeSpan(from: string, to: string): string {
+  if (from === to) return from;
+  const [fromClock, fromPeriod] = from.split(" ");
+  const [toClock, toPeriod] = to.split(" ");
+  return fromPeriod === toPeriod ? `${fromClock}-${toClock} ${toPeriod}` : `${from}-${to}`;
+}
+
 export interface HistoryOptions {
   range: Range;
   now: number;
@@ -307,20 +327,46 @@ export function formatHistory(activities: ListActivity[], o: HistoryOptions): st
     return `No list activity${about} found (${span}, ${o.timeZone}). That doesn't prove nothing was watched: ${INCOMPLETE}${note}`;
   }
   const lines = [`List activity${about}, ${span} (${o.timeZone}), newest first:`];
-  let currentDay = "";
-  for (const a of activities) {
+  const thisYear = parts(o.now, o.timeZone).year;
+  const dayOfUpdate = (a: ListActivity) => {
     const ms = a.createdAt * 1000;
-    const day = dayLabel(ms, o.timeZone, parts(ms, o.timeZone).year !== parts(o.now, o.timeZone).year);
+    return dayLabel(ms, o.timeZone, parts(ms, o.timeZone).year !== thisYear);
+  };
+  const titleOf = (a: ListActivity) => (a.media ? displayTitle(a.media.title, o.language) : "(deleted show)");
+  const timeOf = (a: ListActivity) => parts(a.createdAt * 1000, o.timeZone).time;
+  let currentDay = "";
+  let grouped = false;
+  for (let i = 0; i < activities.length; i++) {
+    const a = activities[i]!;
+    const day = dayOfUpdate(a);
     if (day !== currentDay) {
       lines.push(day);
       currentDay = day;
     }
-    const title = a.media ? displayTitle(a.media.title, o.language) : "(deleted show)";
-    lines.push(`- ${parts(ms, o.timeZone).time} ${title}: ${describeActivity(a)}`);
+    // Plan-to-watch adds in a row, close together on one day: a list import reads as one
+    // line, not hundreds.
+    let end = i;
+    const joins = (prev: ListActivity, next: ListActivity | undefined) =>
+      next !== undefined && isPlanAdd(next) && prev.createdAt - next.createdAt <= BULK_GAP && dayOfUpdate(next) === day;
+    while (isPlanAdd(a) && joins(activities[end]!, activities[end + 1])) end++;
+    const run = activities.slice(i, end + 1);
+    if (run.length >= BULK_ADDS) {
+      const titles =
+        run.length <= BULK_ALL_TITLES
+          ? run.map(titleOf).join(", ")
+          : `${run.slice(0, 3).map(titleOf).join(", ")} and ${run.length - 3} more`;
+      // Newest first, so the run starts at its last update.
+      const when = timeSpan(timeOf(run.at(-1)!), timeOf(a));
+      lines.push(`- ${when}: added ${run.length} shows to plan to watch (${titles})`);
+      grouped = true;
+      i = end;
+      continue;
+    }
+    lines.push(`- ${timeOf(a)} ${titleOf(a)}: ${describeActivity(a)}`);
   }
   if (o.truncated) {
     lines.push(
-      `Showing the ${activities.length} most recent updates; ask about a shorter range to see earlier ones, or pass finished: true for the shows finished in this range.`,
+      `Showing the ${activities.length} most recent updates${grouped ? " (plan-to-watch adds in a row grouped)" : ""}; ask about a shorter range to see earlier ones, or pass finished: true for the shows finished in this range.`,
     );
   }
   lines.push(`Episodes logged in one sitting show as one range. ${INCOMPLETE}`);
