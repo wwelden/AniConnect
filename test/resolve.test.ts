@@ -783,6 +783,168 @@ describe("a spin-off with the show's name doesn't take a request for the show (R
   });
 });
 
+describe("planned seasons of one show that tie: the next one to watch (R1.12)", () => {
+  const S1 = "Tensei Shitara Slime Datta Ken";
+  const S2 = "Tensei Shitara Slime Datta Ken 2nd Season";
+  const S2P2 = "Tensei Shitara Slime Datta Ken 2nd Season Part 2";
+  const S3 = "Tensei Shitara Slime Datta Ken 3rd Season";
+  const S4 = "Tensei Shitara Slime Datta Ken 4th Season Part 1 & 2";
+  const S4P3 = "Tensei Shitara Slime Datta Ken 4th Season Part 3"; // not yet aired
+  const NIKKI = "Tensei Shitara Slime Datta Ken: Tensura Nikki"; // a spin-off, not a season
+  const NEXT = ["progress", "status", "show"] as const;
+
+  const list = (...entries: [anime: string, status: ListStatus][]) => {
+    fake = new FakeAniList().seed(entries.map(([anime, status]) => ({ anime, status, progress: status === "COMPLETED" ? undefined : 0 })));
+    client = new AniListClient("test", fake.fetch);
+  };
+  const expectMatch = async (query: string, intent: Intent, title: string) => {
+    const r = await resolve(query, intent);
+    if (r.kind !== "match") throw new Error(`${intent}: expected a match, got ${r.kind}: ${r.why}`);
+    expect(r.media.title.romaji).toBe(title);
+    return r;
+  };
+  const expectAsk = async (query: string, intent: Intent, titles: string[]) => {
+    const r = await resolve(query, intent);
+    if (r.kind !== "ambiguous") throw new Error(`${intent}: expected ambiguous, got ${r.kind}: ${r.why}`);
+    expect(r.candidates.map((m) => m.title.romaji)).toEqual(titles);
+  };
+  const kinds = () =>
+    fake.calls
+      .map((c) => (c.query.includes("MediaListCollection") ? "list" : c.query.includes("search:") ? "search" : c.query.includes("id_in") ? "related" : "other"))
+      .filter((k) => k !== "other");
+
+  test("seasons 1 and 2 done, the rest planned: the one after season 2, past the OVA after season 1", async () => {
+    const seed = () => list([S1, "COMPLETED"], [S2, "COMPLETED"], [S2P2, "PLANNING"], [S3, "PLANNING"], [S4, "PLANNING"]);
+    for (const intent of NEXT) {
+      seed();
+      const r = await expectMatch("tensura", intent, S2P2);
+      expect(r.why).toBe("it's on your plan-to-watch list and comes next after That Time I Got Reincarnated as a Slime Season 2");
+      // The list and one search, which carries the relations; no other request.
+      expect(kinds()).toEqual(["list", "search"]);
+    }
+    // Unchanged: a rating asks which finished season, a removal never guesses.
+    seed();
+    await expectAsk("tensura", "rate", [S1, S2]);
+    await expectAsk("tensura", "remove", [S1, S2, S2P2, S3, S4]);
+  });
+
+  test("nothing started: the first season", async () => {
+    // "slime datta ken" is no season's exact title, so all three tie.
+    list([S1, "PLANNING"], [S2, "PLANNING"], [S2P2, "PLANNING"]);
+    for (const intent of NEXT) {
+      const r = await expectMatch("slime datta ken", intent, S1);
+      expect(r.why).toBe("it's on your plan-to-watch list and comes first in the show");
+    }
+  });
+
+  test("a season that hasn't aired never goes before one that has", async () => {
+    list([S1, "COMPLETED"], [S2, "COMPLETED"], [S2P2, "COMPLETED"], [S3, "COMPLETED"], [S4P3, "PLANNING"], [S4, "PLANNING"]);
+    for (const intent of NEXT) await expectMatch("tensura", intent, S4);
+  });
+
+  test("planned shows that aren't seasons of one show: ask", async () => {
+    list([S1, "COMPLETED"], [S2, "COMPLETED"], [S2P2, "COMPLETED"], [S3, "PLANNING"], [NIKKI, "PLANNING"]);
+    for (const intent of NEXT) await expectAsk("tensura", intent, [NIKKI, S3]);
+  });
+
+  test("a season missing from the list before the planned ones: ask", async () => {
+    // Season 2 and its part 2 were never logged: the user may be watching them.
+    list([S1, "COMPLETED"], [S3, "PLANNING"], [S4, "PLANNING"]);
+    for (const intent of NEXT) await expectAsk("tensura", intent, [S3, S4]);
+  });
+
+  test("an anime the walk can't load could hide a gap: ask", async () => {
+    // Season 1 isn't on the list, and the only way to it is the OVA, which AniList doesn't return here.
+    list([S2, "PLANNING"], [S2P2, "PLANNING"]);
+    const OVA = findMedia("Tensei Shitara Slime Datta Ken: Coleus no Yume").id;
+    const source = clientSource(client);
+    const lossy: AnimeSource = {
+      ...source,
+      search: async (query) => (await source.search(query)).filter((m) => m.id !== OVA),
+      getRelated: async (ids) => (await source.getRelated(ids)).filter((m) => m.id !== OVA),
+    };
+    for (const intent of ["progress", "show"] as const) {
+      const r = await resolveAnime("tensura", intent, lossy, "ENGLISH");
+      if (r.kind !== "ambiguous") throw new Error(`${intent}: expected ambiguous, got ${r.kind}: ${r.why}`);
+      expect(r.candidates.map((m) => m.title.romaji)).toEqual([S2, S2P2]);
+    }
+  });
+
+  test("a reached season whose relations don't load could hide a gap: ask", async () => {
+    // Season 1 isn't on the list; season 2 is, but neither the search nor a fetch brings its relations.
+    list([S2, "COMPLETED"], [S2P2, "PLANNING"], [S3, "PLANNING"]);
+    const SEASON_2 = findMedia(S2).id;
+    const source = clientSource(client);
+    const lossy: AnimeSource = {
+      ...source,
+      search: async (query) => (await source.search(query)).filter((m) => m.id !== SEASON_2),
+      getRelated: async (ids) => (await source.getRelated(ids)).filter((m) => m.id !== SEASON_2),
+    };
+    for (const intent of ["progress", "show"] as const) {
+      const r = await resolveAnime("tensura", intent, lossy, "ENGLISH");
+      if (r.kind !== "ambiguous") throw new Error(`${intent}: expected ambiguous, got ${r.kind}: ${r.why}`);
+      expect(r.candidates.map((m) => m.title.romaji)).toEqual([S2P2, S3]);
+    }
+  });
+
+  describe("the sequel order must be one line that agrees with the air dates", () => {
+    // Three planned TV seasons of a made-up show, "Zeta Quest: A", "B" and "C", all matching "zeta quest" alike.
+    const synthetic = (years: Record<string, number>, edges: [from: string, to: string][]): AnimeSource => {
+      const ids: Record<string, number> = { A: 9001, B: 9002, C: 9003 };
+      const node = (k: string) => ({ id: ids[k]!, type: "ANIME", format: "TV", status: "FINISHED", startDate: { year: years[k]!, month: 1, day: 1 } });
+      const media: Media[] = Object.keys(ids).map((k) => ({
+        id: ids[k]!,
+        title: { romaji: `Zeta Quest: ${k}`, english: null, native: null },
+        synonyms: [],
+        episodes: 12,
+        duration: 24,
+        format: "TV",
+        status: "FINISHED",
+        seasonYear: years[k]!,
+        startDate: { year: years[k]!, month: 1, day: 1 },
+        averageScore: null,
+        popularity: 1000,
+        siteUrl: "",
+        nextAiringEpisode: null,
+        mediaListEntry: { id: ids[k]!, status: "PLANNING", progress: 0 } as Media["mediaListEntry"],
+        relations: {
+          edges: [
+            ...edges.filter(([f]) => f === k).map(([, t]) => ({ relationType: "SEQUEL", node: node(t) })),
+            ...edges.filter(([, t]) => t === k).map(([f]) => ({ relationType: "PREQUEL", node: node(f) })),
+          ],
+        },
+      }));
+      return {
+        listMedia: async () => media.map((m) => ({ ...m, relations: undefined })),
+        search: async () => media,
+        getRelated: async (wanted) => media.filter((m) => wanted.includes(m.id)),
+      };
+    };
+    const resolveIn = (source: AnimeSource) => resolveAnime("zeta quest", "progress", source, "ENGLISH");
+
+    test("in order: the first", async () => {
+      const r = await resolveIn(synthetic({ A: 2020, B: 2021, C: 2022 }, [["A", "B"], ["B", "C"]]));
+      expect(r.kind === "match" && r.media.title.romaji).toBe("Zeta Quest: A");
+    });
+
+    test("air dates out of order between later seasons: ask", async () => {
+      const r = await resolveIn(synthetic({ A: 2020, B: 2022, C: 2021 }, [["A", "B"], ["B", "C"]]));
+      expect(r.kind).toBe("ambiguous");
+    });
+
+    test("a branch (two sequels of one season): ask", async () => {
+      const r = await resolveIn(synthetic({ A: 2020, B: 2021, C: 2022 }, [["A", "B"], ["A", "C"]]));
+      expect(r.kind).toBe("ambiguous");
+    });
+  });
+
+  test("a season before them that isn't completed: ask", async () => {
+    // Season 1 dropped: the user may be picking it back up.
+    list([S1, "DROPPED"], [S2, "PLANNING"], [S2P2, "PLANNING"]);
+    for (const intent of NEXT) await expectAsk("tensura", intent, [S2, S2P2]);
+  });
+});
+
 describe("a synonym or a match inside a word gives way to a more popular show titled with the words", () => {
   const KNY = "Kimetsu no Yaiba";
   const BTR = "Bocchi the Rock!";
