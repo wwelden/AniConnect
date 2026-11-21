@@ -737,6 +737,8 @@ async function nextPlanned(
   const unaired = new Set<number>();
   const show = await showOf([aired[0]!], lookup, unaired);
   if (!show) return undefined;
+  // A member whose relations didn't load (a list copy carries none) could hide a season before it.
+  if (show.some((m) => !m.relations)) return undefined;
   const members = new Map(show.map((m) => [m.id, m]));
   if (!tied.every((m) => members.has(m.id) || unaired.has(m.id))) return undefined;
   // What follows what within the show, from the SEQUEL and PREQUEL edges either side carries.
@@ -762,11 +764,12 @@ async function nextPlanned(
     }
     return reached;
   };
-  // The earliest: every other aired one follows it, and none comes before it in either order.
-  const first = aired.find((m) => {
-    const later = after(m.id);
-    return aired.every((o) => o === m || (later.has(o.id) && !after(o.id).has(m.id) && dateKey(o) >= dateKey(m)));
-  });
+  // One line: of every two, one follows the other and not back (no branch, no loop), and the
+  // later one in sequel order didn't air first. The earliest is then the one with no other before it.
+  const reach = new Map(aired.map((m) => [m.id, after(m.id)]));
+  const follows = (a: Media, b: Media) => reach.get(b.id)!.has(a.id) && !reach.get(a.id)!.has(b.id) && dateKey(a) >= dateKey(b);
+  if (!aired.every((a) => aired.every((b) => a === b || follows(a, b) || follows(b, a)))) return undefined;
+  const first = aired.find((m) => aired.every((o) => o === m || follows(o, m)));
   if (!first) return undefined;
   const listed = new Map((await source.listMedia()).map((m) => [m.id, status(m)]));
   const before = show.filter((m) => m.id !== first.id && after(m.id).has(first.id) && isSeries(m) && hasAired(m));

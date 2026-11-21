@@ -870,6 +870,74 @@ describe("planned seasons of one show that tie: the next one to watch (R1.12)", 
     }
   });
 
+  test("a reached season whose relations don't load could hide a gap: ask", async () => {
+    // Season 1 isn't on the list; season 2 is, but neither the search nor a fetch brings its relations.
+    list([S2, "COMPLETED"], [S2P2, "PLANNING"], [S3, "PLANNING"]);
+    const SEASON_2 = findMedia(S2).id;
+    const source = clientSource(client);
+    const lossy: AnimeSource = {
+      ...source,
+      search: async (query) => (await source.search(query)).filter((m) => m.id !== SEASON_2),
+      getRelated: async (ids) => (await source.getRelated(ids)).filter((m) => m.id !== SEASON_2),
+    };
+    for (const intent of ["progress", "show"] as const) {
+      const r = await resolveAnime("tensura", intent, lossy, "ENGLISH");
+      if (r.kind !== "ambiguous") throw new Error(`${intent}: expected ambiguous, got ${r.kind}: ${r.why}`);
+      expect(r.candidates.map((m) => m.title.romaji)).toEqual([S2P2, S3]);
+    }
+  });
+
+  describe("the sequel order must be one line that agrees with the air dates", () => {
+    // Three planned TV seasons of a made-up show, "Zeta Quest: A", "B" and "C", all matching "zeta quest" alike.
+    const synthetic = (years: Record<string, number>, edges: [from: string, to: string][]): AnimeSource => {
+      const ids: Record<string, number> = { A: 9001, B: 9002, C: 9003 };
+      const node = (k: string) => ({ id: ids[k]!, type: "ANIME", format: "TV", status: "FINISHED", startDate: { year: years[k]!, month: 1, day: 1 } });
+      const media: Media[] = Object.keys(ids).map((k) => ({
+        id: ids[k]!,
+        title: { romaji: `Zeta Quest: ${k}`, english: null, native: null },
+        synonyms: [],
+        episodes: 12,
+        duration: 24,
+        format: "TV",
+        status: "FINISHED",
+        seasonYear: years[k]!,
+        startDate: { year: years[k]!, month: 1, day: 1 },
+        averageScore: null,
+        popularity: 1000,
+        siteUrl: "",
+        nextAiringEpisode: null,
+        mediaListEntry: { id: ids[k]!, status: "PLANNING", progress: 0 } as Media["mediaListEntry"],
+        relations: {
+          edges: [
+            ...edges.filter(([f]) => f === k).map(([, t]) => ({ relationType: "SEQUEL", node: node(t) })),
+            ...edges.filter(([, t]) => t === k).map(([f]) => ({ relationType: "PREQUEL", node: node(f) })),
+          ],
+        },
+      }));
+      return {
+        listMedia: async () => media.map((m) => ({ ...m, relations: undefined })),
+        search: async () => media,
+        getRelated: async (wanted) => media.filter((m) => wanted.includes(m.id)),
+      };
+    };
+    const resolveIn = (source: AnimeSource) => resolveAnime("zeta quest", "progress", source, "ENGLISH");
+
+    test("in order: the first", async () => {
+      const r = await resolveIn(synthetic({ A: 2020, B: 2021, C: 2022 }, [["A", "B"], ["B", "C"]]));
+      expect(r.kind === "match" && r.media.title.romaji).toBe("Zeta Quest: A");
+    });
+
+    test("air dates out of order between later seasons: ask", async () => {
+      const r = await resolveIn(synthetic({ A: 2020, B: 2022, C: 2021 }, [["A", "B"], ["B", "C"]]));
+      expect(r.kind).toBe("ambiguous");
+    });
+
+    test("a branch (two sequels of one season): ask", async () => {
+      const r = await resolveIn(synthetic({ A: 2020, B: 2021, C: 2022 }, [["A", "B"], ["A", "C"]]));
+      expect(r.kind).toBe("ambiguous");
+    });
+  });
+
   test("a season before them that isn't completed: ask", async () => {
     // Season 1 dropped: the user may be picking it back up.
     list([S1, "DROPPED"], [S2, "PLANNING"], [S2P2, "PLANNING"]);
