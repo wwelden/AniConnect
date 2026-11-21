@@ -365,14 +365,18 @@ interface Scored {
   own: number;
   /** Set when the score fell to `own`, giving way to a more popular show titled with the words (see `score`). */
   yielded?: boolean;
+  /** Set when it would give way, but to a show neither copy carries relations for (both from the list). */
+  unsure?: boolean;
 }
 
 function dedupe(items: Media[]): Media[] {
   const byId = new Map<number, Media>();
   for (const m of items) {
     const existing = byId.get(m.id);
-    // Prefer the copy that knows about the user's list entry.
-    if (!existing || (!existing.mediaListEntry && m.mediaListEntry)) byId.set(m.id, m);
+    // Prefer the copy that knows about the user's list entry, with relations from either.
+    const keep = !existing || (!existing.mediaListEntry && m.mediaListEntry) ? m : existing;
+    const relations = keep.relations ?? (keep === m ? existing?.relations : m.relations);
+    byId.set(m.id, relations === keep.relations ? keep : { ...keep, relations });
   }
   return [...byId.values()];
 }
@@ -381,13 +385,18 @@ function score(items: Media[], q: ParsedQuery): Scored[] {
   const scored: Scored[] = items.map((media) => ({ media, score: matchScore(media, q), own: matchScore(media, q, true) }));
   // A show that matches only through a synonym or inside a word ("Demon Slayer" is a synonym of
   // Onigiri; "bocchi" is inside "Hitoribocchi") gives way to a more popular show whose own title
-  // has the words, and keeps only what its titles match. Not to its own prequel or sequel.
+  // has the words, and keeps only what its titles match. Not to its own prequel or sequel, and
+  // when a movie is asked for, only to a movie.
   for (const s of scored) {
-    const over = (o: Scored) => o.own >= 2 && o.own > s.own && morePopular(o.media, s.media) && !seasonsOf(o.media, s.media);
-    if (s.own < s.score && scored.some(over)) {
+    if (s.own >= s.score) continue;
+    const over = scored.filter(
+      (o) => o.own >= 2 && o.own > s.own && morePopular(o.media, s.media) && (!q.hint.movie || o.media.format === "MOVIE"),
+    );
+    const known = (o: Scored) => Boolean(o.media.relations || s.media.relations);
+    if (over.some((o) => known(o) && !seasonsOf(o.media, s.media))) {
       s.score = s.own;
       s.yielded = true;
-    }
+    } else if (over.some((o) => !known(o))) s.unsure = true;
   }
   // "Kaguya-sama: Love is War?" and "Kaguya-sama: Love is War" normalize alike (#61): when a
   // title is written exactly as asked, the others that only match once normalized rank below it.
@@ -415,7 +424,8 @@ function preferSeries(items: Scored[], hint: SeasonHint): Scored[] {
   if (items.some((s) => !music(s))) items = items.filter((s) => !music(s));
   const bestSeries = Math.max(-1, ...items.filter((s) => isSeries(s.media)).map((s) => s.score));
   if (bestSeries < 0) return items;
-  return items.filter((s) => isSeries(s.media) || s.score > bestSeries);
+  // A listed show that gave way stays whatever its format, for `keepNamedShow` to weigh.
+  return items.filter((s) => isSeries(s.media) || s.score > bestSeries || s.yielded);
 }
 
 const MAX_CANDIDATES = 8;
@@ -510,11 +520,14 @@ async function resolveParsed(
     // Look beyond the list when nothing there is a likely target, or, for a status or a
     // rating, when nothing there is titled exactly that: "Naruto" may be a show the user
     // hasn't listed, not the Shippuden they have. Also when every listed match comes only
-    // through a synonym or inside a word: a more popular show may have the words in its title (`score`).
+    // through a synonym or inside a word: a more popular show may have the words in its title
+    // (`score`), or when one would give way to another listed show and the search brings the
+    // relations that tell whether the two are seasons of one show.
     if (
       !listed.some((s) => ranks[status(s.media)] < ranks.NONE) ||
       (exactOnly(intent) && !listed.some((s) => s.score === EXACT)) ||
-      (listed.length && listed.every((s) => s.own < 2 && s.own < s.score))
+      (listed.length && listed.every((s) => s.own < 2 && s.own < s.score)) ||
+      listed.some((s) => s.unsure)
     ) {
       await searchAll();
     }
