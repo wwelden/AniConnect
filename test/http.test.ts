@@ -7,7 +7,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { UnauthorizedError, type OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 import type { OAuthClientInformationMixed, OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
-import { configFromEnv, createHttpApp, IDLE_MS, MAX_SESSIONS, SERVE_OPTIONS } from "../src/http";
+import { configFromEnv, createHttpApp, IDLE_MS, MAX_SESSIONS, SERVE_OPTIONS, shutdown } from "../src/http";
 import { LIST_TTL_MS } from "../src/anilist";
 import { ANILIST_AUTHORIZE, ANILIST_TOKEN } from "../src/oauth";
 import { PERSONA } from "./fixtures/persona";
@@ -678,6 +678,21 @@ describe("revoking one user", () => {
 });
 
 describe("sessions", () => {
+  test("shutting down lets a write in progress finish, then closes every session", async () => {
+    const { client } = await connectSignedIn();
+    slowWrites = true;
+    const write = call(client, "mark_episodes_watched", { anime: "dandadan" });
+    await Bun.sleep(20); // the write is now waiting on AniList
+    const started = Date.now();
+    // The client's open notification stream is ended, so this doesn't wait out the grace period.
+    await shutdown(server, app, 10_000);
+    expect(Date.now() - started).toBeLessThan(5_000);
+    expect((await write).isError).toBe(false);
+    expect(fake.entries.get(DANDADAN)?.progress).toBe(8);
+    expect(app.stats().sessions).toBe(0);
+    await client.close();
+  });
+
   test("a user's conversations share one undo history", async () => {
     const first = await connectSignedIn();
     expect((await call(first.client, "set_progress", { anime: DANDADAN, episodes: 9 })).isError).toBe(false);

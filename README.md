@@ -106,6 +106,18 @@ A sign-in lasts as long as the AniList token behind it, a year; then the client 
 
 The sign-in endpoints have no per-IP rate limit. They're cheap: they keep nothing but the IDs of finished sign-ins and used codes, which expire within 10 minutes, and each finished sign-in makes one request to AniList. So the risk is low. If you ever see abuse, put Cloudflare (or another proxy with rate limiting) in front.
 
+### On Railway
+
+Connect the repo to a Railway service, then in the service's settings:
+
+- **Start command**: `bun run serve`. Railway would otherwise run the `start` script, which is the local server and needs `ANILIST_TOKEN`.
+- **Healthcheck path**: `/`.
+- **Replicas**: 1. Sessions, undo history and the order of writes to each show are kept in memory, so a second copy wouldn't see the first one's.
+- **Variables**: the settings above (`PORT` is set by Railway), plus `RAILWAY_DEPLOYMENT_DRAINING_SECONDS=30`. On a redeploy AniConnect waits up to 20 seconds for requests in progress, such as a list change, before it exits; Railway's draining time has to be longer, or it stops the server first.
+- Turn on **Wait for CI**, so only commits that pass the tests are deployed, and leave PR environments off.
+
+`packageManager` in package.json pins the Bun version Railway builds with. A redeploy keeps everyone signed in, since sign-ins are sealed with `AUTH_SECRET`, but clears undo history and the cached lists: undo then covers only changes made since the restart.
+
 ### Privacy
 
 AniConnect keeps no database and writes nothing to disk. Once you've signed in, the only lasting copy of your AniList token is inside the access token AniConnect gives your MCP client, encrypted with the server's `AUTH_SECRET` so that only the server can read it. While you use it, the server keeps your token, your AniList settings, a copy of your list (reused for up to a minute before it's fetched again) and your undo history in memory, and drops them once you've been idle for an hour (it checks every ten minutes) or when it restarts. It reads or changes your list only when a tool call asks it to, sends tool results only to the MCP client that asked, and makes list changes, including undos, only through AniList. It doesn't log your list reads or writes: it logs its address when it starts and, when a request fails unexpectedly, the method, path and error message, never the request or its results. To cut off access, revoke AniConnect in your AniList settings. Run locally, AniConnect talks only to your MCP client and to AniList, with the token you give it in `ANILIST_TOKEN`.

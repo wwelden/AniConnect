@@ -29,6 +29,13 @@ export const MAX_SESSIONS = 20;
  */
 export const MAX_BODY_BYTES = 1024 * 1024;
 
+/**
+ * How long a shutdown waits for requests in progress (a tool call, which may be mid-write)
+ * before closing every session. Set the host's drain time (on Railway,
+ * `RAILWAY_DEPLOYMENT_DRAINING_SECONDS`) above this, or the process is killed first.
+ */
+export const SHUTDOWN_GRACE_MS = 20_000;
+
 /** Options for `Bun.serve`. */
 export const SERVE_OPTIONS = {
   // Refuses a body whose Content-Length is too large before reading it.
@@ -268,6 +275,14 @@ export async function createHttpApp(config: OAuthConfig, options: HttpOptions = 
     /** Open sessions, signed-in users and refused tokens, for tests. */
     stats: () => ({ sessions: sessions.size, accounts: accounts.size, rejected: rejected.size }),
     sweep,
+    /** Ends each session's stream for server-sent notifications, which never ends by itself. */
+    endStreams(): void {
+      for (const s of sessions.values()) s.transport.closeStandaloneSSEStream();
+    },
+    /** Closes every session. */
+    async close(): Promise<void> {
+      for (const id of [...sessions.keys()]) await close(id);
+    },
     async fetch(req: Request): Promise<Response> {
       try {
         const capped = await capBody(req);
@@ -316,6 +331,25 @@ export function configFromEnv(env: Record<string, string | undefined> = process.
   return config;
 }
 
+/**
+ * Stops taking connections, gives requests in progress up to `graceMs` to finish, then closes
+ * every session. A host sends SIGTERM to the old copy on a redeploy; exiting at once could cut
+ * a list write off halfway. Clients whose session is closed start a new one with the new copy.
+ */
+export async function shutdown(
+  server: { stop(): Promise<void> },
+  app: { endStreams(): void; close(): Promise<void> },
+  graceMs = SHUTDOWN_GRACE_MS,
+): Promise<void> {
+  const stopped = server.stop();
+  // Open notification streams would otherwise keep `stopped` waiting for the whole grace period.
+  app.endStreams();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  await Promise.race([stopped, new Promise((resolve) => (timer = setTimeout(resolve, graceMs)))]);
+  clearTimeout(timer);
+  await app.close();
+}
+
 if (import.meta.main) {
   let config: OAuthConfig;
   try {
@@ -333,4 +367,14 @@ if (import.meta.main) {
   });
   console.error(`AniConnect listening on port ${server.port}; MCP endpoint ${app.oauth.resource}`);
   console.error(`AniList client redirect URL must be ${app.oauth.callbackUrl}`);
+  let stopping = false;
+  const stop = (signal: string) => {
+    // A second signal (Ctrl-C again) exits without waiting.
+    if (stopping) process.exit(1);
+    stopping = true;
+    console.error(`AniConnect: ${signal}, finishing requests in progress`);
+    void shutdown(server, app).finally(() => process.exit(0));
+  };
+  process.on("SIGTERM", () => stop("SIGTERM"));
+  process.on("SIGINT", () => stop("SIGINT"));
 }
