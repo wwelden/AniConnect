@@ -755,8 +755,9 @@ function pick(query: string, intent: Intent, pool: Scored[]): Resolution {
   const useScore = intent !== "rate" && intent !== "remove";
   const key = (s: Scored) => [
     ranks[status(s.media)],
-    // Without the score, a show that gave way still ranks after the one it gave way to.
-    useScore ? -s.score : Number(Boolean(s.yielded)),
+    // A rating ignores the score, but a show that gave way still ranks after the one it gave
+    // way to. A removal keeps asking.
+    useScore ? -s.score : intent === "rate" ? Number(Boolean(s.yielded)) : 0,
     FORMAT_ORDER[s.media.format ?? ""] ?? 5,
   ];
   const cmp = (a: Scored, b: Scored) => {
