@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { tokenExpiry } from "./token";
 
 export const ANILIST_ENDPOINT = "https://graphql.anilist.co";
@@ -215,13 +216,115 @@ export const LIST_TTL_MS = 60_000;
 export const REQUEST_TIMEOUT_MS = 15_000;
 
 /**
- * The longest wait AniList can ask for after a rate-limited request that is still made, once:
- * AniList allows 30 requests a minute (90 when it isn't degraded), so a large update_shows call
- * can hit the limit, and one short wait finishes it instead of failing the shows left (R5.1).
- * Longer waits are reported instead: MCP clients commonly give a tool call 60 seconds.
+ * AniList's limit, per IP: 30 requests a minute while its API is degraded, 90 normally (its
+ * rate-limiting guide, 2026-11-20). Each response's `X-RateLimit-Limit` says which applies,
+ * and the limiter follows it.
+ */
+export const RATE_LIMIT = 30;
+export const RATE_WINDOW_MS = 60_000;
+
+/**
+ * The longest a request waits for the rate limit, for a free slot or after AniList's
+ * `Retry-After`. A short wait lets a large update_shows call finish instead of failing the
+ * shows left (R5.1); a longer one is reported instead, since MCP clients commonly give a tool
+ * call 60 seconds.
  */
 export const RATE_LIMIT_WAIT_MS = 30_000;
 const RATE_LIMIT_RETRIES = 1;
+
+/**
+ * How long after a tool call starts its requests may still be sent after waiting for the rate
+ * limit, so a call of several requests that each wait still answers within that minute.
+ */
+export const CALL_WAIT_MS = 40_000;
+const callDeadline = new AsyncLocalStorage<number>();
+
+/** Runs a tool call, whose requests' rate-limit waits must end by `deadline` (the client's clock). */
+export function withWaitDeadline<T>(deadline: number, fn: () => Promise<T>): Promise<T> {
+  return callDeadline.run(deadline, fn);
+}
+
+/**
+ * Reads that fail with a 5xx or a network error are sent once more after this pause, which
+ * hides AniList's brief blips. Writes never are: the change may have been saved. Nor are
+ * timeouts: a second 15-second wait would take most of a tool call's minute, and an AniList
+ * that slow is rarely back a second later.
+ */
+const RETRY_PAUSE_MS = 1_000;
+const SERVER_ERROR_RETRIES = 1;
+
+const isWrite = (query: string) => /^\s*mutation/.test(query);
+
+/**
+ * Keeps the AniList clients that share it under AniList's limit: each request books the next
+ * free slot in a sliding window, in the order requests arrive (so one user's burst waits its
+ * turn behind requests already made, rather than jumping ahead), and waits for it. A 429 seen
+ * by any client pauses them all. It has no clock of its own: callers pass theirs, so tests
+ * control time.
+ */
+export class RateLimiter {
+  /** When each request in the window was or will be sent, ascending (booked slots included). */
+  private sent: number[] = [];
+  private pausedUntil = Number.NEGATIVE_INFINITY;
+
+  /** `Infinity` for no limit of its own (a fake AniList), so only 429s pause it. */
+  constructor(public limit = RATE_LIMIT) {}
+
+  /**
+   * Books the first slot at or after `now`, unless it is after `deadline`. Returns the slot's
+   * time, or how long to wait (nothing booked).
+   */
+  book(now: number, deadline = now + RATE_LIMIT_WAIT_MS): { at: number } | { waitMs: number } {
+    while (this.sent.length && this.sent[0]! <= now - RATE_WINDOW_MS) this.sent.shift();
+    const full = this.sent.length >= this.limit ? this.sent[this.sent.length - this.limit]! + RATE_WINDOW_MS : now;
+    const at = Math.max(now, this.pausedUntil, full);
+    // A request that needn't wait goes, however late its tool call is.
+    if (at > now && at > deadline) return { waitMs: at - now };
+    if (Number.isFinite(this.limit)) this.insert(at);
+    return { at };
+  }
+
+  /** When requests may be sent again after a 429; later than `at` when one came since. */
+  resumesAt(at: number): number {
+    return Math.max(at, this.pausedUntil);
+  }
+
+  /**
+   * A booked request goes at `to` instead (it waited out a 429), or, with null, not at all
+   * (it gave up, or AniList refused it with a 429 and so didn't run it): so the window counts
+   * requests when they are really sent.
+   */
+  move(from: number, to: number | null): void {
+    if (!Number.isFinite(this.limit)) return;
+    const i = this.sent.indexOf(from);
+    if (i >= 0) this.sent.splice(i, 1);
+    if (to !== null) this.insert(to);
+  }
+
+  /** AniList answered 429: nothing is sent until `until`. */
+  pause(until: number): void {
+    this.pausedUntil = Math.max(this.pausedUntil, until);
+  }
+
+  /**
+   * Follows the limit AniList states. `X-RateLimit-Remaining` isn't used: it can't say when
+   * requests this process didn't send (another app on the IP) leave AniList's window, so
+   * counting them would block slots on a guess; a 429 pauses everyone instead.
+   */
+  follow(headers: Headers): void {
+    const limit = Number(headers.get("X-RateLimit-Limit") ?? Number.NaN);
+    if (Number.isFinite(this.limit) && Number.isInteger(limit) && limit > 0) this.limit = limit;
+  }
+
+  private insert(at: number): void {
+    let i = this.sent.length;
+    while (i > 0 && this.sent[i - 1]! > at) i--;
+    this.sent.splice(i, 0, at);
+  }
+}
+
+/** Shared by every client in the process that reaches AniList itself (see the constructor). */
+export const ANILIST_LIMITER = new RateLimiter();
 
 /**
  * Title searches sent in one request (aliased Page queries). AniList refuses a query over 500
@@ -255,6 +358,18 @@ export function parseTimeZone(raw: string | null | undefined): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * How long a 429 says to wait: `Retry-After` (seconds), else `X-RateLimit-Reset` (a Unix time),
+ * else the minute AniList's guide says it locks a client out for.
+ */
+function retryAfter(headers: Headers, now: number): number {
+  const seconds = Number(headers.get("Retry-After") ?? Number.NaN);
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
+  const reset = Number(headers.get("X-RateLimit-Reset") ?? Number.NaN);
+  if (Number.isFinite(reset) && reset > 0) return Math.max(0, reset * 1000 - now);
+  return RATE_WINDOW_MS;
 }
 
 export type FetchFn = (input: string, init: RequestInit) => Promise<Response>;
@@ -324,8 +439,9 @@ export class AniListClient {
   now: () => number = Date.now;
   /** How long one request may take; tests shorten it. */
   requestTimeoutMs = REQUEST_TIMEOUT_MS;
-  /** How waits for the rate limit pass; tests replace it. */
+  /** How waits for the rate limit, and before a retry, pass; tests replace it. */
   sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+  private readonly fetchFn: FetchFn;
   /** How to get a new token: set by the hosted server, which signs users in itself (R7.2). */
   renew: string | null = null;
   /** Set once AniList has rejected the token (revoked, or expired early). */
@@ -335,11 +451,18 @@ export class AniListClient {
   /** A check of the token in flight (see `confirm`). */
   private confirming: Promise<void> | null = null;
 
+  /**
+   * `limiter` defaults to the one every client reaching AniList itself shares, since AniList's
+   * limit is per IP. A client given its own `fetchFn` (a fake AniList) gets one with no limit,
+   * which still pauses on a 429, unless it is given a limiter.
+   */
   constructor(
     private readonly token: string,
-    private readonly fetchFn: FetchFn = (input, init) => fetch(input, init),
+    fetchFn?: FetchFn,
     private readonly cache: UserCache = new UserCache(),
+    readonly limiter: RateLimiter = fetchFn ? new RateLimiter(Number.POSITIVE_INFINITY) : ANILIST_LIMITER,
   ) {
+    this.fetchFn = fetchFn ?? ((input, init) => fetch(input, init));
     this.tokenExpiresAt = tokenExpiry(token);
     cache.clients++;
   }
@@ -363,31 +486,71 @@ export class AniListClient {
   }
 
   async request<T>(query: string, variables: Record<string, unknown> = {}): Promise<T> {
-    for (let retries = 0; ; retries++) {
+    let rateLimited = 0;
+    let failed = 0;
+    for (;;) {
+      const sentAt = await this.waitForSlot();
       const result = await this.attempt<T>(query, variables);
-      if (!("retryAfterMs" in result)) return result.data;
-      // A rate-limited request wasn't run, so even a write is safe to send again.
-      const wait = result.retryAfterMs;
-      if (retries >= RATE_LIMIT_RETRIES || wait === null || wait > RATE_LIMIT_WAIT_MS) {
-        throw new AniListError(
-          `AniList rate limit hit (30 requests a minute).${wait !== null ? ` Try again in ${Math.ceil(wait / 1000)} seconds.` : ""}`,
-        );
+      if ("data" in result) return result.data;
+      if ("failed" in result) {
+        if (isWrite(query) || failed++ >= SERVER_ERROR_RETRIES) throw result.failed;
+        await this.sleep(RETRY_PAUSE_MS);
+        continue;
       }
-      await this.sleep(wait);
+      // A rate-limited request wasn't run: it gives its slot back, and even a write is safe to
+      // send again, after the pause that every client sharing the limiter now waits out.
+      this.limiter.move(sentAt, null);
+      const now = this.now();
+      this.limiter.pause(now + result.retryAfterMs);
+      if (rateLimited++ >= RATE_LIMIT_RETRIES) throw this.rateLimitError(this.limiter.resumesAt(now) - now);
     }
   }
 
-  /** One try at a request: its data, or how long AniList says to wait when rate-limited. */
+  /**
+   * Waits for this request's turn under the rate limit and returns when that was, or fails if
+   * it's too far off: more than RATE_LIMIT_WAIT_MS, or past the tool call's deadline.
+   */
+  private async waitForSlot(): Promise<number> {
+    const start = this.now();
+    const deadline = Math.min(start + RATE_LIMIT_WAIT_MS, callDeadline.getStore() ?? Number.POSITIVE_INFINITY);
+    const slot = this.limiter.book(start, deadline);
+    if ("waitMs" in slot) throw this.rateLimitError(slot.waitMs);
+    // A 429 seen by another client while this one waits pauses it too; `at` is when it last
+    // woke (a fake clock may not have moved).
+    let at = start;
+    for (let until = slot.at; until > at; until = this.limiter.resumesAt(at)) {
+      if (until > deadline) {
+        this.limiter.move(slot.at, null);
+        throw this.rateLimitError(until - at);
+      }
+      await this.sleep(until - at);
+      at = Math.max(this.now(), until);
+    }
+    if (at !== slot.at) this.limiter.move(slot.at, at);
+    return at;
+  }
+
+  private rateLimitError(waitMs: number): AniListError {
+    const limit = Number.isFinite(this.limiter.limit) ? this.limiter.limit : RATE_LIMIT;
+    return new AniListError(
+      `AniList rate limit hit (${limit} requests a minute). Try again in ${Math.ceil(waitMs / 1000)} seconds.`,
+    );
+  }
+
+  /**
+   * One try at a request: its data; how long AniList says to wait when rate-limited; or, for a
+   * 5xx or a network error, the error, which a read may be retried after.
+   */
   private async attempt<T>(
     query: string,
     variables: Record<string, unknown>,
-  ): Promise<{ data: T } | { retryAfterMs: number | null }> {
+  ): Promise<{ data: T } | { retryAfterMs: number } | { failed: AniListError }> {
     const signal = AbortSignal.timeout(this.requestTimeoutMs);
     const timedOut = () =>
       new AniListError(
         `AniList didn't respond within ${this.requestTimeoutMs / 1000} seconds` +
           // A write may have been saved even though the answer never came.
-          (/^\s*mutation/.test(query)
+          (isWrite(query)
             ? ", so the change may or may not have been saved; check the list before trying again."
             : "; try again."),
       );
@@ -405,15 +568,15 @@ export class AniListClient {
       });
     } catch (err) {
       if (signal.aborted) throw timedOut();
-      throw new AniListError(`Could not reach AniList: ${(err as Error).message}`);
+      return { failed: new AniListError(`Could not reach AniList: ${(err as Error).message}`) };
     }
-
-    if (res.status === 429) {
-      const header = res.headers.get("Retry-After");
-      const seconds = header === null ? Number.NaN : Number(header);
-      // Without a usable Retry-After there's no telling how long to wait, so it isn't retried.
-      return { retryAfterMs: Number.isFinite(seconds) && seconds >= 0 ? seconds * 1000 : null };
-    }
+    this.limiter.follow(res.headers);
+    if (res.status === 429) return { retryAfterMs: retryAfter(res.headers, this.now()) };
+    // A 5xx is AniList's own trouble, which a read may get past by asking again.
+    const fail = (err: AniListError) => {
+      if (res.status >= 500) return { failed: err };
+      throw err;
+    };
 
     let body: {
       data?: T;
@@ -425,7 +588,7 @@ export class AniListClient {
       // The signal also covers reading the body, so a stall there ends up here.
       if (signal.aborted) throw timedOut();
       if (res.status === 401) return this.rejectToken("HTTP 401");
-      throw new AniListError(`AniList returned HTTP ${res.status} with a non-JSON body.`);
+      return fail(new AniListError(`AniList returned HTTP ${res.status} with a non-JSON body.`));
     }
 
     // Validation errors carry their real reason in `validation`, e.g. {"id": ["The selected id is invalid."]}.
@@ -441,10 +604,10 @@ export class AniListClient {
     // A 401 means the token, whatever the body says (AniList usually sends "Invalid token", but not always).
     if (res.status === 401 || /invalid token/i.test(messages)) return this.rejectToken(messages || "HTTP 401");
     if (body.errors?.length) {
-      throw new AniListError(`AniList error: ${messages}`, body.errors[0]!.status ?? res.status);
+      return fail(new AniListError(`AniList error: ${messages}`, body.errors[0]!.status ?? res.status));
     }
     if (!res.ok || !body.data) {
-      throw new AniListError(`AniList returned HTTP ${res.status}.`);
+      return fail(new AniListError(`AniList returned HTTP ${res.status}.`));
     }
     this.acceptedAt = this.now();
     return { data: body.data };

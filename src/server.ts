@@ -5,6 +5,7 @@ import { z } from "zod";
 import pkg from "../package.json" with { type: "json" };
 import {
   AniListClient,
+  CALL_WAIT_MS,
   LIST_STATUSES,
   SEASONS,
   searchBatch,
@@ -16,6 +17,7 @@ import {
   type Media,
   type TitleLanguage,
   type Viewer,
+  withWaitDeadline,
 } from "./anilist";
 import {
   after,
@@ -139,7 +141,8 @@ function safeFor(client: AniListClient, now: () => number, user: UserState) {
         if (token && "expired" in token) return { content: [{ type: "text", text: token.expired }], isError: true };
         let result: ToolResult;
         try {
-          result = await fn(args);
+          // However many requests the call makes, its waits for the rate limit end in time.
+          result = await withWaitDeadline(now() + CALL_WAIT_MS, () => fn(args));
         } catch (err) {
           result = { content: [{ type: "text", text: (err as Error).message }], isError: true };
         }

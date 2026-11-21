@@ -345,13 +345,14 @@ describe("adding many shows (addOnly, dryRun)", () => {
       failed++;
       return new Response("oops", { status: 500 });
     });
+    anilist.sleep = async () => {}; // the pause before a read is retried
     const [ct, st] = InMemoryTransport.createLinkedPair();
     const own = new Client({ name: "test", version: "0" });
     await Promise.all([createServer(anilist, { now: () => NOW }).connect(st), own.connect(ct)]);
     const r = (await own.callTool({ name: "update_shows", arguments: { addOnly: true, updates: [{ anime: CHAINSAW }, { anime: STEINS }] } })) as {
       isError?: boolean;
     };
-    expect(failed).toBe(1);
+    expect(failed).toBe(2); // a read failing with a 5xx is retried once
     expect(r.isError).toBeFalsy();
     expect(fake.entries.get(CHAINSAW)).toMatchObject({ status: "PLANNING" });
     expect(fake.entries.get(STEINS)).toMatchObject({ status: "PLANNING" });

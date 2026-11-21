@@ -11,7 +11,7 @@
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { AniListClient, UserCache, type FetchFn } from "./anilist";
+import { AniListClient, UserCache, type FetchFn, type RateLimiter } from "./anilist";
 import { OAuthServer, sha256, type OAuthConfig } from "./oauth";
 import { createServer, UserState } from "./server";
 import { HOSTED_RENEW, tokenUser } from "./token";
@@ -48,6 +48,11 @@ export interface HttpOptions {
   /** For AniList's GraphQL API and its token endpoint; tests pass a fake. */
   fetch?: FetchFn;
   now?: () => number;
+  /**
+   * Shared by every user's clients, since AniList's limit is per server IP. Defaults to the
+   * process's own (see AniListClient), or with `fetch` given, to one per client with no limit.
+   */
+  limiter?: RateLimiter;
 }
 
 interface Account {
@@ -146,7 +151,7 @@ export async function createHttpApp(config: OAuthConfig, options: HttpOptions = 
     }
     let client = found.clients.get(hash);
     if (!client) {
-      client = new AniListClient(token, options.fetch, found.cache);
+      client = new AniListClient(token, options.fetch, found.cache, options.limiter);
       client.renew = HOSTED_RENEW;
       found.clients.set(hash, client);
     }
