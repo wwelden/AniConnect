@@ -853,6 +853,23 @@ describe("planned seasons of one show that tie: the next one to watch (R1.12)", 
     for (const intent of NEXT) await expectAsk("tensura", intent, [S3, S4]);
   });
 
+  test("an anime the walk can't load could hide a gap: ask", async () => {
+    // Season 1 isn't on the list, and the only way to it is the OVA, which AniList doesn't return here.
+    list([S2, "PLANNING"], [S2P2, "PLANNING"]);
+    const OVA = findMedia("Tensei Shitara Slime Datta Ken: Coleus no Yume").id;
+    const source = clientSource(client);
+    const lossy: AnimeSource = {
+      ...source,
+      search: async (query) => (await source.search(query)).filter((m) => m.id !== OVA),
+      getRelated: async (ids) => (await source.getRelated(ids)).filter((m) => m.id !== OVA),
+    };
+    for (const intent of ["progress", "show"] as const) {
+      const r = await resolveAnime("tensura", intent, lossy, "ENGLISH");
+      if (r.kind !== "ambiguous") throw new Error(`${intent}: expected ambiguous, got ${r.kind}: ${r.why}`);
+      expect(r.candidates.map((m) => m.title.romaji)).toEqual([S2, S2P2]);
+    }
+  });
+
   test("a season before them that isn't completed: ask", async () => {
     // Season 1 dropped: the user may be picking it back up.
     list([S1, "DROPPED"], [S2, "PLANNING"], [S2P2, "PLANNING"]);

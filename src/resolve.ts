@@ -715,10 +715,11 @@ async function showOf(named: Media[], lookup: ReturnType<typeof relationLookup>,
 
 /**
  * Several planned seasons tie (R1.12). When they're seasons of one show, the next one to watch
- * is the earliest in sequel order, as long as every aired season before it is completed on the
- * list (a gap may be a season the user is watching but never logged). Only aired seasons are
+ * is the earliest in sequel order, as long as every aired season before it is completed (or being
+ * rewatched) on the list (a gap may be a season the user is watching but never logged). Only aired seasons are
  * taken; one that hasn't aired counts when the walk reaches it, and comes after them. Undefined,
- * so the caller asks, when none has aired, the walk can't join them all, or the sequel order
+ * so the caller asks, when none has aired, the walk can't join them all or reach every season
+ * of the show, or the sequel order
  * doesn't put them in one line that agrees with the air dates (a prequel made later). Costs one
  * search (none when the call already made it) and at most SHOW_FETCHES relation fetches.
  */
@@ -742,6 +743,9 @@ async function nextPlanned(
   const sequels = new Map<number, Set<number>>(show.map((m) => [m.id, new Set<number>()]));
   for (const m of show) {
     for (const e of m.relations?.edges ?? []) {
+      if ((e.relationType !== "SEQUEL" && e.relationType !== "PREQUEL") || e.node.type !== "ANIME") continue;
+      // An anime the walk reached but couldn't load: a season there could be a gap, unseen.
+      if (!members.has(e.node.id) && !unaired.has(e.node.id)) return undefined;
       if (!members.has(e.node.id)) continue;
       if (e.relationType === "SEQUEL") sequels.get(m.id)!.add(e.node.id);
       if (e.relationType === "PREQUEL") sequels.get(e.node.id)!.add(m.id);
@@ -766,10 +770,11 @@ async function nextPlanned(
   if (!first) return undefined;
   const listed = new Map((await source.listMedia()).map((m) => [m.id, status(m)]));
   const before = show.filter((m) => m.id !== first.id && after(m.id).has(first.id) && isSeries(m) && hasAired(m));
-  // A season before it that isn't completed (skipped in the list, dropped, or planned but not
+  // A season before it that isn't watched (skipped in the list, dropped, or planned but not
   // tied): the user may be watching that one.
-  if (before.some((m) => listed.get(m.id) !== "COMPLETED")) return undefined;
-  const last = before.sort((a, b) => dateKey(b) - dateKey(a))[0];
+  if (before.some((m) => listed.get(m.id) !== "COMPLETED" && listed.get(m.id) !== "REPEATING")) return undefined;
+  // The one right before it in sequel order, which isn't always the latest to air.
+  const last = before.find((b) => !before.some((o) => o !== b && after(b.id).has(o.id)));
   return {
     kind: "match",
     media: first,
