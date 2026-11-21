@@ -905,6 +905,18 @@ describe("giving way, with made-up shows (R1.11, PR #87 review)", () => {
     expect(r.kind === "match" && r.media.id).toBe(2);
   });
 
+  test("a season asked for isn't taken by a listed movie that gave way", async () => {
+    const tv = show(1, "Alpha 2nd Season", 500, { title: { romaji: "Alpha 2nd Season", english: "Alpha", native: null } });
+    const movie = on(show(2, "Beta 2nd Season", 100, { format: "MOVIE", synonyms: ["Alpha"] }), "PLANNING");
+    const r = await run("alpha season 2", "progress", [tv, movie]);
+    expect(r.kind === "match" && r.media.id).toBe(1);
+  });
+
+  test("a rating goes to the completed show titled as asked over a completed one that gave way", async () => {
+    const r = await run("alpha", "rate", [on(show(1, "Alpha", 500), "COMPLETED"), on(show(2, "Beta", 100, { synonyms: ["Alpha"] }), "COMPLETED")]);
+    expect(r.kind === "match" && r.media.id).toBe(1);
+  });
+
   test("a status change asks when a show titled exactly as asked isn't on the list (R1.3), even beside the one being watched", async () => {
     const r = await run("alpha", "status", [show(1, "Alpha", 500), on(show(2, "Beta", 100, { synonyms: ["Alpha"] }), "CURRENT")]);
     expect(r.kind).toBe("ambiguous");

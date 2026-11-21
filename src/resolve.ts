@@ -424,8 +424,10 @@ function preferSeries(items: Scored[], hint: SeasonHint): Scored[] {
   if (items.some((s) => !music(s))) items = items.filter((s) => !music(s));
   const bestSeries = Math.max(-1, ...items.filter((s) => isSeries(s.media)).map((s) => s.score));
   if (bestSeries < 0) return items;
-  // A listed show that gave way stays whatever its format, for `keepNamedShow` to weigh.
-  return items.filter((s) => isSeries(s.media) || s.score > bestSeries || s.yielded);
+  // A listed show that gave way stays whatever its format, for `keepNamedShow` to weigh; not
+  // when a season is named, which `keepNamedShow` doesn't see.
+  const seasonal = hint.season !== undefined || hint.part !== undefined || hint.latest || hint.next;
+  return items.filter((s) => isSeries(s.media) || s.score > bestSeries || (s.yielded && !seasonal));
 }
 
 const MAX_CANDIDATES = 8;
@@ -753,7 +755,8 @@ function pick(query: string, intent: Intent, pool: Scored[]): Resolution {
   const useScore = intent !== "rate" && intent !== "remove";
   const key = (s: Scored) => [
     ranks[status(s.media)],
-    useScore ? -s.score : 0,
+    // Without the score, a show that gave way still ranks after the one it gave way to.
+    useScore ? -s.score : Number(Boolean(s.yielded)),
     FORMAT_ORDER[s.media.format ?? ""] ?? 5,
   ];
   const cmp = (a: Scored, b: Scored) => {
