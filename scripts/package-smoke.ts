@@ -29,10 +29,8 @@ const REDIRECT = join(root, "evals", "anilist-redirect.cjs");
 const TOKEN = "smoke-test-token";
 
 function check(ok: unknown, message: string): asserts ok {
-  if (!ok) {
-    console.error(`FAIL: ${message}`);
-    process.exit(1);
-  }
+  // Throws rather than exits, so the `finally` blocks close the clients and remove the temp directory.
+  if (!ok) throw new Error(`FAIL: ${message}`);
   console.log(`ok: ${message}`);
 }
 
