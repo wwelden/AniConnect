@@ -294,7 +294,7 @@ async function target(
   };
   if (typeof input === "number") return { media: await client.getAnime(input), note: "", fresh: true };
   // A link names the show by its ID: https://anilist.co/anime/154587/Sousou-no-Frieren.
-  const link = /anilist\.co\/(anime|manga)\/(\d+)/i.exec(input);
+  const link = /^(?:https?:\/\/)?(?:www\.)?anilist\.co\/(anime|manga)\/(\d+)(?:[/?#]|$)/i.exec(input.trim());
   if (link?.[1]!.toLowerCase() === "manga") throw new Error(`${prefix}That's a manga link; AniConnect manages anime only.`);
   if (link) return { media: await client.getAnime(Number(link[2])), note: "", fresh: true };
   const { titleLanguage } = await client.getViewer();
@@ -1006,8 +1006,8 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       const { zone, note: zoneNote } = await readZone(timeZone);
       const at = now();
       const range = parsePeriod(period ?? (anime === undefined ? "last 7 days" : "all time"), at, zone);
-      // Most history is for shows on the list, so try the list alone first ("remove" never
-      // searches the rest of AniList): one request (R5.2). A show removed from the list still
+      // Most history is for shows on the list, so try the list alone first ("remove" searches the
+      // rest of AniList only for a title with a mark the listed one lacks, R1.13): one request (R5.2). A show removed from the list still
       // has history in the feed, so a name the list doesn't have is looked up on AniList.
       const show =
         anime === undefined ? undefined : await find(anime, "remove", undefined, false, "lookup");

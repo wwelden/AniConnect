@@ -619,6 +619,10 @@ describe("a later season's title typed exactly as written beats list status on e
     seed([{ anime: s1, status: "COMPLETED" }]);
     await resolve("Kaguya-sama: Love is War", "status");
     expect(searches()).toBe(0);
+    // Fewer marks than the listed title: nothing can be titled as written but it.
+    seed([{ anime: s1, status: "COMPLETED" }]);
+    await resolve("kaguya-sama love is war", "remove");
+    expect(searches()).toBe(0);
   });
 });
 
@@ -688,6 +692,22 @@ describe("a misspelled name resolves as the right spelling does (R1.2)", () => {
     const r = await resolveAnime("hyoukq", "status", source, "ENGLISH");
     if (r.kind !== "ambiguous") throw new Error(`expected ambiguous, got ${r.kind}: ${r.why}`);
     expect(r.candidates.map((m) => m.id).sort()).toEqual([1, 2]);
+  });
+
+  test("two listed shows that would respell it differently, one closer: not respelled", async () => {
+    const make = (id: number, romaji: string, status: "CURRENT" | "COMPLETED"): Media => ({
+      id, title: { romaji, english: null, native: null }, synonyms: [], episodes: 12, duration: 24, format: "TV",
+      status: "FINISHED", seasonYear: 2020, startDate: { year: 2020, month: 1, day: 1 }, averageScore: null,
+      siteUrl: "", nextAiringEpisode: null, mediaListEntry: { status, progress: 3 } as Media["mediaListEntry"], relations: { edges: [] },
+    });
+    const source: AnimeSource = {
+      listMedia: async () => [make(1, "Hellsing", "CURRENT"), make(2, "Helsinge", "COMPLETED")],
+      search: async () => [],
+      getRelated: async () => [],
+    };
+    // As before: the show being watched takes the episode, not the closer spelling.
+    const r = await resolveAnime("helsingg", "progress", source, "ENGLISH");
+    expect(r.kind === "match" && r.media.id).toBe(1);
   });
 });
 
@@ -808,9 +828,11 @@ describe("anime that share a name with a movie or a music video", () => {
   test("a music video titled as asked doesn't stand in for the shows with that word in their title", async () => {
     // AniList search results for "Idol": the MV for the Oshi no Ko song comes first.
     const idol = [media(164117, "Idol", "MUSIC", 2023), media(97618, "Idol Jihen", "TV", 2017), media(7569, "Idol Ace", "ONA", 1997)];
-    const r = await resolveAnime("Idol", "add", from(idol), "ENGLISH");
-    expect(r.kind).toBe("ambiguous");
-    if (r.kind === "ambiguous") expect(r.candidates.map((m) => m.id)).not.toContain(164117);
+    for (const intent of ["add", "rate"] as const) {
+      const r = await resolveAnime("Idol", intent, from(idol), "ENGLISH");
+      expect(r.kind).toBe("ambiguous");
+      if (r.kind === "ambiguous") expect(r.candidates.map((m) => m.id)).not.toContain(164117);
+    }
   });
 
   test("a music video on the user's list can still be named", async () => {

@@ -562,6 +562,15 @@ describe("an anilist.co link names the show by its ID", () => {
     expect(fake.entries.has(154587)).toBe(true);
   });
 
+  test("a link on another site, or inside other words, is read as a name", async () => {
+    for (const anime of ["https://notanilist.co/anime/154587", "see anilist.co/anime/154587"]) {
+      const r = await call("add_to_list", { anime });
+      expect(r.isError).toBe(true);
+      expect(r.text).toContain("Couldn't find");
+    }
+    expect(fake.writes).toHaveLength(0);
+  });
+
   test("a manga link says only anime are managed", async () => {
     const r = await call("add_to_list", { anime: "https://anilist.co/manga/30002/Berserk" });
     expect(r.isError).toBe(true);

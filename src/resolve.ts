@@ -236,16 +236,22 @@ function correction(q: ParsedQuery, listed: Media[]): ParsedQuery | undefined {
   const fixes = new Map<string, string>();
   for (const word of q.words) {
     if (listed.some((m) => names(m).some((n) => wordHit(word, n, n.split(" "))))) continue;
-    let closest = new Set<string>();
-    for (const own of [true, false]) {
-      let best = Number.POSITIVE_INFINITY;
-      for (const nw of listed.flatMap((m) => names(m, own)).flatMap((n) => n.split(" "))) {
-        if (!typoHit(word, [nw])) continue;
-        const d = levenshtein(word, nw);
-        if (d < best) [best, closest] = [d, new Set([nw])];
-        else if (d === best) closest.add(nw);
+    // Each show's own nearest word: a show further off still counts, so two that would respell
+    // the word differently are left as they are, whichever is closer.
+    const closest = new Set<string>();
+    for (const m of listed) {
+      for (const own of [true, false]) {
+        let best = Number.POSITIVE_INFINITY;
+        let near: string[] = [];
+        for (const nw of names(m, own).flatMap((n) => n.split(" "))) {
+          if (!typoHit(word, [nw])) continue;
+          const d = levenshtein(word, nw);
+          if (d < best) [best, near] = [d, [nw]];
+          else if (d === best) near.push(nw);
+        }
+        near.forEach((nw) => closest.add(nw));
+        if (near.length) break;
       }
-      if (closest.size) break;
     }
     if (closest.size !== 1) return undefined;
     fixes.set(word, [...closest][0]!);
@@ -425,6 +431,17 @@ function writtenAs(m: Media, typed: string): boolean {
   return [...rawNames(m), ...untagged(m)].some((n) => literalTitle(n) === typed);
 }
 
+/** Every title of `m` that reads as the query lacks one of the marks it was typed with (`q.typed`). */
+function lacksMark(m: Media, q: ParsedQuery): boolean {
+  const asked = marks(q.typed ?? "");
+  return [...rawNames(m), ...untagged(m)]
+    .filter((n) => normalize(n) === q.exact)
+    .every((n) => {
+      const has = marks(literalTitle(n));
+      return [...asked].some(([c, k]) => (has.get(c) ?? 0) < k);
+    });
+}
+
 function dedupe(items: Media[]): Media[] {
   const byId = new Map<number, Media>();
   for (const m of items) {
@@ -466,16 +483,8 @@ function score(items: Media[], q: ParsedQuery): Scored[] {
     // The others' titles that read as the query lack one of its marks: the one titled as written
     // is meant whatever the list says. Not the other way round: "Love is War" against "Love is
     // War?" names the first season, which may mean the season being watched (R1.4).
-    const asked = marks(typed);
-    const lacks = (m: Media) =>
-      [...rawNames(m), ...untagged(m)]
-        .filter((n) => normalize(n) === q.exact)
-        .every((n) => {
-          const has = marks(literalTitle(n));
-          return [...asked].some(([c, k]) => (has.get(c) ?? 0) < k);
-        });
     const others = exact.filter((e) => !e.typed);
-    if (others.length && others.every((e) => lacks(e.s.media))) for (const e of exact) if (e.typed) e.s.asTyped = true;
+    if (others.length && others.every((e) => lacksMark(e.s.media, q))) for (const e of exact) if (e.typed) e.s.asTyped = true;
   }
   const strong = scored.filter((s) => s.score >= 2);
   if (!strong.length) return scored.filter((s) => s.score === 1);
@@ -599,8 +608,7 @@ async function resolveParsed(
   // as written may be another season, off the list (#73). One search.
   const twin = () => {
     const exact = pool.filter((s) => s.media.mediaListEntry && s.score === EXACT);
-    const typed = q.typed;
-    return Boolean(typed && marks(typed).size && exact.length && !exact.some((s) => writtenAs(s.media, typed)));
+    return Boolean(q.typed && exact.length && exact.every((s) => lacksMark(s.media, q)));
   };
 
   const named =
@@ -990,7 +998,7 @@ function pick(query: string, intent: Intent, pool: Scored[]): Picked {
   // Shows that only contain the words, equally likely but for their format, are different
   // shows when they aren't one franchise ("Idol Jihen" and "Idol Ace" for "idol"): the format
   // decides between seasons and a movie of one show, not between shows.
-  if (useScore && top.score < NORMALIZED_EXACT) {
+  if ((useScore || (intent === "rate" && status(top.media) === "NONE")) && top.score < NORMALIZED_EXACT) {
     const alike = sorted.filter((s) => ranks[status(s.media)] === ranks[status(top.media)] && s.score === top.score);
     if (alike.length > 1 && !sameFranchise(alike.map((s) => s.media))) {
       return {
