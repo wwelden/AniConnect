@@ -167,6 +167,41 @@ export interface BrowseFilters {
   sort: "SEARCH_MATCH" | "POPULARITY_DESC" | "SCORE_DESC" | "START_DATE_DESC";
   /** As for searchAnime: false hides adult (18+) titles, true returns only them, unset returns both. */
   isAdult?: boolean;
+  /** Tags the show must all have, at `minimumTagRank` or above. */
+  tags?: string[];
+  /** A floor on tag rank (0-100). AniList applies it to `excludeTags` too, so a low-ranked excluded tag slips past. */
+  minimumTagRank?: number;
+  excludeGenres?: string[];
+  excludeTags?: string[];
+  /** false: only shows not on the user's list. */
+  onList?: boolean;
+  /** Start dates as FuzzyDateInt (YYYYMMDD, a year alone as YYYY0000), both bounds exclusive. */
+  startAfter?: number;
+  startBefore?: number;
+  /** Fewer episodes than this; shows with no episode count are left out. */
+  episodesBelow?: number;
+}
+
+/** An AniList tag, from MediaTagCollection. */
+export interface TagName {
+  name: string;
+  isAdult: boolean | null;
+}
+
+/** One episode on AniList's airing schedule. */
+export interface Airing {
+  episode: number;
+  /** Unix seconds. */
+  airingAt: number;
+  media: Media & { genres: string[] | null; isAdult: boolean | null };
+}
+
+/** One of AniList users' recommendations for a show. */
+export interface Recommendation {
+  /** Net votes for it. */
+  rating: number | null;
+  /** null when AniList has lost the show (seen live). */
+  mediaRecommendation: (Media & { type: string | null; genres: string[] | null; isAdult: boolean | null }) | null;
 }
 
 /** One list update from the user's activity feed. */
@@ -361,6 +396,20 @@ export class RateLimiter {
 
 /** Shared by every client in the process that reaches AniList itself (see the constructor). */
 export const ANILIST_LIMITER = new RateLimiter();
+
+/** How long AniList's tag list is trusted: it changes a few times a year. */
+const TAG_TTL_MS = 24 * 60 * 60_000;
+
+/** AniList's tag list (430 tags), shared by every user of the process: it's public. */
+let tagCollection: { at: number; tags: TagName[] } | null = null;
+
+/** Drops the cached tag list (for tests). */
+export function forgetTagCollection(): void {
+  tagCollection = null;
+}
+
+/** Schedule pages of 50 read for an airing range: three in one request, then one more. */
+export const AIRING_PAGES = 4;
 
 /**
  * Title searches sent in one request (aliased Page queries). AniList refuses a query over 500
@@ -746,17 +795,30 @@ export class AniListClient {
   /**
    * Searches and filters AniList in one request. Each result carries its prequels and the
    * user's status on them, so "continues a show you completed" costs no extra request.
+   * With `fetchTags`, AniList's tag list comes back in the same request (and is cached, see
+   * cachedTags), so tags can be checked without a request of their own.
    */
-  async browseAnime(filters: BrowseFilters, perPage: number): Promise<Media[]> {
-    const data = await this.request<{ Page: { media: Media[] } }>(
+  async browseAnime(
+    filters: BrowseFilters,
+    perPage: number,
+    page = 1,
+    fetchTags = false,
+  ): Promise<{ media: Media[]; hasNextPage: boolean; tags?: TagName[] }> {
+    const data = await this.request<{ Page: { pageInfo: { hasNextPage: boolean | null }; media: Media[] }; MediaTagCollection?: TagName[] }>(
       `query (
         $search: String, $season: MediaSeason, $seasonYear: Int, $genres: [String],
-        $formats: [MediaFormat], $status: MediaStatus, $sort: [MediaSort], $perPage: Int, $isAdult: Boolean
+        $formats: [MediaFormat], $status: MediaStatus, $sort: [MediaSort], $perPage: Int, $page: Int, $isAdult: Boolean,
+        $tags: [String], $minimumTagRank: Int, $excludeGenres: [String], $excludeTags: [String], $onList: Boolean,
+        $startAfter: FuzzyDateInt, $startBefore: FuzzyDateInt, $episodesBelow: Int
       ) {
-        Page(perPage: $perPage) {
+        ${fetchTags ? "MediaTagCollection { name isAdult }" : ""}
+        Page(perPage: $perPage, page: $page) {
+          pageInfo { hasNextPage }
           media(
             search: $search, type: ANIME, season: $season, seasonYear: $seasonYear,
-            genre_in: $genres, format_in: $formats, status: $status, sort: $sort, isAdult: $isAdult
+            genre_in: $genres, format_in: $formats, status: $status, sort: $sort, isAdult: $isAdult,
+            tag_in: $tags, minimumTagRank: $minimumTagRank, genre_not_in: $excludeGenres, tag_not_in: $excludeTags,
+            onList: $onList, startDate_greater: $startAfter, startDate_lesser: $startBefore, episodes_lesser: $episodesBelow
           ) {
             ${MEDIA_FIELDS}
             mediaListEntry { ${ENTRY_FIELDS} }
@@ -769,9 +831,88 @@ export class AniListClient {
           }
         }
       }`,
-      { ...filters, sort: [filters.sort], perPage },
+      { ...filters, sort: [filters.sort], perPage, page },
     );
-    return data.Page.media;
+    if (data.MediaTagCollection) tagCollection = { at: this.now(), tags: data.MediaTagCollection };
+    return {
+      media: data.Page.media,
+      hasNextPage: Boolean(data.Page.pageInfo.hasNextPage),
+      ...(data.MediaTagCollection && { tags: data.MediaTagCollection }),
+    };
+  }
+
+  /** AniList's tag list if it was fetched in the last day, else undefined (fetch it with browseAnime). */
+  cachedTags(): TagName[] | undefined {
+    return tagCollection && this.now() - tagCollection.at < TAG_TTL_MS ? tagCollection.tags : undefined;
+  }
+
+  /**
+   * Episodes airing from `from` (inclusive) to `to` (exclusive), Unix seconds, in air-time
+   * order. Reads up to AIRING_PAGES pages of 50: three as aliases in one request, then the
+   * fourth if the third had more. `pageInfo.total` isn't used: AniList answers 5000 for any range.
+   */
+  async airingBetween(from: number, to: number): Promise<{ airings: Airing[]; truncated: boolean }> {
+    const fields = `pageInfo { hasNextPage }
+      airingSchedules(airingAt_greater: $after, airingAt_lesser: $before, sort: [TIME]) {
+        episode
+        airingAt
+        media { ${MEDIA_FIELDS} genres isAdult mediaListEntry { ${ENTRY_FIELDS} } }
+      }`;
+    type SchedulePage = { pageInfo: { hasNextPage: boolean | null }; airingSchedules: Airing[] };
+    const read = async (pages: number[]) => {
+      const query = pages.map((p) => `p${p}: Page(page: ${p}, perPage: 50) { ${fields} }`).join("\n");
+      const data = await this.request<Record<string, SchedulePage>>(
+        `query ($after: Int, $before: Int) {\n${query}\n}`,
+        { after: from - 1, before: to },
+      );
+      return pages.map((p) => data[`p${p}`]!);
+    };
+    const pages = await read([1, 2, 3]);
+    if (pages.at(-1)!.pageInfo.hasNextPage && AIRING_PAGES > 3) pages.push(...(await read([4])));
+    // A page that says there's no next one ends the range, whatever the later aliases hold.
+    const end = pages.findIndex((p) => !p.pageInfo.hasNextPage);
+    const used = end === -1 ? pages : pages.slice(0, end + 1);
+    return { airings: used.flatMap((p) => p.airingSchedules), truncated: end === -1 };
+  }
+
+  /**
+   * AniList users' recommendations for a show, most voted first (up to 50, one page), with
+   * the show's own relations, so its sequels and side stories can be told apart.
+   */
+  async getRecommendations(mediaId: number): Promise<{ relatedIds: number[]; recommendations: Recommendation[] }> {
+    const data = await this.request<{
+      Media: { relations: { edges: { node: { id: number } }[] }; recommendations: { nodes: Recommendation[] } } | null;
+    }>(
+      `query ($id: Int) {
+        Media(id: $id, type: ANIME) {
+          relations { edges { node { id } } }
+          recommendations(sort: [RATING_DESC], perPage: 50) {
+            nodes {
+              rating
+              mediaRecommendation {
+                ${MEDIA_FIELDS}
+                type
+                genres
+                isAdult
+                mediaListEntry { ${ENTRY_FIELDS} }
+                relations {
+                  edges {
+                    relationType
+                    node { id type format title { romaji english native } mediaListEntry { status } }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }`,
+      { id: mediaId },
+    );
+    if (!data.Media) throw new AniListError(`No anime found with id ${mediaId}.`);
+    return {
+      relatedIds: data.Media.relations.edges.map((e) => e.node.id),
+      recommendations: data.Media.recommendations.nodes,
+    };
   }
 
   async getAnime(mediaId: number): Promise<Media> {

@@ -6,7 +6,7 @@ import type { FuzzyDate, ListActivity, ListItem, TitleLanguage } from "./anilist
 import { displayTitle, formatDate } from "./logic";
 import { parts } from "./whatsnext";
 
-interface Day {
+export interface Day {
   year: number;
   /** 1-12 */
   month: number;
@@ -31,13 +31,13 @@ function zoneOffset(ms: number, timeZone: string): number {
 }
 
 /** The calendar date of an instant in a zone. */
-function dayOf(ms: number, timeZone: string): Day {
+export function dayOf(ms: number, timeZone: string): Day {
   const d = new Date(ms + zoneOffset(ms, timeZone));
   return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() };
 }
 
 /** A date moved by whole months or years, then days ("a month before Mar 31" is Feb 28 or 29). */
-function shift(d: Day, by: { days?: number; months?: number; years?: number }): Day {
+export function shift(d: Day, by: { days?: number; months?: number; years?: number }): Day {
   const month = d.month - 1 + (by.months ?? 0) + 12 * (by.years ?? 0);
   const monthLength = new Date(Date.UTC(d.year, month + 1, 0)).getUTCDate();
   const x = new Date(Date.UTC(d.year, month, Math.min(d.day, monthLength) + (by.days ?? 0)));
@@ -45,7 +45,7 @@ function shift(d: Day, by: { days?: number; months?: number; years?: number }): 
 }
 
 /** The instant a date starts (local midnight) in a zone. */
-function startOf(d: Day, timeZone: string): number {
+export function startOf(d: Day, timeZone: string): number {
   const utc = Date.UTC(d.year, d.month - 1, d.day);
   // Two passes settle the offset when midnight is near a daylight-saving change.
   const first = utc - zoneOffset(utc, timeZone);
