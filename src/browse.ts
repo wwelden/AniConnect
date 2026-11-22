@@ -99,7 +99,7 @@ export function zoneLabel(zone: string): string {
 
 /**
  * The calendar, one heading per local day, episodes in air-time order. A day with more than
- * `limit` episodes keeps the most popular ones and every show on the user's list.
+ * `limit` episodes keeps the most popular ones and every show on the user's list that they haven't dropped.
  */
 export function formatAiring(
   airings: Airing[],
