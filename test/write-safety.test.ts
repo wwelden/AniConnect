@@ -197,6 +197,34 @@ describe("removing without a dialog takes two calls", () => {
   });
 });
 
+test("a removal accepted after a while journals the entry as it was when deleted", async () => {
+  await connect({ elicitation: {} }, () => {
+    clock += 20_000;
+    fake.entries.get(DANDADAN)!.progress = 9; // logged on anilist.co while the dialog was open
+    return { action: "accept", content: { confirm: true } };
+  });
+  const r = await call("remove_from_list", { anime: "dandadan" });
+  expect(r.text).toContain("Removed DAN DA DAN");
+  await call("undo");
+  expect(fake.entries.get(DANDADAN)!.progress).toBe(9);
+});
+
+test("update_shows still saves when the batched re-read fails", async () => {
+  await warmThenWait();
+  const fetch = fake.fetch;
+  fake.fetch = async (url: string, init: RequestInit) => {
+    if (Array.isArray(JSON.parse(init.body as string).variables?.ids)) return new Response("down", { status: 500 });
+    return fetch(url, init);
+  };
+  await connect();
+  await call("search_my_list", {});
+  clock += 20_000;
+  const r = await call("update_shows", { updates: [{ anime: "dandadan", watched: 1 }, { anime: "jjk", watched: 1 }] });
+  expect(r.isError).toBe(false);
+  expect(fake.entries.get(DANDADAN)!.progress).toBe(8);
+  expect(fake.entries.get(145064)!.progress).toBe(4);
+});
+
 describe("rewinding a completed show reached by a typo asks first", () => {
   test("a typo that would move a completed show back to watching changes nothing", async () => {
     const r = await call("set_progress", { anime: "bochi the rock", episodes: 3 });

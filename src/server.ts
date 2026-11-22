@@ -1245,8 +1245,9 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       const fetched = ids.length > 1 ? await client.getMany(ids).catch(() => []) : [];
       const byId = new Map(fetched.map((m) => [m.id, m]));
       // Shows read again before saving (see `onTurn`), fetched together too.
+      // If that fails, each show is read on its own, so one failed request doesn't fail them all.
       const reread = batched(50, async (ids: number[]) => {
-        const shows = new Map((await client.getMany(ids)).map((m) => [m.id, m]));
+        const shows = new Map((await client.getMany(ids).catch(() => [])).map((m) => [m.id, m]));
         return ids.map((id) => shows.get(id));
       });
       const read = async (id: number) => (await reread(id)) ?? client.getAnime(id);
@@ -1352,7 +1353,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       const viewer = await client.getViewer();
       return onTurn(resolved, readAt, async (media) => {
         const title = displayTitle(media.title, viewer.titleLanguage);
-        const entry = media.mediaListEntry;
+        let entry = media.mediaListEntry;
         const shown = pendingRemovals.get(media.id);
         pendingRemovals.delete(media.id); // a confirmation is used once
         if (!entry) return text(`${title} isn't on your list.`);
@@ -1361,6 +1362,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
         const state = JSON.stringify([entry.id, snapshot(entry)]);
         const line = describeEntry(media, entry, viewer).replace(/^\[\d+\] /, "");
         if (!(confirmed && shown && shown.entry === state && now() < shown.expires)) {
+          const askedAt = now();
           const answer = canAsk()
             ? await ask({
                 message: `Remove ${title} from your AniList list? ${line}. Its progress, score, dates and notes go with it.`,
@@ -1384,6 +1386,11 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
             return text(
               `${note}Not removed yet. ${changed}${line}; removing it deletes its progress, score, dates and notes. If this is the show the user asked to remove, call again with confirmed: true; if you're not sure, ask them first.`,
             );
+          }
+          // The user took a while to answer: undo should bring back the entry as it is now.
+          if (now() - askedAt > FRESH_LIST_MS) {
+            entry = (await client.getAnime(media.id)).mediaListEntry;
+            if (!entry) return text(`${note}${title} isn't on your list any more.`);
           }
         }
         const deleted = await client.deleteEntry(entry.id);
