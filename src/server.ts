@@ -275,6 +275,9 @@ function typoOnly(media: Media, input: string): boolean {
   return best === 1;
 }
 
+/** A link names the show by its ID: https://anilist.co/anime/154587/Sousou-no-Frieren. */
+const ANILIST_LINK = /^(?:https?:\/\/)?(?:www\.)?anilist\.co\/(anime|manga)\/(\d+)(?:[/?#]|$)/i;
+
 /** Finds the show a tool call is about, or throws a message that tells the assistant what to do. */
 async function target(
   client: AniListClient,
@@ -294,7 +297,7 @@ async function target(
   };
   if (typeof input === "number") return { media: await client.getAnime(input), note: "", fresh: true };
   // A link names the show by its ID: https://anilist.co/anime/154587/Sousou-no-Frieren.
-  const link = /^(?:https?:\/\/)?(?:www\.)?anilist\.co\/(anime|manga)\/(\d+)(?:[/?#]|$)/i.exec(input.trim());
+  const link = ANILIST_LINK.exec(input.trim());
   if (link?.[1]!.toLowerCase() === "manga") throw new Error(`${prefix}That's a manga link; AniConnect manages anime only.`);
   if (link) return { media: await client.getAnime(Number(link[2])), note: "", fresh: true };
   const { titleLanguage } = await client.getViewer();
@@ -1483,6 +1486,11 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       // A form for one show only: in a batch, the names that need a choice come back together
       // for the assistant to ask about at once, rather than each stopping the call to ask.
       const askUser = updates.length === 1 && !dryRun ? ask : undefined;
+      // An anime link is its ID (a manga link stays as it is, for target to refuse).
+      updates = updates.map((u) => {
+        const link = typeof u.anime === "string" ? ANILIST_LINK.exec(u.anime.trim()) : null;
+        return link?.[1]!.toLowerCase() === "anime" ? { ...u, anime: Number(link[2]) } : u;
+      });
       // Shows given by ID, fetched together: one request rather than one each.
       const ids = [...new Set(updates.map((u) => u.anime).filter((a): a is number => typeof a === "number"))];
       // If that fails, each show is looked up on its own and reports its own error.

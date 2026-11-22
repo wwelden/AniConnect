@@ -579,6 +579,17 @@ describe("an anilist.co link names the show by its ID", () => {
     expect(fake.writes).toHaveLength(0);
   });
 
+  test("update_shows fetches linked shows together, as it does IDs", async () => {
+    const start = fake.calls.length;
+    const r = await call("update_shows", {
+      updates: [{ anime: "https://anilist.co/anime/154587", status: "PLANNING" }, { anime: "anilist.co/anime/21355/Re-Zero", status: "PLANNING" }],
+      dryRun: true,
+    });
+    expect(r.isError).toBe(false);
+    const lookups = fake.calls.slice(start).filter((c) => c.query.includes("Media(") || c.query.includes("id_in"));
+    expect(lookups.map((c) => (c.query.includes("id_in") ? "many" : "one"))).toEqual(["many"]);
+  });
+
   test("a manga link says only anime are managed", async () => {
     const r = await call("add_to_list", { anime: "https://anilist.co/manga/30002/Berserk" });
     expect(r.isError).toBe(true);
