@@ -315,7 +315,10 @@ async function target(
   if (r.kind === "ambiguous") {
     const picked = ask && (await pick(ask, r.why, r.candidates, titleLanguage));
     if (picked && "media" in picked) {
-      return { media: picked.media, note: `The user picked ${displayTitle(picked.media.title, titleLanguage)} from the matches for "${input}".\n` };
+      // The dialog can stay open for minutes, and the list may be refetched meanwhile, so the
+      // cache's age says nothing about this show: a write reads it again.
+      const media = changes ? await client.getAnime(picked.media.id) : picked.media;
+      return { media, note: `The user picked ${displayTitle(media.title, titleLanguage)} from the matches for "${input}".\n`, fresh: changes };
     }
     if (picked) {
       throw new Error(`${prefix}${r.why} The user was shown the matches and didn't pick one, so don't ask them again unless they bring it up.`);

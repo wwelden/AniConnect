@@ -287,3 +287,27 @@ describe("results name the show and say what else changed", () => {
     expect(r.text).toContain("Added to your list as Watching.");
   });
 });
+
+test("a show picked in a dialog is read again, even when the list was refetched while the dialog was open", async () => {
+  const AOT = findMedia("Shingeki no Kyojin").id;
+  const anilist = new AniListClient("t", fake.fetch);
+  const server = createServer(anilist, { now: () => clock });
+  const [ct, st] = InMemoryTransport.createLinkedPair();
+  client = new Client({ name: "t", version: "0" }, { capabilities: { elicitation: {} } });
+  client.setRequestHandler(ElicitRequestSchema, async (req) => {
+    // The dialog stays open past the list cache's life; the score changes on anilist.co, and
+    // another call refetches the list, so the cache is fresh but the show in hand is not.
+    clock += 70_000;
+    fake.entries.get(AOT)!.scoreRaw = 70;
+    await call("search_my_list", {});
+    const options = (req.params as unknown as { requestedSchema: { properties: { anime: { oneOf: { const: string; title: string }[] } } } })
+      .requestedSchema.properties.anime.oneOf;
+    return { action: "accept", content: { anime: options.find((o) => o.title.includes("(TV, 2013)"))!.const } };
+  });
+  await Promise.all([server.connect(st), client.connect(ct)]);
+  const r = await call("rate_anime", { anime: "attack on titan", score: 10 });
+  expect(r.isError).toBe(false);
+  expect(fake.entries.get(AOT)!.scoreRaw).toBe(100);
+  await call("undo");
+  expect(fake.entries.get(AOT)!.scoreRaw).toBe(70);
+});
