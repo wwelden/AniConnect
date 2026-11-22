@@ -2,7 +2,8 @@
  * Generated resolver checks over the whole media fixture (R6.2): every show's English and
  * romaji title, typed exactly as written, with every write intent, on the persona's list and on
  * an empty one, must resolve to that show, or ask (or, for a removal, find nothing), never write
- * to a different show; the known exceptions are pinned in KNOWN. Then every listed show's title with one letter wrong must resolve as the right spelling does, or ask.
+ * to a different show; the known exceptions are pinned in KNOWN. Then every listed show's title
+ * with one letter wrong must resolve as the right spelling does, or ask.
  */
 import { describe, expect, test } from "bun:test";
 import { AniListClient, type Media } from "../src/anilist";
@@ -68,10 +69,6 @@ function designed(list: ListName, intent: Intent, typed: number, got: number): b
   return list === "persona" && (intent === "status" || intent === "progress") && firstSeason(typed) && sequelsOf(typed).has(got);
 }
 
-/**
- * Known divergences, each pinned to what it resolves to today so that a change to it shows up
- * here. "<list> <intent> <title>": [what it resolves to, why it's left].
- */
 /** Specials and OVAs with "movie" or "film" in the title: the word asks for a movie (R1.8). */
 const NOT_A_MOVIE = [
   "ONE PIECE FILM: Z - GLORIOUS ISLAND",
@@ -81,6 +78,10 @@ const NOT_A_MOVIE = [
   "Mob Psycho 100 10th Anniversary Special Movie",
 ];
 
+/**
+ * Known divergences, each pinned to what it resolves to today so that a change to it shows up
+ * here. "<list> <intent> <title>": [what it resolves to, why it's left].
+ */
 const KNOWN: Record<string, [number | "none", string]> = Object.fromEntries(
   [
     ...(["persona", "empty"] as const).flatMap((list) =>

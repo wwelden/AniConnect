@@ -296,7 +296,6 @@ async function target(
     return r.kind === "none" && fallback ? resolveAnime(query, fallback, src, language) : r;
   };
   if (typeof input === "number") return { media: await client.getAnime(input), note: "", fresh: true };
-  // A link names the show by its ID: https://anilist.co/anime/154587/Sousou-no-Frieren.
   const link = ANILIST_LINK.exec(input.trim());
   if (link?.[1]!.toLowerCase() === "manga") throw new Error(`${prefix}That's a manga link; AniConnect manages anime only.`);
   if (link) return { media: await client.getAnime(Number(link[2])), note: "", fresh: true };
