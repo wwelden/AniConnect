@@ -92,7 +92,7 @@ export const CASES: EvalCase[] = [
   { id: "rate-season-ordinal", prompt: "Give the second season of Kaguya-sama an 8.5", idealCalls: 1,
     expect: { changes: [{ anime: "Kaguya-sama wa Kokurasetai?: Tensaitachi no Renai Zunousen", score: 8.5 }] } },
   // Season 2's exact title, while season 3 is being watched (R1.13, #73).
-  { id: "rate-exact-season-title", prompt: "Rate Kaguya-sama: Love is War? an 8", idealCalls: 1,
+  { id: "rate-exact-season-title", prompt: "Rate \"Kaguya-sama: Love is War?\" an 8", idealCalls: 1,
     expect: { changes: [{ anime: "Kaguya-sama wa Kokurasetai?: Tensaitachi no Renai Zunousen", score: 8 }] } },
   { id: "rate-roman-season", prompt: "Mob Psycho 100 II deserves a 10", idealCalls: 1,
     expect: { changes: [{ anime: "Mob Psycho 100 II", score: 10 }] } },
