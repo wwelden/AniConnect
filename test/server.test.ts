@@ -518,6 +518,58 @@ describe("titles made of digits", () => {
   });
 });
 
+describe("names resolve the same on every write tool", () => {
+  test("a misspelling doesn't rewind a completed season: it goes where the right spelling does (R1.2)", async () => {
+    fake.seed(PERSONA);
+    const r = await call("set_progress", { anime: "frieran", episodes: 5 });
+    expect(r.isError).toBe(false);
+    expect(fake.entries.get(154587)).toMatchObject({ status: "COMPLETED", progress: 28 });
+    expect(fake.entries.get(182255)).toMatchObject({ status: "CURRENT", progress: 5 });
+  });
+
+  test("season 2's exact title changes season 2, not the season being watched (#73)", async () => {
+    fake.seed(PERSONA);
+    const r = await call("set_status", { anime: "Kaguya-sama: Love is War?", status: "DROPPED" });
+    expect(r.isError).toBe(false);
+    expect(r.text).toContain("its title is written exactly that way");
+    expect(fake.entries.get(112641)!.status).toBe("DROPPED");
+    expect(fake.entries.get(125367)!.status).toBe("CURRENT");
+    const rated = await call("rate_anime", { anime: "Kaguya-sama: Love is War?", score: 8 });
+    expect(rated.isError).toBe(false);
+    expect(fake.entries.get(112641)!.scoreRaw).toBe(80);
+  });
+
+  test("with only season 1 listed, season 2's exact title asks before changing season 1 (#73)", async () => {
+    fake.seed([{ anime: "Kaguya-sama wa Kokurasetai: Tensaitachi no Renai Zunousen", status: "COMPLETED" }]);
+    for (const [tool, args] of [["set_status", { status: "DROPPED" }], ["rate_anime", { score: 3 }]] as const) {
+      const r = await call(tool, { anime: "Kaguya-sama: Love is War?", ...args });
+      expect(r.isError).toBe(true);
+      expect(r.text).toContain("[112641]");
+    }
+    expect(fake.writes).toHaveLength(0);
+  });
+});
+
+describe("an anilist.co link names the show by its ID", () => {
+  test.each([
+    "https://anilist.co/anime/154587/Sousou-no-Frieren",
+    "https://anilist.co/anime/154587/",
+    "anilist.co/anime/154587",
+    "www.AniList.co/anime/154587/Sousou-no-Frieren/characters",
+  ])("%s", async (link) => {
+    const r = await call("add_to_list", { anime: link });
+    expect(r.isError).toBe(false);
+    expect(fake.entries.has(154587)).toBe(true);
+  });
+
+  test("a manga link says only anime are managed", async () => {
+    const r = await call("add_to_list", { anime: "https://anilist.co/manga/30002/Berserk" });
+    expect(r.isError).toBe(true);
+    expect(r.text).toContain("AniConnect manages anime only");
+    expect(fake.writes).toHaveLength(0);
+  });
+});
+
 describe("status changes keep dates in sync (R0.7, R3.2)", () => {
   test("set_status COMPLETED fills in progress and both dates", async () => {
     await connect({ now: () => NOW });

@@ -82,7 +82,7 @@ import {
 const anime = z
   .union([z.string().min(1), z.number().int().positive()])
   .describe(
-    'The show: any title, abbreviation or season ("jjk", "spy x family season 2", "the new Frieren season"), or an AniList ID as a number.',
+    'The show: any title, abbreviation or season ("jjk", "spy x family season 2", "the new Frieren season"), or an AniList ID as a number or its anilist.co link.',
   );
 
 const status = z
@@ -293,6 +293,10 @@ async function target(
     return r.kind === "none" && fallback ? resolveAnime(query, fallback, src, language) : r;
   };
   if (typeof input === "number") return { media: await client.getAnime(input), note: "", fresh: true };
+  // A link names the show by its ID: https://anilist.co/anime/154587/Sousou-no-Frieren.
+  const link = /anilist\.co\/(anime|manga)\/(\d+)/i.exec(input);
+  if (link?.[1]!.toLowerCase() === "manga") throw new Error(`${prefix}That's a manga link; AniConnect manages anime only.`);
+  if (link) return { media: await client.getAnime(Number(link[2])), note: "", fresh: true };
   const { titleLanguage } = await client.getViewer();
   const digits = /^\d+$/.test(input.trim()) ? input.trim() : undefined;
   let r: Resolution;

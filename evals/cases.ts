@@ -54,6 +54,12 @@ export const CASES: EvalCase[] = [
     expect: { changes: [{ anime: "[Oshi no Ko] 2nd Season", progress: 6 }] } },
   { id: "progress-typo", prompt: "I watched episode 8 of dandadn", idealCalls: 1,
     expect: { changes: [{ anime: "Dandadan", progress: 8 }] } },
+  // Season 1 is completed: a misspelling must not rewind it, but go where "frieren" does (R1.2).
+  { id: "progress-typo-completed", prompt: "watched episode 5 of frieran", idealCalls: 1,
+    expect: [
+      { changes: [{ anime: "Sousou no Frieren 2nd Season", added: true, progress: 5, status: "CURRENT" }] },
+      { asks: true },
+    ] },
   { id: "progress-planned-season", prompt: "Started Spy x Family season 2, just finished the first episode", idealCalls: 1,
     expect: { changes: [{ anime: "SPY×FAMILY Season 2", progress: 1, status: "CURRENT" }] } },
   { id: "progress-love-is-war", prompt: "Love is War ep 3 done", idealCalls: 1,
@@ -85,6 +91,9 @@ export const CASES: EvalCase[] = [
     expect: { changes: [{ anime: "Bocchi the Rock!", score: 9 }] } },
   { id: "rate-season-ordinal", prompt: "Give the second season of Kaguya-sama an 8.5", idealCalls: 1,
     expect: { changes: [{ anime: "Kaguya-sama wa Kokurasetai?: Tensaitachi no Renai Zunousen", score: 8.5 }] } },
+  // Season 2's exact title, while season 3 is being watched (R1.13, #73).
+  { id: "rate-exact-season-title", prompt: "Rate Kaguya-sama: Love is War? an 8", idealCalls: 1,
+    expect: { changes: [{ anime: "Kaguya-sama wa Kokurasetai?: Tensaitachi no Renai Zunousen", score: 8 }] } },
   { id: "rate-roman-season", prompt: "Mob Psycho 100 II deserves a 10", idealCalls: 1,
     expect: { changes: [{ anime: "Mob Psycho 100 II", score: 10 }] } },
   { id: "rate-ambiguous-franchise", prompt: "rate attack on titan a 10",
