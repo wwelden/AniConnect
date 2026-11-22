@@ -9,7 +9,9 @@ import { UnauthorizedError, type OAuthClientProvider } from "@modelcontextprotoc
 import type { OAuthClientInformationMixed, OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { configFromEnv, createHttpApp, IDLE_MS, MAX_SESSIONS, SERVE_OPTIONS, shutdown } from "../src/http";
 import { LIST_TTL_MS, RateLimiter } from "../src/anilist";
-import { ANILIST_AUTHORIZE, ANILIST_TOKEN } from "../src/oauth";
+import pkg from "../package.json";
+import { ANILIST_AUTHORIZE, ANILIST_TOKEN, SIGNIN_EXCHANGES_PER_MINUTE } from "../src/oauth";
+import { MASTER_SEALED } from "./fixtures/master-sealed";
 import { PERSONA } from "./fixtures/persona";
 import { FakeAniList, findMedia } from "./support/fake-anilist";
 
@@ -71,8 +73,8 @@ beforeEach(async () => {
     return fake.fetch(url, init);
   };
   // Bind first so PUBLIC_URL can name the real port.
-  let handler: (req: Request) => Promise<Response> = async () => new Response(null, { status: 503 });
-  server = Bun.serve({ ...SERVE_OPTIONS, port: 0, fetch: (req) => handler(req) });
+  let handler: (req: Request, ip?: string) => Promise<Response> = async () => new Response(null, { status: 503 });
+  server = Bun.serve({ ...SERVE_OPTIONS, port: 0, fetch: (req, srv) => handler(req, srv.requestIP(req)?.address) });
   base = `http://localhost:${server.port}`;
   restart = async (extra = {}, http = {}) => {
     app = await createHttpApp(
@@ -638,6 +640,166 @@ describe("authorization checks", () => {
     await app.sweep();
     expect(app.stats().rejected).toBe(0);
   });
+
+  test("each address gets a few AniList code exchanges a minute; a sign-in over that can be finished by reloading", async () => {
+    // AniList limits its token endpoint per server IP, and anyone can start a sign-in.
+    // The address comes from X-Real-IP, which a proxy such as Railway's sets.
+    const id = (await register()).body.client_id!;
+    const url = new URL(`${base}/authorize`);
+    url.search = new URLSearchParams({
+      client_id: id,
+      response_type: "code",
+      code_challenge: await challengeFor("v"),
+      code_challenge_method: "S256",
+    }).toString();
+    const signIns = await Promise.all(Array.from({ length: SIGNIN_EXCHANGES_PER_MINUTE + 1 }, () => toAniList(url)));
+    const back = (s: (typeof signIns)[number], ip: string) =>
+      fetch(`${base}/oauth/callback?${new URLSearchParams({ state: s.state, code: "code-alice" })}`, {
+        redirect: "manual",
+        headers: { Cookie: s.cookie, "X-Real-IP": ip },
+      });
+    for (const s of signIns.slice(0, -1)) expect((await back(s, "203.0.113.7")).status).toBe(302);
+    const last = signIns.at(-1)!;
+    const refused = await back(last, "203.0.113.7");
+    expect(refused.status).toBe(429);
+    expect(refused.headers.get("Retry-After")).toBe("60");
+    expect(await refused.text()).toContain("reload this page");
+    expect(exchanges.length).toBe(SIGNIN_EXCHANGES_PER_MINUTE);
+    // Another address isn't held up.
+    expect((await back(await toAniList(url), "198.51.100.2")).status).toBe(302);
+    // Not used up: a minute later, reloading finishes it.
+    clock += 60_000;
+    const later = await back(last, "203.0.113.7");
+    expect(later.status).toBe(302);
+    expect(new URL(later.headers.get("Location")!).searchParams.get("code")).toBeTruthy();
+  });
+
+  test("another header can be named, the last address in a list is used, and without it the connection's own address is", async () => {
+    await restart({ clientIpHeader: "X-Forwarded-For" });
+    const id = (await register()).body.client_id!;
+    const url = new URL(`${base}/authorize`);
+    url.search = new URLSearchParams({
+      client_id: id,
+      response_type: "code",
+      code_challenge: await challengeFor("v"),
+      code_challenge_method: "S256",
+    }).toString();
+    const signIns = await Promise.all(Array.from({ length: SIGNIN_EXCHANGES_PER_MINUTE + 1 }, () => toAniList(url)));
+    const back = (s: (typeof signIns)[number], headers: Record<string, string>) =>
+      fetch(`${base}/oauth/callback?${new URLSearchParams({ state: s.state, code: "code-alice" })}`, {
+        redirect: "manual",
+        headers: { Cookie: s.cookie, ...headers },
+      }).then((res) => res.status);
+    const statuses: number[] = [];
+    // The client's own entries come first; the proxy adds the real address last. X-Real-IP is now ignored.
+    for (const s of signIns) statuses.push(await back(s, { "X-Forwarded-For": `203.0.113.${statuses.length}, 198.51.100.9`, "X-Real-IP": `192.0.2.${statuses.length}` }));
+    expect(statuses).toEqual([...Array(SIGNIN_EXCHANGES_PER_MINUTE).fill(302), 429]);
+    // Without the header: the connection's address (127.0.0.1 here), which has its own allowance.
+    const more = await Promise.all(Array.from({ length: SIGNIN_EXCHANGES_PER_MINUTE + 1 }, () => toAniList(url)));
+    const direct: number[] = [];
+    for (const s of more) direct.push(await back(s, {}));
+    expect(direct).toEqual([...Array(SIGNIN_EXCHANGES_PER_MINUTE).fill(302), 429]);
+  });
+});
+
+describe("rotating AUTH_SECRET", () => {
+  const OLD = "test-secret-that-is-at-least-32-characters";
+  const NEW = "a-new-secret-that-is-also-32-characters-long";
+  const VERIFIER = "verifier-0123456789-0123456789-0123456789";
+
+  /**
+   * Whether each kind of value the server sealed before this change (test/fixtures/master-sealed.ts)
+   * still works where it is used: access token, client registration and secret, consent form,
+   * sign-in state and code.
+   */
+  async function masterValuesWork(): Promise<Record<string, boolean>> {
+    const g = MASTER_SEALED;
+    const mcp = await fetch(`${base}/mcp`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${g.access}`,
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "0" } } }),
+    });
+    const authorize = await fetch(
+      `${base}/authorize?${new URLSearchParams({ client_id: g.clientId, response_type: "code", code_challenge: await challengeFor(VERIFIER), code_challenge_method: "S256" })}`,
+      { redirect: "manual" },
+    );
+    const consentForm = await answer(g.pending, "approve", "aniconnect_consent_golden-consent=1");
+    const callback = await fromAniList(g.signin, { code: "code-alice" }, "aniconnect_signin_golden-signin=1");
+    const publicSwap = await swap({ client_id: g.clientId, code: g.code, code_verifier: VERIFIER });
+    const confidentialSwap = await swap({
+      client_id: g.confidentialClientId,
+      client_secret: g.clientProof,
+      code: g.confidentialCode,
+      code_verifier: VERIFIER,
+    });
+    return {
+      accessToken: mcp.status === 200,
+      clientId: authorize.status === 200,
+      pending: consentForm.status === 302 && consentForm.headers.get("Location")!.startsWith(ANILIST_AUTHORIZE),
+      signin: callback.status === 302 && new URL(callback.headers.get("Location")!).searchParams.has("code"),
+      code: publicSwap.status === 200,
+      confidentialCode: confidentialSwap.status === 200,
+    };
+  }
+  const allWork = { accessToken: true, clientId: true, pending: true, signin: true, code: true, confidentialCode: true };
+
+  test("with AUTH_SECRET unchanged, everything the server issued before this change still works", async () => {
+    expect(await masterValuesWork()).toEqual(allWork);
+  });
+
+  test("AUTH_SECRET_PREVIOUS keeps the old secret's sign-ins working; new ones use the new secret", async () => {
+    await restart({ authSecret: NEW, authSecretPrevious: OLD });
+    expect(await masterValuesWork()).toEqual(allWork);
+
+    // What the server issues now is sealed with the new secret: it still works once the old one is dropped.
+    const { client, provider } = await connectSignedIn("code-bob");
+    await client.close();
+    await restart({ authSecret: NEW });
+    const again = new Client({ name: "test", version: "0" });
+    await again.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`), { authProvider: provider }));
+    expect((await call(again, "search_my_list", { status: "CURRENT" })).isError).toBe(false);
+    await again.close();
+
+    // Without AUTH_SECRET_PREVIOUS, the old secret's values are refused.
+    expect(await masterValuesWork()).toEqual({
+      accessToken: false,
+      clientId: false,
+      pending: false,
+      signin: false,
+      code: false,
+      confidentialCode: false,
+    });
+  });
+});
+
+describe("health", () => {
+  test("/health reports the server's state with no user data and no AniList request", async () => {
+    const limiter = new RateLimiter(30);
+    await restart({}, { limiter });
+    const { client } = await connectSignedIn();
+    expect((await call(client, "search_my_list", { status: "CURRENT" })).isError).toBe(false); // viewer and list
+    const before = fake.calls.length;
+    clock += 5_000;
+    const res = await fetch(`${base}/health`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+    const body = await res.json();
+    expect(body).toEqual({
+      status: "ok",
+      version: pkg.version,
+      uptimeSeconds: 5,
+      sessions: 1,
+      accounts: 1,
+      rateLimit: { limit: 30, usedLastMinute: 2, pausedForSeconds: 0, refused: 0, rateLimited: 0 },
+    });
+    expect(fake.calls.length).toBe(before);
+    expect(JSON.stringify(body)).not.toMatch(/alice|Bearer|token/i);
+    await client.close();
+  });
 });
 
 describe("revoking one user", () => {
@@ -1030,5 +1192,12 @@ describe("settings", () => {
     expect(configFromEnv({ ...env, REVOKED_USERS: " 123, 456 789 " }).revokedUsers).toEqual(["123", "456", "789"]);
     expect(configFromEnv({ ...env, REVOKED_USERS: "" }).revokedUsers).toBeUndefined();
     expect(() => configFromEnv({ ...env, REVOKED_USERS: "123,someone" })).toThrow('not "someone"');
+  });
+  test("AUTH_SECRET_PREVIOUS and CLIENT_IP_HEADER are optional", () => {
+    expect(configFromEnv({ ...env, AUTH_SECRET_PREVIOUS: " " + "y".repeat(32) }).authSecretPrevious).toBe("y".repeat(32));
+    expect(configFromEnv({ ...env, AUTH_SECRET_PREVIOUS: "" }).authSecretPrevious).toBeUndefined();
+    expect(() => configFromEnv({ ...env, AUTH_SECRET_PREVIOUS: "short" })).toThrow("AUTH_SECRET_PREVIOUS must be at least 32 characters");
+    expect(configFromEnv({ ...env, CLIENT_IP_HEADER: "X-Real-IP" }).clientIpHeader).toBe("X-Real-IP");
+    expect(() => configFromEnv({ ...env, CLIENT_IP_HEADER: "X-Real-IP: 1.2.3.4" })).toThrow("takes a header name");
   });
 });

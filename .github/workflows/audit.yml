@@ -1,0 +1,29 @@
+name: Dependency audit
+
+# Advisories appear without any change here, so this runs weekly (a failed run emails the
+# owner) and when the dependencies change, but not on every pull request: a new advisory
+# shouldn't block unrelated work.
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+  pull_request:
+    paths: [package.json, bun.lock]
+  push:
+    branches: [master]
+    paths: [package.json, bun.lock]
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: bun audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - run: bun audit
