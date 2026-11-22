@@ -4,6 +4,7 @@ import type { ElicitRequestFormParams, ElicitResult } from "@modelcontextprotoco
 import { z } from "zod";
 import pkg from "../package.json" with { type: "json" };
 import {
+  AIRING_PAGES,
   AniListClient,
   CALL_WAIT_MS,
   LIST_STATUSES,
@@ -39,6 +40,17 @@ import {
   type EntryPlan,
 } from "./logic";
 import {
+  airingRange,
+  checkTags,
+  formatAiring,
+  leftOut,
+  pickRecommendations,
+  splitGenres,
+  yearRange,
+  zoneLabel,
+  type AiringWhen,
+} from "./browse";
+import {
   candidateLabel,
   describeCandidates,
   matchScore,
@@ -64,6 +76,7 @@ import {
   moviesBesideSeries,
   nextSeasons,
   upcoming,
+  watchTime,
 } from "./whatsnext";
 
 const anime = z
@@ -349,6 +362,16 @@ const AIRING_LABEL: Record<(typeof AIRING_STATUSES)[number], string> = {
   HIATUS: "on hiatus",
   CANCELLED: "cancelled",
 };
+/** Most results search_anime lists at once (per day with `airing`). */
+const MAX_RESULTS = 25;
+/**
+ * Episodes the airing calendar lists by default: 15 for one day, 8 a day for longer ranges. A
+ * week held 129 (not adult) on 2026-11-22: about 13,000 characters in full, 9,500 at 15 a day.
+ */
+const AIRING_ONE_DAY = 15;
+const AIRING_PER_DAY = 8;
+/** How relevant (0-100) a tag must be to a show to count: Isekai is 50 on the FMA movie, 91 on Mushoku Tensei III. */
+const MIN_TAG_RANK = 60;
 const SORTS: Record<"relevance" | "popularity" | "score" | "newest", { sort: BrowseFilters["sort"]; label: string }> = {
   relevance: { sort: "SEARCH_MATCH", label: "best match first" },
   popularity: { sort: "POPULARITY_DESC", label: "most popular first" },
@@ -535,12 +558,103 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
     fallback?: Intent,
   ) => target(client, input, intent, source, changes, fallback, ask);
 
+  /** Refuses arguments a search_anime mode doesn't take, rather than ignoring them. */
+  const onlyWith = (args: Record<string, unknown>, allowed: string[], mode: string) => {
+    const extra = Object.keys(args).filter((k) => args[k] !== undefined && !allowed.includes(k));
+    if (extra.length) {
+      throw new Error(`${mode} takes only ${allowed.slice(1).map((k) => `\`${k}\``).join(", ")}; call again without ${extra.map((k) => `\`${k}\``).join(", ")}.`);
+    }
+  };
+
+  /** search_anime's `airing`: AniList's schedule for whole days in the user's zone (R4.6). */
+  const airingCalendar = async (args: { airing: AiringWhen; timeZone?: string; genres?: string[]; formats?: string[]; limit?: number }) => {
+    onlyWith(args, ["airing", "genres", "formats", "limit", "timeZone"], "`airing`");
+    const viewer = await client.getViewer();
+    const { zone, note } = await readZone(args.timeZone);
+    const range = airingRange(args.airing, now(), zone);
+    const { airings, truncated } = await client.airingBetween(range.from, range.to);
+    // The schedule takes no adult, genre or format argument, so these filter here.
+    const kept = airings.filter(
+      (a) =>
+        (viewer.displayAdultContent || !a.media.isAdult) &&
+        (!args.genres || args.genres.every((g) => a.media.genres?.includes(g))) &&
+        (!args.formats || (a.media.format !== null && args.formats.includes(a.media.format))),
+    );
+    const filter = [args.genres?.join(" and "), args.formats?.join(" or ")].filter(Boolean).join(", ");
+    const cut = truncated
+      ? `\nAniList's schedule has more episodes in this range; only the first ${AIRING_PAGES * 50} were read, so ask for fewer days to see the rest.`
+      : "";
+    if (kept.length === 0) return text(`Nothing on AniList's schedule airs ${range.label}${filter ? ` (${filter})` : ""}.${cut}${note}`);
+    const head = `Episodes airing ${range.label}${filter ? `, ${filter}` : ""}, times in ${zoneLabel(zone)}, from AniList's schedule (it can change):`;
+    const perDay = args.limit ?? (range.days === 1 ? AIRING_ONE_DAY : AIRING_PER_DAY);
+    const lines = formatAiring(kept, { zone, limit: perDay, maxLimit: MAX_RESULTS, viewer });
+    return text(`${[head, ...lines].join("\n")}${cut}${note}`);
+  };
+
+  /** search_anime's `similarTo`: AniList users' recommendations for one show, against the user's list. */
+  const recommendations = async (args: {
+    similarTo: string | number;
+    genres?: string[];
+    formats?: string[];
+    year?: number;
+    yearFrom?: number;
+    yearTo?: number;
+    maxEpisodes?: number;
+    limit?: number;
+  }) => {
+    onlyWith(args, ["similarTo", "genres", "formats", "year", "yearFrom", "yearTo", "maxEpisodes", "limit"], "`similarTo`");
+    const viewer = await client.getViewer();
+    // Like adding: the first season unless one is named, whatever the user's status on the others,
+    // since that's where AniList users leave most recommendations.
+    const { media, note } = await find(args.similarTo, "add", memo(clientSource(client)), false);
+    const { relatedIds, recommendations } = await client.getRecommendations(media.id);
+    // AniList's recommendations take no filters, so the call's apply here.
+    const yearOf = (m: Media) => m.seasonYear ?? m.startDate?.year ?? null;
+    const matches = (m: Media & { genres: string[] | null }) =>
+      (!args.genres || args.genres.every((g) => m.genres?.includes(g))) &&
+      (!args.formats || (m.format !== null && args.formats.includes(m.format))) &&
+      (!args.year || yearOf(m) === args.year) &&
+      (!args.yearFrom || (yearOf(m) ?? 0) >= args.yearFrom) &&
+      (!args.yearTo || (yearOf(m) ?? Number.POSITIVE_INFINITY) <= args.yearTo) &&
+      (!args.maxEpisodes || (m.episodes !== null && m.episodes <= args.maxEpisodes));
+    const picked = pickRecommendations({ id: media.id, relatedIds }, recommendations, viewer.displayAdultContent, matches);
+    const title = displayTitle(media.title, viewer.titleLanguage);
+    const range = yearRange(args.yearFrom, args.yearTo);
+    const filter = [
+      args.genres?.join(" and "),
+      args.formats?.join(" or "),
+      args.year ? String(args.year) : range,
+      args.maxEpisodes && `${args.maxEpisodes} episodes or fewer`,
+    ]
+      .filter(Boolean)
+      .join(", ");
+    const out = leftOut(picked, filter);
+    if (picked.total === 0) {
+      // Recommendations with no net votes, lost ones and hidden adult titles don't count.
+      const none = recommendations.length ? " with more votes for than against" : "";
+      return text(`${note}AniList users haven't recommended anything for ${title}${none}.`);
+    }
+    if (picked.shown.length === 0) {
+      return text(`${note}AniList users recommend ${picked.total} show${picked.total === 1 ? "" : "s"} for ${title}, and none is left: ${out}.`);
+    }
+    const shown = picked.shown.slice(0, args.limit ?? 10);
+    const lines = shown.map(({ media: m, rating, others }) => {
+      const score = m.averageScore ? `, AniList score ${m.averageScore}%` : "";
+      const seasons = others ? ` (with ${others} other season${others === 1 ? "" : "s"})` : "";
+      return `${describeEntry(m, m.mediaListEntry, viewer)}${score}, recommended by ${rating}${seasons}${continues(m, viewer.titleLanguage)}`;
+    });
+    const more = picked.shown.length - shown.length;
+    if (more) lines.push(`${more} more: pass a higher limit.`);
+    const head = `AniList users' recommendations for ${title}${filter ? `, ${filter}` : ""}, most recommended first${out ? ` (left out: ${out})` : ""}:`;
+    return text(`${note}${[head, ...lines].join("\n")}`);
+  };
+
   server.registerTool(
     "search_anime",
     {
       title: "Search AniList",
       description:
-        "Search all of AniList for anime by title, or browse it by season, year, genre, format and airing status (\"what's airing this season?\", \"best-rated romance from 2023\"). For a title lookup pass just `query`. Returns IDs, whether each show is already on the user's list, and which results continue a show the user completed.",
+        "Search all of AniList for anime by title, or browse it by season, year, genre, tag, format and airing status (\"what's airing this season?\", \"best-rated isekai from 2023\"). For a title lookup pass just `query`. `airing` lists the episode schedule (\"what airs today?\"); `similarTo`, what AniList users recommend after a show. Returns IDs, AniList scores, whether each show is on the user's list, and which continue one the user completed.",
       inputSchema: {
         query: z.string().min(1).optional().describe("Title to search for, in English, romaji or Japanese"),
         season: z
@@ -550,66 +664,143 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
             "Anime season; needs `year`. WINTER is January-March, SPRING April-June, SUMMER July-September, FALL October-December, so in November \"this winter\" is WINTER of next year.",
           ),
         year: z.number().int().min(1940).max(2100).optional().describe("Year the show aired (with `season`, the season's year)"),
-        genres: z.array(z.enum(GENRES)).min(1).optional().describe("Shows with all of these genres"),
+        yearFrom: z.number().int().min(1940).max(2100).optional().describe("Started this year or later"),
+        yearTo: z.number().int().min(1940).max(2100).optional().describe("Started this year or earlier"),
+        genres: z.array(z.enum(GENRES)).min(1).optional().describe("Shows with all of these genres (Isekai and such are tags)"),
+        tags: z.array(z.string().min(1)).min(1).optional().describe('AniList tags, all required ("Isekai", "Iyashikei")'),
+        exclude: z.array(z.string().min(1)).min(1).optional().describe("Genres or tags to leave out"),
         formats: z.array(z.enum(FORMATS)).min(1).optional().describe("Shows in any of these formats"),
         airingStatus: z
           .enum(AIRING_STATUSES)
           .optional()
           .describe("RELEASING = airing now, NOT_YET_RELEASED = announced, FINISHED, HIATUS, CANCELLED"),
+        maxEpisodes: z.number().int().min(1).max(5000).optional().describe("At most this many episodes"),
+        notOnMyList: z.boolean().optional().describe("Leave out shows on the user's list"),
         sort: z
           .enum(["popularity", "score", "newest"])
           .optional()
           .describe(
             "Order of results. newest = latest start date, announced shows included. Default: best title match with `query`, else popularity",
           ),
-        limit: z.number().int().min(1).max(25).optional().describe("Default 5 for a title search, 10 when browsing"),
+        airing: z
+          .union([z.enum(["today", "tomorrow", "week"]), z.number().int().min(1).max(7)])
+          .optional()
+          .describe("Episodes airing today, tomorrow, this week or in the next N days; takes genres and formats"),
+        timeZone: z.string().optional().describe("IANA time zone for `airing`; defaults to the user's AniList one"),
+        similarTo: z
+          .union([z.string().min(1), z.number().int().positive()])
+          .optional()
+          .describe("A show's name or ID: AniList users' recommendations after it, minus shows the user completed or dropped"),
+        limit: z.number().int().min(1).max(MAX_RESULTS).optional().describe("Default 5 for a title, 10 when browsing, 8 a day with `airing` (15 for one day)"),
+        page: z.number().int().min(1).max(100).optional().describe("For results past `limit`"),
       },
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
-    safe(async ({ query, season, year, genres, formats, airingStatus, sort, limit }) => {
-      const browsing = Boolean(season || year || genres || formats || airingStatus || sort);
+    safe(async (args) => {
+      const { airing, similarTo } = args;
+      if (airing !== undefined) return airingCalendar({ ...args, airing });
+      if (similarTo !== undefined) return recommendations({ ...args, similarTo });
+      const { query, season, year, formats, airingStatus, maxEpisodes, notOnMyList, sort, limit, page = 1 } = args;
+      // A year inside the range given with it (models send year 2024 with 2024-2024) is that year.
+      if (year && ((args.yearFrom && args.yearFrom > year) || (args.yearTo && args.yearTo < year))) {
+        throw new Error(`\`year\` ${year} is outside \`yearFrom\`-\`yearTo\`: pass one or the other.`);
+      }
+      const yearFrom = year ? undefined : args.yearFrom;
+      const yearTo = year ? undefined : args.yearTo;
+      const browsing = Boolean(
+        season || year || yearFrom || yearTo || args.genres || args.tags || args.exclude || formats || airingStatus || maxEpisodes || notOnMyList || sort,
+      );
       if (!query && !browsing) throw new Error("Pass a title in `query`, or at least one filter.");
       // "This season" depends on today's date, which only the assistant knows: never guess the year.
       if (season && !year) throw new Error(`Pass \`year\` with \`season\` (${season} of which year?).`);
+      // A genre given as a tag is searched as the genre; tags AniList doesn't have come back with the closest ones.
+      const wanted = splitGenres(args.tags, GENRES);
+      const genres = [...new Set([...(args.genres ?? []), ...wanted.genres])];
+      const excluded = splitGenres(args.exclude, GENRES);
       const order = sort ? SORTS[sort] : query ? SORTS.relevance : SORTS.popularity;
-      const filter = [
-        query && `"${query}"`,
-        season ? `${capitalize(season)} ${year}` : year && String(year),
-        genres?.join(" and "),
-        formats?.join(" or "),
-        airingStatus && AIRING_LABEL[airingStatus],
-      ]
-        .filter(Boolean)
-        .join(", ");
+      const range = yearRange(yearFrom, yearTo);
 
       const viewer = await client.getViewer();
       const adult = adultFilter(viewer);
+      let tags = wanted.tags;
+      let excludeTags = excluded.tags;
+      // Tags are checked against AniList's tag list: the cached one, else one fetched with the results.
+      const withTags = tags.length > 0 || excludeTags.length > 0;
+      const known = withTags ? client.cachedTags() : undefined;
+      if (known) {
+        tags = checkTags(tags, known, viewer.displayAdultContent);
+        excludeTags = checkTags(excludeTags, known, viewer.displayAdultContent);
+      }
+      const filter = () =>
+        [
+          query && `"${query}"`,
+          season ? `${capitalize(season)} ${year}` : year ? String(year) : range,
+          genres.length ? genres.map((g) => (wanted.genres.includes(g) ? `${g} (a genre, so searched as one)` : g)).join(" and ") : "",
+          tags.length ? `tagged ${tags.join(" and ")}` : "",
+          args.exclude && `without ${[...excluded.genres, ...excludeTags].join(", ")}`,
+          formats?.join(" or "),
+          airingStatus && AIRING_LABEL[airingStatus],
+          maxEpisodes && `${maxEpisodes} episodes or fewer (shows with no episode count left out)`,
+          notOnMyList && "not on your list",
+        ]
+          .filter(Boolean)
+          .join(", ");
       const browse = (isAdult: boolean | undefined) =>
         client.browseAnime(
-          { search: query, season, seasonYear: year, genres, formats, status: airingStatus, sort: order.sort, isAdult },
+          {
+            search: query,
+            season,
+            seasonYear: year,
+            genres: genres.length ? genres : undefined,
+            formats,
+            status: airingStatus,
+            sort: order.sort,
+            isAdult,
+            tags: tags.length ? tags : undefined,
+            // AniList's floor gates exclusions too, so with any, a low-ranked excluded tag would slip past.
+            minimumTagRank: tags.length && !excludeTags.length ? MIN_TAG_RANK : undefined,
+            excludeGenres: excluded.genres.length ? excluded.genres : undefined,
+            excludeTags: excludeTags.length ? excludeTags : undefined,
+            onList: notOnMyList ? false : undefined,
+            // Both bounds are exclusive, and a start date known only to the year is stored as YYYY0000.
+            startAfter: yearFrom ? yearFrom * 10000 - 1 : undefined,
+            startBefore: yearTo ? (yearTo + 1) * 10000 : undefined,
+            episodesBelow: maxEpisodes ? maxEpisodes + 1 : undefined,
+          },
           limit ?? (browsing ? 10 : 5),
+          page,
+          withTags && !client.cachedTags(),
         );
-      const results = await browse(adult);
+      const found = await browse(adult);
+      if (found.tags) {
+        tags = checkTags(tags, found.tags, viewer.displayAdultContent);
+        excludeTags = checkTags(excludeTags, found.tags, viewer.displayAdultContent);
+      }
+      const results = found.media;
+      const label = filter() || "All anime";
       if (results.length === 0) {
         // When nothing else matches, adult titles on the user's list still show.
-        const hidden = adult === false ? await browse(true) : [];
+        const hidden = adult === false && page === 1 ? (await browse(true)).media : [];
         const listed = hidden.filter((m) => m.mediaListEntry);
         const lines = listed.map((m) => describeEntry(m, m.mediaListEntry, viewer));
         if (hidden.length > listed.length) {
           client.forgetViewer();
           lines.push(
-            `${listed.length ? "Other" : "Only"} adult (18+) titles match ${filter}; they're hidden because 18+ content is off in the user's AniList settings. To see them, ${ADULT_HIDDEN}`,
+            `${listed.length ? "Other" : "Only"} adult (18+) titles match ${label}; they're hidden because 18+ content is off in the user's AniList settings. To see them, ${ADULT_HIDDEN}`,
           );
         }
-        return text(lines.length ? lines.join("\n") : `No anime found for ${filter}.`);
+        if (lines.length) return text(lines.join("\n"));
+        return text(page > 1 ? `No more results for ${label} past page ${page - 1}.` : `No anime found for ${label}.`);
       }
       const lines = results.map((m) => {
         const line = describeEntry(m, m.mediaListEntry, viewer);
-        const score = browsing && m.averageScore ? `, AniList score ${m.averageScore}%` : "";
+        const score = m.averageScore ? `, AniList score ${m.averageScore}%` : "";
         return `${line}${score}${continues(m, viewer.titleLanguage)}`;
       });
-      // Title searches keep their old, header-less shape; browsing says what was searched.
-      return text((browsing ? [`${filter}, ${order.label}:`, ...lines] : lines).join("\n"));
+      if (found.hasNextPage) lines.push(`More results: page ${page + 1}.`);
+      // Title searches keep their header-less shape; browsing says what was searched.
+      const head = `${label}, ${order.label}${page > 1 ? ` (page ${page})` : ""}:`;
+      return text((browsing ? [head, ...lines] : lines).join("\n"));
     }),
   );
 
@@ -618,25 +809,58 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
     {
       title: "Search my list",
       description:
-        "Answer questions about the user's own AniList anime list as it is now (what they're watching, whether something is on it, their private notes on a show); for when things happened, use watch_history. Filter by title words and/or list status; leave query empty to list everything in a status.",
+        "Answer questions about the user's own AniList anime list as it is now (what they're watching, whether something is on it, their private notes on a show); for when things happened, use watch_history. Filter by title words, list status, score, format (movies: MOVIE) or release year; leave query empty to list everything in a status. Sort plan-to-watch by AniList score or length to pick from it.",
       inputSchema: {
         query: z.string().optional().describe("Words that must all appear in the title"),
         status: status.optional(),
+        unrated: z.boolean().optional().describe("Only shows without a score (Completed or Rewatching unless `status` is given)"),
+        minScore: z.number().min(0).max(10).optional().describe("Lowest score of the user's, out of 10"),
+        maxScore: z.number().min(0).max(10).optional().describe("Highest, out of 10"),
+        formats: z.array(z.enum(FORMATS)).min(1).optional(),
+        yearFrom: z.number().int().min(1940).max(2100).optional().describe("Released this year or later"),
+        yearTo: z.number().int().min(1940).max(2100).optional().describe("Released this year or earlier"),
         sort: z
-          .enum(["title", "score", "finished", "started", "progress"])
+          .enum(["title", "score", "finished", "started", "progress", "anilistScore", "length"])
           .optional()
-          .describe("score: highest first; finished, started: latest first; progress: most episodes first"),
+          .describe("score: highest first; finished, started: latest first; progress: most episodes first; anilistScore: best on AniList first; length: shortest first"),
         limit: z.number().int().min(1).max(200).default(50),
         offset: z.number().int().min(0).default(0),
       },
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
-    safe(async ({ query, status, sort = "title", limit, offset }) => {
+    safe(async ({ query, status, unrated, minScore, maxScore, formats, yearFrom, yearTo, sort = "title", limit, offset }) => {
+      if (unrated && (minScore !== undefined || maxScore !== undefined)) {
+        throw new Error("Pass either `unrated` or a score range (`minScore`, `maxScore`), not both.");
+      }
       const viewer = await client.getViewer();
+      // Every planned show is unrated, so "unrated" means the ones watched, unless a status says otherwise.
+      const unratedStatuses: ListStatus[] = ["COMPLETED", "REPEATING"];
+      const year = (m: Media) => m.seasonYear ?? m.startDate?.year ?? null;
+      // Scores are compared out of 10 (POINT_10_DECIMAL), whatever the user's own format; unrated is 0.
       const entries = (await client.getMyList(status)).filter(
-        (e) => !query || matchesTitle(e.media, query),
+        (e) =>
+          (!query || matchesTitle(e.media, query)) &&
+          (!unrated || (e.score === 0 && (status !== undefined || unratedStatuses.includes(e.status)))) &&
+          (minScore === undefined || (e.score > 0 && e.score >= minScore)) &&
+          (maxScore === undefined || (e.score > 0 && e.score <= maxScore)) &&
+          (!formats || (e.media.format !== null && (formats as string[]).includes(e.media.format))) &&
+          (yearFrom === undefined || (year(e.media) ?? 0) >= yearFrom) &&
+          (yearTo === undefined || (year(e.media) ?? Number.POSITIVE_INFINITY) <= yearTo),
       );
-      const filter = [query && `"${query}"`, status && statusLabel(status)].filter(Boolean).join(", ");
+      const scored =
+        minScore !== undefined || maxScore !== undefined ? `scored ${minScore ?? 0}-${maxScore ?? 10} out of 10` : "";
+      const years = yearRange(yearFrom, yearTo);
+      const released = years && `released ${years}`;
+      const filter = [
+        query && `"${query}"`,
+        unrated && "unrated",
+        status ? statusLabel(status) : unrated && unratedStatuses.map(statusLabel).join(" or "),
+        scored,
+        formats?.join(" or "),
+        released,
+      ]
+        .filter(Boolean)
+        .join(", ");
       if (entries.length === 0) {
         return text(`Nothing on ${viewer.name}'s list${filter ? ` matching ${filter}` : ""}.`);
       }
@@ -660,8 +884,21 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
           show: (e: Entry) => dated(e.startedAt, "started", "start"),
         },
         progress: { label: "most episodes first", key: (e: Entry) => e.progress, show: () => "" },
+        anilistScore: {
+          label: "best AniList score first",
+          key: (e: Entry) => e.media.averageScore ?? 0,
+          show: (e: Entry) => (e.media.averageScore ? `, AniList score ${e.media.averageScore}%` : ", no AniList score"),
+        },
+        // Shortest first, so the key is negated; an unknown length goes last.
+        length: {
+          label: "shortest first",
+          key: (e: Entry) => (e.media.episodes && e.media.duration ? -e.media.episodes * e.media.duration : Number.NEGATIVE_INFINITY),
+          show: (e: Entry) =>
+            e.media.episodes && e.media.duration ? watchTime(e.media.episodes, e.media.duration) : ", length unknown",
+        },
       };
       const order = orders[sort];
+      // Two unknown lengths subtract to NaN, which falls through to the title like a tie.
       entries.sort(
         (a, b) => order.key(b) - order.key(a) || title(a).localeCompare(title(b)) || a.media.id - b.media.id,
       );

@@ -29,6 +29,7 @@ import {
 import type { ListStatus, ScoreFormat, TitleLanguage } from "../../src/anilist";
 import { normalize } from "../../src/logic";
 import catalogJson from "../fixtures/media.json";
+import recommendationsJson from "../fixtures/recommendations.json";
 
 export type CatalogMedia = (typeof catalogJson)[number];
 export const catalog: CatalogMedia[] = catalogJson;
@@ -259,8 +260,16 @@ const STATUS_LISTS: [ListStatus, string][] = [
   ["PLANNING", "Planning"],
 ];
 
+/**
+ * Whether a show carries a tag (any case, as AniList matches it) ranked at least `floor`. The
+ * fixture keeps each show's top 10 tags only, so a low-ranked tag can be missing here.
+ */
+function hasTag(m: CatalogMedia, name: string, floor: number | undefined): boolean {
+  return (m.tags ?? []).some((t) => t.name.toLowerCase() === name.toLowerCase() && (t.rank ?? 0) >= (floor ?? 0));
+}
+
 /** Media arguments the fake applies; any other one is logged in `unmodeled` and ignored. */
-const MEDIA_FILTERS: Record<string, (m: CatalogMedia, value: any, ctx: Context) => boolean> = {
+const MEDIA_FILTERS: Record<string, (m: CatalogMedia, value: any, ctx: Context, args: Record<string, any>) => boolean> = {
   id: (m, v) => m.id === v,
   id_in: (m, v: number[]) => v.includes(m.id),
   id_not: (m, v) => m.id !== v,
@@ -281,6 +290,9 @@ const MEDIA_FILTERS: Record<string, (m: CatalogMedia, value: any, ctx: Context) 
   // Like AniList: every one of the genres.
   genre_in: (m, v: string[]) => v.every((g) => (m.genres ?? []).includes(g)),
   genre_not_in: (m, v: string[]) => !v.some((g) => (m.genres ?? []).includes(g)),
+  // Like AniList: every one of the tags; `minimumTagRank` gates the exclusions too (checked live).
+  tag_in: (m, v: string[], _ctx, args) => v.every((t) => hasTag(m, t, args.minimumTagRank)),
+  tag_not_in: (m, v: string[], _ctx, args) => !v.some((t) => hasTag(m, t, args.minimumTagRank)),
   isAdult: (m, v) => m.isAdult === v,
   // Without a token there is no list to be on, so the filter does nothing.
   onList: (m, v, ctx) => !ctx.authed || ctx.fake.entries.has(m.id) === v,
@@ -297,7 +309,7 @@ const MEDIA_FILTERS: Record<string, (m: CatalogMedia, value: any, ctx: Context) 
 };
 
 function findMediaBy(args: Record<string, any>, ctx: Context): CatalogMedia[] {
-  const { sort, ...filters } = args;
+  const { sort, minimumTagRank: _rank, ...filters } = args;
   let list = catalog;
   for (const [name, value] of Object.entries(filters)) {
     if (value == null) continue;
@@ -306,7 +318,7 @@ function findMediaBy(args: Record<string, any>, ctx: Context): CatalogMedia[] {
       ctx.fake.unmodeled.add(`Media(${name})`);
       continue;
     }
-    list = list.filter((m) => test(m, value, ctx));
+    list = list.filter((m) => test(m, value, ctx, args));
   }
   // AniList answers id_in in its own order; the request's order is as good a stand-in as any.
   if (filters.id_in && !sort) list = [...list].sort((a, b) => filters.id_in.indexOf(a.id) - filters.id_in.indexOf(b.id));
@@ -398,6 +410,12 @@ resolveFields("Query", {
     return { lists, user: ctx.fake.viewer(), hasNextChunk: false };
   },
   GenreCollection: () => [...new Set(catalog.flatMap((m) => m.genres ?? []))].sort(),
+  // Every tag the snapshot's shows carry (AniList has 430; the snapshot keeps each show's top 10).
+  MediaTagCollection: () => {
+    const tags = new Map<string, boolean>();
+    for (const t of catalog.flatMap((m) => m.tags ?? [])) tags.set(t.name, Boolean(t.isAdult));
+    return [...tags].sort(([a], [b]) => a.localeCompare(b)).map(([name, isAdult], i) => ({ id: i + 1, name, isAdult }));
+  },
   AiringSchedule: (_root, args, ctx) => {
     const schedule = ctx.fake.airingSchedules(args)[0];
     if (!schedule) throw notFound();
@@ -470,6 +488,23 @@ resolveFields("Media", {
   nextAiringEpisode: (m: MediaValue, _args, ctx) => {
     const next = m.nextAiringEpisode;
     return next ? ctx.fake.schedule(m.id, next.episode, next.airingAt) : null;
+  },
+  // AniList's community recommendations, from test/fixtures/recommendations.json (or set in a test).
+  recommendations: (m: MediaValue, args, ctx) => {
+    if (args.sort && args.sort[0] !== "RATING_DESC") ctx.fake.unmodeled.add(`Media.recommendations(sort: ${args.sort[0]})`);
+    const edges = [...(ctx.fake.recommendations.get(m.id) ?? [])].sort((a, b) => b.rating - a.rating);
+    // AniList gives at most 25 recommendations a page, whatever perPage asks (checked live).
+    const page = { page: Math.max(1, args.page ?? 1), perPage: Math.min(25, Math.max(1, args.perPage ?? 25)) };
+    const nodes = paginate(page, edges).map((e, i) => {
+      const target = e.id === null ? undefined : catalog.find((c) => c.id === e.id);
+      return { id: m.id * 100 + i, rating: e.rating, media: m, mediaRecommendation: target ? mediaValue(target, m.level + 1) : null };
+    });
+    const lastPage = Math.max(1, Math.ceil(edges.length / page.perPage));
+    return {
+      nodes,
+      edges: nodes.map((node) => ({ node })),
+      pageInfo: { total: edges.length, perPage: page.perPage, currentPage: page.page, lastPage, hasNextPage: page.page < lastPage },
+    };
   },
   relations: (m: MediaValue) => {
     if (m.level > RELATION_LEVELS || !m.relations) return { edges: [] };
@@ -623,6 +658,12 @@ export class FakeAniList {
   stalls: (query: string) => boolean = () => false;
   /** Fields and arguments that requests used but the fake has no data for ("Media.coverImage", "Media(tag)"). */
   unmodeled = new Set<string>();
+  /** Episodes airing besides each show's next one (the only one the snapshot knows), for Page.airingSchedules. */
+  airings: { mediaId: number; episode: number; airingAt: number }[] = [];
+  /** Each show's recommendations by media ID; `id` null is a recommended show AniList returns as null. */
+  recommendations = new Map<number, { id: number | null; rating: number }[]>(
+    Object.entries(recommendationsJson as Record<string, { id: number | null; rating: number }[]>).map(([id, edges]) => [Number(id), edges]),
+  );
 
   constructor(
     public scoreFormat: ScoreFormat = "POINT_10_DECIMAL",
@@ -695,12 +736,18 @@ export class FakeAniList {
     return this.scheduleIds.get(key)!;
   }
 
-  /** The snapshot knows each airing show's next episode only. */
+  /** The snapshot knows each airing show's next episode only; tests add more in `airings`. */
   airingSchedules(args: Record<string, any>) {
     const now = Math.floor(this.clock() / 1000);
-    return catalog
-      .filter((m) => m.nextAiringEpisode)
-      .map((m) => this.schedule(m.id, m.nextAiringEpisode!.episode, m.nextAiringEpisode!.airingAt))
+    const known = new Set(["mediaId", "mediaId_in", "episode", "notYetAired", "airingAt_greater", "airingAt_lesser", "sort"]);
+    for (const [name, value] of Object.entries(args)) if (value != null && !known.has(name)) this.unmodeled.add(`AiringSchedule(${name})`);
+    if (args.sort && args.sort[0] !== "TIME") this.unmodeled.add(`AiringSchedule(sort: ${args.sort[0]})`);
+    return [
+      ...catalog
+        .filter((m) => m.nextAiringEpisode)
+        .map((m) => this.schedule(m.id, m.nextAiringEpisode!.episode, m.nextAiringEpisode!.airingAt)),
+      ...this.airings.map((a) => this.schedule(a.mediaId, a.episode, a.airingAt)),
+    ]
       .filter(
         (s) =>
           (args.mediaId == null || s.mediaId === args.mediaId) &&
@@ -710,7 +757,7 @@ export class FakeAniList {
           (args.airingAt_greater == null || s.airingAt > args.airingAt_greater) &&
           (args.airingAt_lesser == null || s.airingAt < args.airingAt_lesser),
       )
-      .sort((a, b) => a.airingAt - b.airingAt);
+      .sort((a, b) => a.airingAt - b.airingAt || a.mediaId - b.mediaId);
   }
 
   /**

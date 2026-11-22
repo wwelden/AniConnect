@@ -972,10 +972,9 @@ describe("list cache (R5.4)", () => {
 describe("search_anime filters", () => {
   const lines = (text: string) => text.split("\n").slice(1);
 
-  test("a plain title search keeps its old shape and sorts by best match", async () => {
+  test("a plain title search has no header and sorts by best match", async () => {
     const r = await call("search_anime", { query: "frieren" });
     expect(r.text).not.toContain("first:");
-    expect(r.text).not.toContain("AniList score");
     expect(fake.calls.at(-1)!.variables).toMatchObject({ search: "frieren", sort: ["SEARCH_MATCH"], perPage: 5 });
   });
 

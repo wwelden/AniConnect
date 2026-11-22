@@ -158,12 +158,31 @@ export const CASES: EvalCase[] = [
     expect: { readOnly: true, mentions: ["plan"] } },
   { id: "read-top-rated", prompt: "What are my three highest-rated shows?", idealCalls: 1,
     expect: { readOnly: true, tools: ["search_my_list"], mentions: ["Frieren", "Attack on Titan"] } },
+  // The list's own filters and sorts (R0.2).
+  { id: "read-unrated", prompt: "Which shows have I finished but never rated?", idealCalls: 1,
+    expect: { readOnly: true, tools: ["search_my_list"], mentions: ["Bocchi", "Mob Psycho"] } },
+  { id: "read-score-range", prompt: "Which shows did I give a 9 or higher?", idealCalls: 1,
+    expect: { readOnly: true, tools: ["search_my_list"], mentions: ["Frieren", "Attack on Titan"] } },
+  { id: "read-backlog-best", prompt: "Which show on my plan-to-watch list has the best AniList rating?", idealCalls: 1,
+    expect: { readOnly: true, tools: ["search_my_list"], mentions: ["Mob Psycho"] } },
 
   // Browsing AniList with filters (R0.13).
   { id: "browse-season", prompt: "What anime is airing this season?", idealCalls: 1,
     expect: { readOnly: true, tools: ["search_anime"], mentions: ["Apothecary Diaries"] } },
   { id: "browse-genre", prompt: "What's the best-rated romance anime from 2025?", idealCalls: 1,
     expect: { readOnly: true, tools: ["search_anime"], mentions: ["Chainsaw Man"] } },
+  { id: "browse-tag", prompt: "What are the best isekai anime from 2024?", idealCalls: 1,
+    expect: { readOnly: true, tools: ["search_anime"], mentions: ["Mushoku Tensei"] } },
+  { id: "browse-not-on-list", prompt: "What's the top-rated anime from Winter 2026 that isn't on my list yet?", idealCalls: 1,
+    expect: { readOnly: true, tools: ["search_anime"], mentions: ["Frieren"] } },
+
+  // The airing calendar (R4.6), for all of AniList, not just the user's shows.
+  { id: "browse-airing-week", prompt: "What anime episodes air this week?", idealCalls: 1,
+    expect: { readOnly: true, tools: ["search_anime"], mentions: ["Apothecary Diaries"] } },
+
+  // Recommendations (R0.16): Frieren's in the fixture are The Apothecary Diaries (completed) and three Mushoku Tensei seasons.
+  { id: "browse-similar", prompt: "Recommend me something similar to Frieren that I haven't seen", idealCalls: 1,
+    expect: { readOnly: true, tools: ["search_anime"], mentions: ["Mushoku Tensei"] } },
 
   // What to watch next (R4).
   { id: "next-free-time", prompt: "I've got a free evening, what should I watch?", idealCalls: 1,
