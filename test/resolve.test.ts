@@ -717,6 +717,14 @@ describe("a misspelled name resolves as the right spelling does (R1.2)", () => {
       expect(r.kind === "match" && r.media.id).toBe(findMedia("Kaguya-sama: Love is War?").id);
     }
   });
+
+  test("a misspelled season word still names the season, as \"season\" does", async () => {
+    for (const query of ["aot season 2", "aot seson 2", "attack on titan seasn 2"]) {
+      seed(PERSONA);
+      const r = await resolve(query, "progress");
+      expect(r.kind === "match" && r.media.id).toBe(findMedia("Shingeki no Kyojin Season 2").id);
+    }
+  });
 });
 
 describe("a numbered season of two different shows asks which show (#62)", () => {
