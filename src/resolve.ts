@@ -257,8 +257,8 @@ function correction(q: ParsedQuery, listed: Media[]): ParsedQuery | undefined {
     fixes.set(word, [...closest][0]!);
   }
   if (!fixes.size) return undefined;
-  const exact = q.exact.split(" ").map((w) => fixes.get(w) ?? w).join(" ");
-  return { exact, words: meaningful(exact), hint: q.hint };
+  // finish expands an abbreviation the respelling lands on ("rezzero" -> "rezero"), as for the right spelling.
+  return finish(q.exact.split(" ").map((w) => fixes.get(w) ?? w).join(" "), q.hint);
 }
 
 /**

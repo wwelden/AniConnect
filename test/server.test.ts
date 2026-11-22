@@ -527,6 +527,14 @@ describe("names resolve the same on every write tool", () => {
     expect(fake.entries.get(182255)).toMatchObject({ status: "CURRENT", progress: 5 });
   });
 
+  test("a misspelled abbreviation goes where the abbreviation does (R1.2)", async () => {
+    fake.seed([{ anime: "Re:Zero kara Hajimeru Isekai Seikatsu", status: "COMPLETED" }]);
+    const r = await call("set_progress", { anime: "rezzero", episodes: 5 });
+    expect(r.isError).toBe(false);
+    expect(fake.entries.get(21355)).toMatchObject({ status: "COMPLETED", progress: 25 });
+    expect(fake.entries.get(108632)).toMatchObject({ status: "CURRENT", progress: 5 });
+  });
+
   test("season 2's exact title changes season 2, not the season being watched (#73)", async () => {
     fake.seed(PERSONA);
     const r = await call("set_status", { anime: "Kaguya-sama: Love is War?", status: "DROPPED" });
