@@ -882,11 +882,11 @@ export class AniListClient {
    */
   async getRecommendations(mediaId: number): Promise<{ relatedIds: number[]; recommendations: Recommendation[] }> {
     const data = await this.request<{
-      Media: { relations: { edges: { node: { id: number } }[] }; recommendations: { nodes: Recommendation[] } } | null;
+      Media: { relations: { edges: { relationType: string; node: { id: number } }[] }; recommendations: { nodes: Recommendation[] } } | null;
     }>(
       `query ($id: Int) {
         Media(id: $id, type: ANIME) {
-          relations { edges { node { id } } }
+          relations { edges { relationType node { id } } }
           recommendations(sort: [RATING_DESC], perPage: 25) {
             nodes {
               rating
@@ -911,7 +911,10 @@ export class AniListClient {
     );
     if (!data.Media) throw new AniListError(`No anime found with id ${mediaId}.`);
     return {
-      relatedIds: data.Media.relations.edges.map((e) => e.node.id),
+      // A crossover (CHARACTER, OTHER: Isekai Quartet, another work by the author) isn't the show's franchise.
+      relatedIds: data.Media.relations.edges
+        .filter((e) => e.relationType !== "CHARACTER" && e.relationType !== "OTHER")
+        .map((e) => e.node.id),
       recommendations: data.Media.recommendations.nodes,
     };
   }

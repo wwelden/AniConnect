@@ -162,7 +162,7 @@ export interface PickedRecommendations {
 /**
  * What to list from a show's recommendations: none with no net votes, no lost (null) or adult shows (unless 18+ is
  * on), none the user completed, is rewatching or dropped, none of the show's own franchise
- * (its relations and anything linked to them, such as a sequel of a related show or another adaptation of its source),
+ * (its relations other than crossovers, and anything linked to them, such as a sequel of a related show or another adaptation of its source),
  * only ones `matches` keeps; then
  * several seasons of one recommended franchise fold into the earliest, most voted first.
  */

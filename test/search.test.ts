@@ -435,6 +435,15 @@ describe("search_anime similarTo", () => {
     expect(r.text).toContain("1 of the same franchise");
   });
 
+  test("a crossover of the source is not its franchise, in either direction", async () => {
+    // Kaguya-sama (101921) links to Oshi no Ko (150672) only as OTHER (same author).
+    let r = await call("search_anime", { similarTo: 101921, limit: 25 });
+    expect(ids(r.text)).toContain(150672);
+    // Re:Zero (21355) and KonoSuba (21202) both link to Isekai Quartet as CHARACTER.
+    r = await call("search_anime", { similarTo: 21355, limit: 25 });
+    expect(ids(r.text)).toContain(21202);
+  });
+
   test("a show named without a season is its first season, whatever the user is watching or planning", async () => {
     // The persona plans Mob Psycho 100 III; recommendations sit mostly on season 1.
     fake.seed(PERSONA);
