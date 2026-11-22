@@ -133,6 +133,15 @@ describe("search_my_list filters", () => {
     expect(r.text).toContain("length unknown");
   });
 
+  test("one end of a year range reads plainly, and a backwards one is refused", async () => {
+    fake.seed(LIST);
+    let r = await call("search_my_list", { yearTo: 2005 });
+    expect(header(r.text)).toContain("released up to 2005");
+    r = await call("search_my_list", { yearFrom: 2010, yearTo: 2005 });
+    expect(r.isError).toBe(true);
+    expect(r.text).toContain("swap them");
+  });
+
   test("filters cost no request beyond the cached list", async () => {
     fake.seed(LIST);
     await call("search_my_list", {});
@@ -324,6 +333,10 @@ describe("search_anime airing calendar", () => {
     expect(listed).toHaveLength(16);
     expect(r.text).toContain("[218532]");
     expect(r.text).toContain("- 5 more, less popular: pass limit (up to 25) to see them");
+    // A dropped show doesn't get past the cap.
+    fake.seed([{ anime: 218532, status: "DROPPED" }]);
+    const dropped = await call("search_anime", { airing: "today", timeZone: "UTC" });
+    expect(dropped.text).not.toContain("[218532]");
     // In time order.
     const times = listed.map((l) => ids(l)[0]);
     expect(times.at(-1)).toBe(218532);
@@ -418,8 +431,18 @@ describe("search_anime similarTo", () => {
   test("a show named without a season is its first season, whatever the user is watching or planning", async () => {
     // The persona plans Mob Psycho 100 III; recommendations sit mostly on season 1.
     fake.seed(PERSONA);
-    const r = await call("search_anime", { similarTo: "mob psycho 100" });
+    let r = await call("search_anime", { similarTo: "mob psycho 100" });
     expect(r.text).toContain("recommendations for Mob Psycho 100,");
+    // A season the user names is that season.
+    r = await call("search_anime", { similarTo: "mob psycho 100 III" });
+    expect(r.text).toContain("recommendations for Mob Psycho 100 III,");
+  });
+
+  test("a remake of a recommended show is listed on its own, not folded in as a season", async () => {
+    // For Attack on Titan: Fullmetal Alchemist: Brotherhood (115) and its 2003 version (41) adapt the same manga.
+    const r = await call("search_anime", { similarTo: 16498 });
+    expect(ids(r.text)).toContain(5114);
+    expect(ids(r.text)).toContain(121);
   });
 
   test("recommendations with no net votes aren't listed", async () => {

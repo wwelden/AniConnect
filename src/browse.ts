@@ -61,6 +61,13 @@ export function checkTags(names: string[], known: TagName[], showAdult: boolean)
   return names.map((n) => byName.get(n.toLowerCase())!);
 }
 
+/** "2020-2024", "2024", "2020 or later", "up to 2024", or "" for no range; refuses one that runs backwards. */
+export function yearRange(from: number | undefined, to: number | undefined): string {
+  if (from && to && from > to) throw new Error(`\`yearFrom\` ${from} is after \`yearTo\` ${to}: swap them.`);
+  if (from && to) return from === to ? String(from) : `${from}-${to}`;
+  return from ? `${from} or later` : to ? `up to ${to}` : "";
+}
+
 export type AiringWhen = "today" | "tomorrow" | "week" | number;
 
 /** "Tue, Nov 17": a calendar day, the same wherever it's read. */
@@ -108,7 +115,7 @@ export function formatAiring(
   const lines: string[] = [];
   for (const { label, airings: today } of days.values()) {
     const popular = new Set([...today].sort((a, b) => (b.media.popularity ?? 0) - (a.media.popularity ?? 0)).slice(0, options.limit));
-    const shown = today.filter((a) => popular.has(a) || a.media.mediaListEntry);
+    const shown = today.filter((a) => popular.has(a) || (a.media.mediaListEntry && a.media.mediaListEntry.status !== "DROPPED"));
     lines.push(`${label}:`);
     for (const a of shown) {
       lines.push(`- ${parts(a.airingAt * 1000, options.zone).time}, episode ${a.episode}: ${describeEntry(a.media, a.media.mediaListEntry, options.viewer)}`);
@@ -182,12 +189,16 @@ export function pickRecommendations(
   const group = new Map<number, number>(kept.map((k) => [k.media.id, k.media.id]));
   const root = (id: number): number => (group.get(id) === id ? id : root(group.get(id)!));
   const join = (a: number, b: number) => group.set(root(a), root(b));
-  const bySource = new Map<number, number>();
+  const bySource = new Map<number, Recommended>();
+  // A remake (FMA and Brotherhood, linked as ALTERNATIVE) adapts the same source but is its own show.
+  const remake = (a: Recommended, b: Recommended) =>
+    [[a, b], [b, a]].some(([x, y]) => (x!.relations?.edges ?? []).some((e) => e.relationType === "ALTERNATIVE" && e.node.id === y!.id));
   for (const { media } of kept) {
     for (const e of media.relations?.edges ?? []) if (SEASON_LINKS.has(e.relationType) && group.has(e.node.id)) join(media.id, e.node.id);
     for (const id of sourceIds(media)) {
-      if (bySource.has(id)) join(media.id, bySource.get(id)!);
-      else bySource.set(id, media.id);
+      const other = bySource.get(id);
+      if (!other) bySource.set(id, media);
+      else if (!remake(media, other)) join(media.id, other.id);
     }
   }
   const groups = new Map<number, { media: Recommended; rating: number }[]>();

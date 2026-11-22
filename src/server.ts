@@ -39,7 +39,17 @@ import {
   toRawScore,
   type EntryPlan,
 } from "./logic";
-import { airingRange, checkTags, formatAiring, leftOut, pickRecommendations, splitGenres, zoneLabel, type AiringWhen } from "./browse";
+import {
+  airingRange,
+  checkTags,
+  formatAiring,
+  leftOut,
+  pickRecommendations,
+  splitGenres,
+  yearRange,
+  zoneLabel,
+  type AiringWhen,
+} from "./browse";
 import {
   candidateLabel,
   describeCandidates,
@@ -609,7 +619,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       (!args.maxEpisodes || (m.episodes !== null && m.episodes <= args.maxEpisodes));
     const picked = pickRecommendations({ id: media.id, relatedIds }, recommendations, viewer.displayAdultContent, matches);
     const title = displayTitle(media.title, viewer.titleLanguage);
-    const range = args.yearFrom || args.yearTo ? `${args.yearFrom ?? ""}-${args.yearTo ?? ""}` : "";
+    const range = yearRange(args.yearFrom, args.yearTo);
     const filter = [
       args.genres?.join(" and "),
       args.formats?.join(" or "),
@@ -619,7 +629,11 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       .filter(Boolean)
       .join(", ");
     const out = leftOut(picked, filter);
-    if (picked.total === 0) return text(`${note}AniList users haven't recommended anything for ${title}.`);
+    if (picked.total === 0) {
+      // Recommendations with no net votes, lost ones and hidden adult titles don't count.
+      const none = recommendations.length ? " with more votes for than against" : "";
+      return text(`${note}AniList users haven't recommended anything for ${title}${none}.`);
+    }
     if (picked.shown.length === 0) {
       return text(`${note}AniList users recommend ${picked.total} show${picked.total === 1 ? "" : "s"} for ${title}, and none is left: ${out}.`);
     }
@@ -704,8 +718,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       const genres = [...new Set([...(args.genres ?? []), ...wanted.genres])];
       const excluded = splitGenres(args.exclude, GENRES);
       const order = sort ? SORTS[sort] : query ? SORTS.relevance : SORTS.popularity;
-      const range =
-        yearFrom && yearTo ? (yearFrom === yearTo ? String(yearFrom) : `${yearFrom}-${yearTo}`) : yearFrom ? `${yearFrom} or later` : yearTo ? `up to ${yearTo}` : "";
+      const range = yearRange(yearFrom, yearTo);
 
       const viewer = await client.getViewer();
       const adult = adultFilter(viewer);
@@ -836,10 +849,8 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       );
       const scored =
         minScore !== undefined || maxScore !== undefined ? `scored ${minScore ?? 0}-${maxScore ?? 10} out of 10` : "";
-      const released =
-        yearFrom !== undefined || yearTo !== undefined
-          ? `released ${yearFrom === yearTo ? yearFrom : `${yearFrom ?? ""}-${yearTo ?? ""}`}`
-          : "";
+      const years = yearRange(yearFrom, yearTo);
+      const released = years && `released ${years}`;
       const filter = [
         query && `"${query}"`,
         unrated && "unrated",
