@@ -11,7 +11,8 @@
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { AniListClient, UserCache, type FetchFn, type RateLimiter } from "./anilist";
+import pkg from "../package.json";
+import { ANILIST_LIMITER, AniListClient, UserCache, type FetchFn, type RateLimiter } from "./anilist";
 import { OAuthServer, sha256, type OAuthConfig } from "./oauth";
 import { createServer, UserState } from "./server";
 import { HOSTED_RENEW, tokenUser } from "./token";
@@ -131,7 +132,10 @@ function rpcError(status: number, message: string, headers: Record<string, strin
 
 export async function createHttpApp(config: OAuthConfig, options: HttpOptions = {}) {
   const now = options.now ?? Date.now;
+  const startedAt = now();
   const oauth = await OAuthServer.create(config, { fetch: options.fetch, now });
+  /** The limiter every client shares, for /health; none when each client has its own (a fake AniList). */
+  const limiter = options.limiter ?? (options.fetch ? null : ANILIST_LIMITER);
   const accounts = new Map<string, Account>();
   const sessions = new Map<string, Session>();
   /**
@@ -153,6 +157,7 @@ export async function createHttpApp(config: OAuthConfig, options: HttpOptions = 
     if (!client) {
       client = new AniListClient(token, options.fetch, found.cache, options.limiter);
       client.renew = HOSTED_RENEW;
+      client.owner = key;
       found.clients.set(hash, client);
     }
     found.lastUsed = now();
@@ -245,7 +250,35 @@ export async function createHttpApp(config: OAuthConfig, options: HttpOptions = 
     return transport.handleRequest(req, { parsedBody: body });
   }
 
-  async function route(req: Request): Promise<Response> {
+  /**
+   * For the host's healthcheck and the operator: totals only, no user data, never cached, and
+   * no request to AniList (anyone may call it).
+   */
+  function health(): Response {
+    const t = now();
+    const limit = limiter?.snapshot(t);
+    const body = {
+      status: "ok",
+      version: pkg.version,
+      uptimeSeconds: Math.floor((t - startedAt) / 1000),
+      sessions: sessions.size,
+      accounts: accounts.size,
+      ...(limiter && limit
+        ? {
+            rateLimit: {
+              limit: limit.limit,
+              usedLastMinute: limit.used,
+              pausedForSeconds: Math.ceil(limit.pausedForMs / 1000),
+              refused: limiter.refused,
+              rateLimited: limiter.rateLimited,
+            },
+          }
+        : {}),
+    };
+    return new Response(JSON.stringify(body), { headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
+  }
+
+  async function route(req: Request, peer: string | undefined): Promise<Response> {
     const { pathname } = new URL(req.url);
     if (req.method === "OPTIONS") return new Response(null, { status: 204 });
     if (pathname === "/mcp") return mcp(req);
@@ -263,7 +296,9 @@ export async function createHttpApp(config: OAuthConfig, options: HttpOptions = 
         case "/authorize":
           return oauth.authorize(req);
         case "/oauth/callback":
-          return oauth.callback(req);
+          return oauth.callback(req, peer);
+        case "/health":
+          return health();
         case "/":
           return new Response(
             `AniConnect: an MCP server for your AniList anime list.\nAdd ${oauth.resource} to your MCP client as a remote (custom) connector, then sign in with AniList.\n`,
@@ -293,11 +328,12 @@ export async function createHttpApp(config: OAuthConfig, options: HttpOptions = 
     async close(): Promise<void> {
       for (const id of [...sessions.keys()]) await close(id);
     },
-    async fetch(req: Request): Promise<Response> {
+    /** Answers a request; `peer` is the address it came from (`Bun.serve`'s `requestIP`). */
+    async fetch(req: Request, peer?: string): Promise<Response> {
       try {
         const capped = await capBody(req);
         if (!capped) return withCors(new Response("Request body too large\n", { status: 413 }));
-        return withCors(await route(capped));
+        return withCors(await route(capped, peer));
       } catch (err) {
         // Never echo request data (it may hold tokens); the message is enough to debug.
         console.error(`AniConnect: ${req.method} ${new URL(req.url).pathname} failed:`, (err as Error).message);
@@ -326,6 +362,16 @@ export function configFromEnv(env: Record<string, string | undefined> = process.
     const bad = revoked.find((id) => !/^\d+$/.test(id));
     if (bad !== undefined) throw new Error(`REVOKED_USERS takes AniList user IDs (numbers), not ${JSON.stringify(bad.slice(0, 50))}.`);
     config.revokedUsers = revoked;
+  }
+  const previous = env.AUTH_SECRET_PREVIOUS?.trim();
+  if (previous) {
+    if (previous.length < 32) throw new Error("AUTH_SECRET_PREVIOUS must be at least 32 characters, like AUTH_SECRET.");
+    config.authSecretPrevious = previous;
+  }
+  const ipHeader = env.CLIENT_IP_HEADER?.trim();
+  if (ipHeader) {
+    if (!/^[A-Za-z0-9-]+$/.test(ipHeader)) throw new Error(`CLIENT_IP_HEADER takes a header name, such as X-Real-IP, not ${JSON.stringify(ipHeader.slice(0, 50))}.`);
+    config.clientIpHeader = ipHeader;
   }
   if (missing.length) throw new Error(`Set ${missing.join(", ")} (see the README, "Hosting").`);
   if (config.authSecret.length < 32) throw new Error("AUTH_SECRET must be at least 32 characters (try `openssl rand -base64 32`).");
@@ -377,16 +423,17 @@ if (import.meta.main) {
   const server = Bun.serve({
     ...SERVE_OPTIONS,
     port: Number(process.env.PORT) || 3000,
-    fetch: app.fetch,
+    fetch: (req, srv) => app.fetch(req, srv.requestIP(req)?.address),
   });
-  console.error(`AniConnect listening on port ${server.port}; MCP endpoint ${app.oauth.resource}`);
-  console.error(`AniList client redirect URL must be ${app.oauth.callbackUrl}`);
+  // Not errors, so stdout, where the host doesn't flag them as such.
+  console.log(`AniConnect listening on port ${server.port}; MCP endpoint ${app.oauth.resource}`);
+  console.log(`AniList client redirect URL must be ${app.oauth.callbackUrl}`);
   let stopping = false;
   const stop = (signal: string) => {
     // A second signal (Ctrl-C again) exits without waiting.
     if (stopping) process.exit(1);
     stopping = true;
-    console.error(`AniConnect: ${signal}, finishing requests in progress`);
+    console.log(`AniConnect: ${signal}, finishing requests in progress`);
     shutdown(server, app).then(
       () => process.exit(0),
       (err) => {

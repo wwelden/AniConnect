@@ -43,7 +43,8 @@ const ok = () => Response.json({ data: { Viewer: { id: 1 } } });
 function setup(limiter: RateLimiter, answer: (name: string, n: number, init: RequestInit) => Response | Promise<Response> = ok) {
   const clock = new FakeClock();
   const sent: { name: string; at: number }[] = [];
-  const client = (name: string) => {
+  /** `owner` groups requests by user, as the hosted server does by AniList account. */
+  const client = (name: string, owner?: string) => {
     const c = new AniListClient(
       name,
       async (_url, init) => {
@@ -55,6 +56,7 @@ function setup(limiter: RateLimiter, answer: (name: string, n: number, init: Req
     );
     c.now = clock.now;
     c.sleep = clock.sleep;
+    c.owner = owner;
     return c;
   };
   const outcome = (p: Promise<unknown>) => p.then(() => "ok", (e: Error) => e.message);
@@ -231,6 +233,83 @@ describe("shared rate limit", () => {
     );
     expect(text).toContain("AniList rate limit hit (2 requests a minute). Try again in 30 seconds.");
     expect(sent.map((s) => `${s.name}@${s.at / 1000}`)).toEqual(["a@0", "a@30", "b@60"]);
+  });
+});
+
+describe("sharing the limit fairly between users", () => {
+  test("a user alone has the whole limit", () => {
+    const limiter = new RateLimiter(30);
+    for (let i = 0; i < 30; i++) expect(limiter.book(0, undefined, "a")).toEqual({ at: 0 });
+    expect(limiter.book(0, undefined, "a")).toEqual({ waitMs: 60_000 });
+  });
+
+  test("while another user has a request in the window, one user holds at most half of it", () => {
+    const limiter = new RateLimiter(30);
+    expect(limiter.book(0, undefined, "b")).toEqual({ at: 0 });
+    for (let i = 0; i < 15; i++) expect(limiter.book(10_000, undefined, "a")).toEqual({ at: 10_000 });
+    // a's 16th waits until a's own first leaves the window, at 70s.
+    expect(limiter.book(10_000, undefined, "a")).toEqual({ waitMs: 60_000 });
+    expect(limiter.book(10_000, Number.POSITIVE_INFINITY, "a")).toEqual({ at: 70_000 });
+    // b still finds room at once.
+    expect(limiter.book(11_000, undefined, "b")).toEqual({ at: 11_000 });
+  });
+
+  test("slots a capped user books ahead don't hold up another user now", () => {
+    const limiter = new RateLimiter(30);
+    expect(limiter.book(0, undefined, "b")).toEqual({ at: 0 });
+    for (let i = 0; i < 15; i++) limiter.book(0, undefined, "a");
+    // At 35s a's next 15 are booked for 60s, when its first 15 leave the window.
+    for (let i = 0; i < 15; i++) expect(limiter.book(35_000, undefined, "a")).toEqual({ at: 60_000 });
+    expect(limiter.book(35_000, undefined, "a")).toEqual({ waitMs: 25_000 + 60_000 });
+    // b, still in the window, goes at once: no minute holds more than 30.
+    expect(limiter.book(36_000, undefined, "b")).toEqual({ at: 36_000 });
+  });
+
+  test("a capped user can't book past another user's last slot leaving the window", () => {
+    const limiter = new RateLimiter(30);
+    expect(limiter.book(0, undefined, "b")).toEqual({ at: 0 });
+    for (let i = 0; i < 15; i++) expect(limiter.book(35_000, undefined, "a")).toEqual({ at: 35_000 });
+    expect(limiter.book(35_000, undefined, "a")).toEqual({ waitMs: 60_000 });
+    expect(limiter.book(36_000, undefined, "b")).toEqual({ at: 36_000 });
+  });
+
+  test("requests without an owner share one, so a lone local user is never capped", () => {
+    const limiter = new RateLimiter(4);
+    for (let i = 0; i < 4; i++) expect(limiter.book(0)).toEqual({ at: 0 });
+  });
+
+  test("one user's burst leaves room for another user's next call", async () => {
+    const { clock, sent, client, outcome } = setup(new RateLimiter(30));
+    const [alice, bob] = [client("alice", "user:1"), client("bob", "user:2")];
+    const results = await clock.run(
+      (async () => {
+        await bob.request(QUERY);
+        await clock.sleep(1_000);
+        const burst = Promise.all(Array.from({ length: 35 }, () => outcome(alice.request(QUERY))));
+        await clock.sleep(1_000);
+        const next = await outcome(bob.request(QUERY));
+        return { burst: await burst, next };
+      })(),
+    );
+    // Alice gets half the minute; the rest of her burst is told to wait until her first
+    // requests leave the window. Bob's next call goes at once instead of waiting out the minute.
+    expect(results.burst.filter((r) => r === "ok").length).toBe(15);
+    expect(new Set(results.burst.filter((r) => r !== "ok"))).toEqual(
+      new Set(["AniList rate limit hit (30 requests a minute). Try again in 60 seconds."]),
+    );
+    expect(results.next).toBe("ok");
+    expect(sent.filter((s) => s.name === "bob").map((s) => s.at)).toEqual([0, 2_000]);
+  });
+
+  test("a request that gives its slot back gives back its own user's", () => {
+    const limiter = new RateLimiter(4);
+    expect(limiter.book(0, undefined, "a")).toEqual({ at: 0 });
+    expect(limiter.book(0, undefined, "a")).toEqual({ at: 0 });
+    expect(limiter.book(0, undefined, "b")).toEqual({ at: 0 });
+    limiter.move(0, null, "b");
+    // Only a is left in the window, so a has the whole limit again.
+    expect(limiter.book(0, undefined, "a")).toEqual({ at: 0 });
+    expect(limiter.book(0, undefined, "a")).toEqual({ at: 0 });
   });
 });
 

@@ -8,11 +8,14 @@
  *
  * Nothing is stored. Client registrations, sign-ins in progress, codes and access tokens are
  * sealed with AES-GCM under AUTH_SECRET, each kind under its own label so one can't be passed
- * off as another. A restart or a second instance signs nobody out. The one piece of memory is
- * the set of codes already used, so a code works once per instance.
+ * off as another. A restart or a second instance signs nobody out. The memory it keeps is the
+ * set of codes already used, so a code works once per instance, and when each client address
+ * last had codes swapped with AniList, so sign-ins can't use up AniList's limit.
  *
  * Since access tokens are stateless, one user is signed out by listing their AniList user ID in
  * `revokedUsers`: their access tokens are refused, and they can't sign in again while listed.
+ * AUTH_SECRET can be changed without signing everyone out by keeping the old one in
+ * `authSecretPrevious` for a while: what it sealed still opens.
  */
 import type { FetchFn } from "./anilist";
 import { tokenExpiry, tokenUser } from "./token";
@@ -20,6 +23,15 @@ import { tokenExpiry, tokenUser } from "./token";
 export const ANILIST_AUTHORIZE = "https://anilist.co/api/v2/oauth/authorize";
 const ANILIST_ORIGIN = new URL(ANILIST_AUTHORIZE).origin;
 export const ANILIST_TOKEN = "https://anilist.co/api/v2/oauth/token";
+
+/**
+ * AniList codes swapped for tokens per client address in a minute. Anyone can start a sign-in,
+ * and each one that comes back from AniList makes a request to AniList's token endpoint, which
+ * counts against the server IP's limit (it reports `X-RateLimit-Limit`), so unthrottled they
+ * could use up the limit every user's tool calls share. Real sign-ins come far slower than this.
+ */
+export const SIGNIN_EXCHANGES_PER_MINUTE = 10;
+const MINUTE_MS = 60_000;
 
 /** How long the user has to finish signing in on AniList. */
 const PENDING_MS = 10 * 60_000;
@@ -36,8 +48,18 @@ export interface OAuthConfig {
   /** The AniList API client (anilist.co/settings/developer) whose redirect URL is `<publicUrl>/oauth/callback`. */
   anilistClientId: string;
   anilistClientSecret: string;
-  /** Seals everything the server hands out. Changing it signs everyone out. */
+  /** Seals everything the server hands out. Changing it signs everyone out, unless the old one is kept in `authSecretPrevious`. */
   authSecret: string;
+  /** The secret before `authSecret`, while rotating: what it sealed still opens, and nothing new is sealed with it. */
+  authSecretPrevious?: string;
+  /**
+   * The header the proxy in front of the server sets to the client's address, for throttling
+   * sign-ins per address; default `X-Real-IP` (Railway's). In a list (X-Forwarded-For) the last
+   * address, the one the proxy added, is used. Without the header the connection's own address
+   * is. A client that sets it itself, with no proxy to replace it, gets past the throttle; a
+   * proxy's address would instead make every sign-in share one allowance, which anyone could use up.
+   */
+  clientIpHeader?: string;
   /** AniList user IDs refused access: their access tokens stop working and they can't sign in. */
   revokedUsers?: readonly string[];
 }
@@ -53,13 +75,23 @@ export async function sha256(text: string): Promise<string> {
   return b64url(await crypto.subtle.digest("SHA-256", enc.encode(text)));
 }
 
-/** Seals small JSON values so only this server can read them; `kind` keeps the kinds apart. */
+/**
+ * Seals small JSON values so only this server can read them; `kind` keeps the kinds apart.
+ * Values sealed with a previous secret still open, so the secret can be changed without
+ * signing everyone out.
+ */
 export class Sealer {
-  private constructor(private readonly key: CryptoKey) {}
+  private constructor(
+    private readonly key: CryptoKey,
+    private readonly previous: CryptoKey | null,
+  ) {}
 
-  static async create(secret: string): Promise<Sealer> {
-    const raw = await crypto.subtle.digest("SHA-256", enc.encode(`aniconnect:${secret}`));
-    return new Sealer(await crypto.subtle.importKey("raw", raw, "AES-GCM", false, ["encrypt", "decrypt"]));
+  static async create(secret: string, previous?: string): Promise<Sealer> {
+    const key = async (s: string) => {
+      const raw = await crypto.subtle.digest("SHA-256", enc.encode(`aniconnect:${s}`));
+      return crypto.subtle.importKey("raw", raw, "AES-GCM", false, ["encrypt", "decrypt"]);
+    };
+    return new Sealer(await key(secret), previous ? await key(previous) : null);
   }
 
   async seal(kind: string, data: object): Promise<string> {
@@ -81,11 +113,10 @@ export class Sealer {
     try {
       const bytes = Buffer.from(sealed, "base64url");
       if (bytes.length < 29) return null;
-      const plain = await crypto.subtle.decrypt(
-        { name: "AES-GCM", iv: bytes.subarray(0, 12), additionalData: enc.encode(kind) },
-        this.key,
-        bytes.subarray(12),
-      );
+      const decrypt = (key: CryptoKey) =>
+        crypto.subtle.decrypt({ name: "AES-GCM", iv: bytes.subarray(0, 12), additionalData: enc.encode(kind) }, key, bytes.subarray(12));
+      const previous = this.previous;
+      const plain = await decrypt(this.key).catch((err) => (previous ? decrypt(previous) : Promise.reject(err)));
       const data = JSON.parse(dec.decode(plain)) as T & { exp?: unknown };
       if (typeof data.exp === "number" && data.exp <= now) return null;
       return data;
@@ -247,6 +278,8 @@ export class OAuthServer {
   readonly callbackUrl: string;
   /** Codes already swapped for a token, and sign-ins already finished, until they expire. */
   private used = new Map<string, number>();
+  /** When each client address had AniList codes swapped in the last minute, oldest first. */
+  private exchanges = new Map<string, number[]>();
   private readonly revoked: ReadonlySet<string>;
 
   private constructor(
@@ -273,7 +306,7 @@ export class OAuthServer {
   ): Promise<OAuthServer> {
     return new OAuthServer(
       config,
-      await Sealer.create(config.authSecret),
+      await Sealer.create(config.authSecret, config.authSecretPrevious),
       options.fetch ?? ((input, init) => fetch(input, init)),
       options.now ?? Date.now,
     );
@@ -461,8 +494,11 @@ export class OAuthServer {
     return forget(res);
   }
 
-  /** AniList sends the user back here: swap its code for their token, and send them back to the client. */
-  async callback(req: Request): Promise<Response> {
+  /**
+   * AniList sends the user back here: swap its code for their token, and send them back to the
+   * client. `peer` is the address the request came from.
+   */
+  async callback(req: Request, peer?: string): Promise<Response> {
     const q = new URL(req.url).searchParams;
     const pending = await this.sealer.open<Pending>("signin", q.get("state"), this.now());
     if (!pending?.x) return page("this sign-in has expired or isn't valid. Start again from your MCP client.");
@@ -472,6 +508,17 @@ export class OAuthServer {
     }
     this.forgetExpired();
     if (this.used.has(pending.x)) return page("this sign-in has already been used. Start again from your MCP client.");
+    const code = q.get("code");
+    if (code) {
+      // Refused before the sign-in is marked used, so reloading finishes it once there's room.
+      const waitMs = this.exchangeWait(this.clientAddress(req, peer));
+      if (waitMs > 0) {
+        const seconds = Math.ceil(waitMs / 1000);
+        const res = page(`too many sign-ins from your network in the last minute. Wait ${seconds} seconds, then reload this page.`, 429);
+        res.headers.set("Retry-After", String(seconds));
+        return res;
+      }
+    }
     this.used.set(pending.x, pending.exp);
     const back = (params: Record<string, string>) => {
       const res = redirect(withParams(pending.r, { ...params, state: pending.s }));
@@ -479,7 +526,6 @@ export class OAuthServer {
       return res;
     };
 
-    const code = q.get("code");
     if (!code) {
       return back({
         error: "access_denied",
@@ -498,6 +544,22 @@ export class OAuthServer {
     }
     const ours: Code = { ...pending, t: token, te: expiresAt, j: crypto.randomUUID(), exp: this.now() + CODE_MS };
     return back({ code: await this.sealer.seal("code", ours) });
+  }
+
+  /** The client's address: from the proxy's header (see `clientIpHeader`), else the connection's. */
+  private clientAddress(req: Request, peer: string | undefined): string {
+    const header = req.headers.get(this.config.clientIpHeader ?? "X-Real-IP")?.split(",").at(-1)?.trim().slice(0, 100);
+    return header || peer || "unknown";
+  }
+
+  /** Counts a code exchange for `address`, or, when it has had its share this minute, says how long until the next. */
+  private exchangeWait(address: string): number {
+    const now = this.now();
+    const times = (this.exchanges.get(address) ?? []).filter((t) => t > now - MINUTE_MS);
+    if (times.length >= SIGNIN_EXCHANGES_PER_MINUTE) return times[0]! + MINUTE_MS - now;
+    times.push(now);
+    this.exchanges.set(address, times);
+    return 0;
   }
 
   /** AniList's authorization code grant: its code for the user's token. */
@@ -618,5 +680,6 @@ export class OAuthServer {
   private forgetExpired(): void {
     const now = this.now();
     for (const [id, exp] of this.used) if (exp <= now) this.used.delete(id);
+    for (const [address, times] of this.exchanges) if (times.at(-1)! <= now - MINUTE_MS) this.exchanges.delete(address);
   }
 }

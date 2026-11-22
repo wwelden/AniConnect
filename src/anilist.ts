@@ -260,30 +260,63 @@ const isWrite = (query: string) => /^\s*mutation/.test(query);
 /**
  * Keeps the AniList clients that share it under AniList's limit: each request books the next
  * free slot in a sliding window, in the order requests arrive (so one user's burst waits its
- * turn behind requests already made, rather than jumping ahead), and waits for it. A 429 seen
- * by any client pauses them all. It has no clock of its own: callers pass theirs, so tests
- * control time.
+ * turn behind requests already made, rather than jumping ahead), and waits for it. While
+ * another user has a request in the window, one user holds at most half of it, so a burst
+ * (an import) can't take a whole minute from someone else; a user alone has all of it. A 429
+ * seen by any client pauses them all. It has no clock of its own: callers pass theirs, so
+ * tests control time.
  */
 export class RateLimiter {
-  /** When each request in the window was or will be sent, ascending (booked slots included). */
-  private sent: number[] = [];
+  /** When each request in the window was or will be sent, and whose it is, ascending (booked slots included). */
+  private sent: { at: number; owner: string | undefined }[] = [];
   private pausedUntil = Number.NEGATIVE_INFINITY;
+  /** Requests turned away with "try again in N seconds", since the process started. */
+  refused = 0;
+  /** 429s from AniList, since the process started. */
+  rateLimited = 0;
 
   /** `Infinity` for no limit of its own (a fake AniList), so only 429s pause it. */
   constructor(public limit = RATE_LIMIT) {}
 
   /**
-   * Books the first slot at or after `now`, unless it is after `deadline`. Returns the slot's
-   * time, or how long to wait (nothing booked).
+   * Books the first slot at or after `now` for `owner` (a user; requests without one count as
+   * one user), unless it is after `deadline`. Returns the slot's time, or how long to wait
+   * (nothing booked).
    */
-  book(now: number, deadline = now + RATE_LIMIT_WAIT_MS): { at: number } | { waitMs: number } {
-    while (this.sent.length && this.sent[0]! <= now - RATE_WINDOW_MS) this.sent.shift();
-    const full = this.sent.length >= this.limit ? this.sent[this.sent.length - this.limit]! + RATE_WINDOW_MS : now;
-    const at = Math.max(now, this.pausedUntil, full);
+  book(now: number, deadline = now + RATE_LIMIT_WAIT_MS, owner?: string): { at: number } | { waitMs: number } {
+    while (this.sent.length && this.sent[0]!.at <= now - RATE_WINDOW_MS) this.sent.shift();
+    let at = Math.max(now, this.pausedUntil, this.fairTurn(owner));
+    // No minute may hold more than the limit. A capped user's slots are booked ahead of others',
+    // so the latest `limit` slots aren't always the ones to check: check every run of them.
+    for (let i = 0; i + this.limit <= this.sent.length; i++) {
+      const first = this.sent[i]!.at;
+      const last = this.sent[i + this.limit - 1]!.at;
+      if (last - first < RATE_WINDOW_MS && at > last - RATE_WINDOW_MS && at < first + RATE_WINDOW_MS) at = first + RATE_WINDOW_MS;
+    }
     // A request that needn't wait goes, however late its tool call is.
     if (at > now && at > deadline) return { waitMs: at - now };
-    if (Number.isFinite(this.limit)) this.insert(at);
+    if (Number.isFinite(this.limit)) this.insert(at, owner);
     return { at };
+  }
+
+  /**
+   * The earliest `owner` may book while another user has a slot in the window and `owner` holds
+   * half of it or more: when its oldest slot over half leaves the window.
+   */
+  private fairTurn(owner: string | undefined): number {
+    const share = Math.ceil(this.limit / 2);
+    const mine = this.sent.filter((s) => s.owner === owner).map((s) => s.at);
+    if (mine.length < share || mine.length === this.sent.length) return Number.NEGATIVE_INFINITY;
+    return mine[mine.length - share]! + RATE_WINDOW_MS;
+  }
+
+  /** The limit, what is booked in the minute up to `now`, and how long a 429 still pauses requests. */
+  snapshot(now: number): { limit: number; used: number; pausedForMs: number } {
+    return {
+      limit: this.limit,
+      used: this.sent.filter((s) => s.at > now - RATE_WINDOW_MS && s.at <= now).length,
+      pausedForMs: Math.max(0, this.pausedUntil - now),
+    };
   }
 
   /** When requests may be sent again after a 429; later than `at` when one came since. */
@@ -296,15 +329,16 @@ export class RateLimiter {
    * (it gave up, or AniList refused it with a 429 and so didn't run it): so the window counts
    * requests when they are really sent.
    */
-  move(from: number, to: number | null): void {
+  move(from: number, to: number | null, owner?: string): void {
     if (!Number.isFinite(this.limit)) return;
-    const i = this.sent.indexOf(from);
+    const i = this.sent.findIndex((s) => s.at === from && s.owner === owner);
     if (i >= 0) this.sent.splice(i, 1);
-    if (to !== null) this.insert(to);
+    if (to !== null) this.insert(to, owner);
   }
 
   /** AniList answered 429: nothing is sent until `until`. */
   pause(until: number): void {
+    this.rateLimited++;
     this.pausedUntil = Math.max(this.pausedUntil, until);
   }
 
@@ -318,10 +352,10 @@ export class RateLimiter {
     if (Number.isFinite(this.limit) && Number.isInteger(limit) && limit > 0) this.limit = limit;
   }
 
-  private insert(at: number): void {
+  private insert(at: number, owner: string | undefined): void {
     let i = this.sent.length;
-    while (i > 0 && this.sent[i - 1]! > at) i--;
-    this.sent.splice(i, 0, at);
+    while (i > 0 && this.sent[i - 1]!.at > at) i--;
+    this.sent.splice(i, 0, { at, owner });
   }
 }
 
@@ -447,6 +481,8 @@ export class AniListClient {
   private readonly fetchFn: FetchFn;
   /** How to get a new token: set by the hosted server, which signs users in itself (R7.2). */
   renew: string | null = null;
+  /** Whose requests these are, so the limiter can share AniList's limit fairly: set by the hosted server to the AniList account. */
+  owner: string | undefined;
   /** Set once AniList has rejected the token (revoked, or expired early). */
   rejected = false;
   /** When AniList last accepted this client's own token. */
@@ -502,7 +538,7 @@ export class AniListClient {
       }
       // A rate-limited request wasn't run: it gives its slot back, and even a write is safe to
       // send again, after the pause that every client sharing the limiter now waits out.
-      this.limiter.move(sentAt, null);
+      this.limiter.move(sentAt, null, this.owner);
       const now = this.now();
       this.limiter.pause(now + result.retryAfterMs);
       if (rateLimited++ >= RATE_LIMIT_RETRIES) throw this.rateLimitError(this.limiter.resumesAt(now) - now);
@@ -516,24 +552,25 @@ export class AniListClient {
   private async waitForSlot(): Promise<number> {
     const start = this.now();
     const deadline = Math.min(start + RATE_LIMIT_WAIT_MS, callDeadline.getStore() ?? Number.POSITIVE_INFINITY);
-    const slot = this.limiter.book(start, deadline);
+    const slot = this.limiter.book(start, deadline, this.owner);
     if ("waitMs" in slot) throw this.rateLimitError(slot.waitMs);
     // A 429 seen by another client while this one waits pauses it too; `at` is when it last
     // woke (a fake clock may not have moved).
     let at = start;
     for (let until = slot.at; until > at; until = this.limiter.resumesAt(at)) {
       if (until > deadline) {
-        this.limiter.move(slot.at, null);
+        this.limiter.move(slot.at, null, this.owner);
         throw this.rateLimitError(until - at);
       }
       await this.sleep(until - at);
       at = Math.max(this.now(), until);
     }
-    if (at !== slot.at) this.limiter.move(slot.at, at);
+    if (at !== slot.at) this.limiter.move(slot.at, at, this.owner);
     return at;
   }
 
   private rateLimitError(waitMs: number): AniListError {
+    this.limiter.refused++;
     const limit = Number.isFinite(this.limiter.limit) ? this.limiter.limit : RATE_LIMIT;
     return new AniListError(
       `AniList rate limit hit (${limit} requests a minute). Try again in ${Math.ceil(waitMs / 1000)} seconds.`,
