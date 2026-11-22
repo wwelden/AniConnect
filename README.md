@@ -6,6 +6,8 @@ AniConnect is an AniList MCP server: it connects Claude (or any MCP client) to y
 
 Every tool that changes your list takes the show the way you'd say it: "jjk", "the second season of Spy x Family", "frieran", or "進撃の巨人". AniConnect works out which AniList entry you mean: episode updates go to the season you're watching (or, with several seasons planned, the next one after those you finished), ratings to the one you finished, and new shows start at season 1. When a name could really mean two shows (the two Hunter x Hunter series, say), it changes nothing and asks. In clients that can show forms (MCP elicitation), you pick from the matches in a dialog, and removing a show asks you to confirm there.
 
+To start, add `https://aniconnect-production.up.railway.app/mcp` to your MCP client as a remote connector and sign in with AniList: see [Connect](#connect).
+
 ## Tools
 
 | Tool | What it does |
@@ -27,9 +29,51 @@ Project goals and requirements: [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md).
 
 Episode tracking keeps your status in sync: watching an episode of something planned, paused or dropped moves it to watching and sets the start date, finishing the last episode marks it completed with today's date, and setting a completed show back to an earlier episode moves it back to watching. Changing the status directly follows the same date rules. Dates that are already set are never overwritten. Shows that are still airing and have no known episode count never auto-complete. Starting a rewatch resets the episode count to 0; finishing it keeps the original finish date and adds one to AniList's rewatch count. Progress past the episodes that have aired is saved, with a note saying how many have aired. Today's date is the one in your AniList time zone; the tools that fill in dates also take a `timeZone`, which wins when the assistant passes one.
 
-## Setup
+## Connect
 
-You need [Bun](https://bun.sh) and an AniList account.
+The quickest way in is the public AniConnect server. Add this URL to your MCP client as a remote (custom) connector and sign in with your AniList account when it asks:
+
+```
+https://aniconnect-production.up.railway.app/mcp
+```
+
+There's no token to copy and nothing to install. AniConnect first asks you to approve the app, then sends you to AniList to sign in; the sign-in lasts a year. It's one server shared by everyone who uses it, so AniList's limit of 30 requests a minute is shared too: when it's busy, a tool may say to wait a few seconds. What the server keeps, and for how long, is under [Privacy](#privacy).
+
+**Claude** (claude.ai, Claude Desktop and the mobile apps): open **Customize > Connectors**, click **+ Add**, then **Add custom connector**. Name it AniConnect, paste the URL, and click **Continue**. If Claude asks how to identify itself (**OAuth client**), choose **Register automatically**. Click **Add**, then **Connect** to sign in. A connector added on the web or in Claude Desktop works in the mobile apps too. Free plans can have one custom connector.
+
+**Claude Code:**
+
+```sh
+claude mcp add --transport http --scope user aniconnect https://aniconnect-production.up.railway.app/mcp
+```
+
+Then sign in from `/mcp` in a session, or with `claude mcp login aniconnect`.
+
+**ChatGPT** (on the web; changing your list needs a Business, Enterprise or Edu plan, since on Pro custom MCP servers are read-only): go to **Plugins**, click **+**, then **Add custom MCP server**. Name it AniConnect, enter the URL as the **Server URL**, choose **OAuth** for authentication, accept the risk warning and click **Create as a plugin**.
+
+**Cursor:** add it to `~/.cursor/mcp.json`, and Cursor asks you to sign in:
+
+```json
+{
+  "mcpServers": {
+    "aniconnect": { "url": "https://aniconnect-production.up.railway.app/mcp" }
+  }
+}
+```
+
+**VS Code** (GitHub Copilot): run **Chat: Open Customizations**, select **MCP Servers**, then **Add Server** (+) in the User group. Choose **HTTP**, enter the URL and the ID `aniconnect`, and sign in when VS Code asks. Or from a terminal:
+
+```sh
+code --add-mcp '{"name":"aniconnect","type":"http","url":"https://aniconnect-production.up.railway.app/mcp"}'
+```
+
+Other clients that support remote MCP servers with OAuth sign-in take the same URL. The steps above for clients other than Claude follow those clients' own docs; they haven't been tried with AniConnect yet.
+
+Then try: *"Add Frieren to my plan-to-watch list"*, *"What am I currently watching?"*, *"I just watched episode 5 of Dandadan"*, *"Rate Attack on Titan a 9"*.
+
+## Run it locally
+
+AniConnect can also run on your own computer, talking to your MCP client over stdio with an AniList token you make yourself. Nothing goes through the public server, and your requests have AniList's limit to themselves.
 
 ### 1. Get an AniList token
 
@@ -45,37 +89,47 @@ You need [Bun](https://bun.sh) and an AniList account.
 
 Treat the token like a password: it can edit your list.
 
-### 2. Install
+### 2. Add it to your MCP client with npx
 
-```sh
-git clone https://github.com/wwelden/aniconnect.git
-cd aniconnect
-bun install
-```
-
-### 3. Add it to your MCP client
+You need [Node.js](https://nodejs.org) 20 or newer. AniConnect isn't on npm yet: until it is, use [From source](#from-source) below.
 
 **Claude Code:**
 
 ```sh
-claude mcp add aniconnect -s user -e ANILIST_TOKEN=your-token -- bun /absolute/path/to/aniconnect/src/index.ts
+claude mcp add aniconnect --scope user --env ANILIST_TOKEN=your-token -- npx -y aniconnect
 ```
 
-**Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json`):
+**Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json`), and other clients that take an `mcpServers` block:
 
 ```json
 {
   "mcpServers": {
     "aniconnect": {
-      "command": "bun",
-      "args": ["/absolute/path/to/aniconnect/src/index.ts"],
+      "command": "npx",
+      "args": ["-y", "aniconnect"],
       "env": { "ANILIST_TOKEN": "your-token" }
     }
   }
 }
 ```
 
-Then try: *"Add Frieren to my plan-to-watch list"*, *"What am I currently watching?"*, *"I just watched episode 5 of Dandadan"*, *"Rate Attack on Titan a 9"*.
+With [Bun](https://bun.sh) installed, `bunx aniconnect` works in place of `npx -y aniconnect`.
+
+### From source
+
+You need [Bun](https://bun.sh).
+
+```sh
+git clone https://github.com/wwelden/AniConnect.git
+cd AniConnect
+bun install
+```
+
+Then use `bun /absolute/path/to/AniConnect/src/index.ts` as the command:
+
+```sh
+claude mcp add aniconnect --scope user --env ANILIST_TOKEN=your-token -- bun /absolute/path/to/AniConnect/src/index.ts
+```
 
 ## Hosting
 
@@ -141,6 +195,8 @@ AniConnect keeps no database and writes nothing to disk. Once you've signed in, 
 ```sh
 bun test           # unit, resolver and tool tests against a fake AniList (no network)
 bun run typecheck
+bun run build      # dist/index.js, the stdio server the npm package runs under Node
+bun run smoke:package   # packs the npm package, installs it in an empty directory and runs it under Node
 ```
 
 Tests run against a fake AniList (`test/support/fake-anilist.ts`) holding `test/fixtures/media.json`, a snapshot of real AniList data for franchises that are hard to resolve by name. Refresh it with `bun run snapshot`. The fake runs every request against AniList's own GraphQL schema (`test/fixtures/anilist.graphql`, refreshed with `bun run snapshot:schema`), so a query AniList would reject fails the tests too, and other AniList servers' queries work against it as well. Fields it has no data for come back null.

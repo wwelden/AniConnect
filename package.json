@@ -4,15 +4,27 @@
   "description": "AniList MCP server: manage your anime list from Claude or any MCP client",
   "keywords": ["anilist", "mcp", "mcp-server", "model-context-protocol", "anime", "anime-list", "claude"],
   "license": "MIT",
-  "type": "module",
-  "private": true,
-  "packageManager": "bun@1.4.4",
-  "module": "src/index.ts",
-  "bin": {
-    "aniconnect": "src/index.ts"
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wwelden/AniConnect.git"
   },
+  "homepage": "https://github.com/wwelden/AniConnect#readme",
+  "bugs": "https://github.com/wwelden/AniConnect/issues",
+  "mcpName": "io.github.wwelden/aniconnect",
+  "type": "module",
+  "packageManager": "bun@1.4.4",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "aniconnect": "dist/index.js"
+  },
+  "files": ["dist"],
   "scripts": {
     "start": "bun src/index.ts",
+    "build": "bun scripts/build.ts",
+    "prepack": "bun run build",
+    "smoke:package": "bun scripts/package-smoke.ts",
     "serve": "bun src/http.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit -p .",

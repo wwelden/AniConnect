@@ -27,3 +27,23 @@ jobs:
       # The tests use the fake AniList: no ANILIST_TOKEN or network needed.
       # The `claude -p` evals (bun run eval) are not run here.
       - run: bun test
+
+  package:
+    # The npm package (`npx -y aniconnect`): packs the tarball, installs it in an
+    # empty directory and runs the installed bin with plain Node over stdio.
+    name: Package smoke test (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        node: ["20", "lts/*"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - run: bun install --frozen-lockfile
+      - run: bun run smoke:package

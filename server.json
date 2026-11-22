@@ -1,0 +1,45 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.wwelden/aniconnect",
+  "title": "AniConnect",
+  "description": "Manage your AniList anime list by name: add shows, rate them, track episodes, see what's next.",
+  "version": "0.3.0",
+  "websiteUrl": "https://github.com/wwelden/AniConnect",
+  "repository": {
+    "url": "https://github.com/wwelden/AniConnect",
+    "source": "github"
+  },
+  "icons": [
+    {
+      "src": "https://aniconnect-production.up.railway.app/favicon.svg",
+      "mimeType": "image/svg+xml",
+      "sizes": ["any"]
+    }
+  ],
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://aniconnect-production.up.railway.app/mcp"
+    }
+  ],
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "aniconnect",
+      "version": "0.3.0",
+      "runtimeHint": "npx",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "ANILIST_TOKEN",
+          "description": "Your AniList personal access token (see the README for how to get one).",
+          "isRequired": true,
+          "isSecret": true
+        }
+      ]
+    }
+  ]
+}
