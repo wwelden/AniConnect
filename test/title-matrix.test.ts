@@ -1,8 +1,8 @@
 /**
  * Generated resolver checks over the whole media fixture (R6.2): every show's English and
  * romaji title, typed exactly as written, with every write intent, on the persona's list and on
- * an empty one, must resolve to that show, or ask, never write to a different show. Then every
- * listed show's title with one letter wrong must resolve as the right spelling does, or ask.
+ * an empty one, must resolve to that show, or ask (or, for a removal, find nothing), never write
+ * to a different show; the known exceptions are pinned in KNOWN. Then every listed show's title with one letter wrong must resolve as the right spelling does, or ask.
  */
 import { describe, expect, test } from "bun:test";
 import { AniListClient, type Media } from "../src/anilist";
@@ -72,7 +72,16 @@ function designed(list: ListName, intent: Intent, typed: number, got: number): b
  * Known divergences, each pinned to what it resolves to today so that a change to it shows up
  * here. "<list> <intent> <title>": [what it resolves to, why it's left].
  */
-const KNOWN: Record<string, [number, string]> = Object.fromEntries(
+/** Specials and OVAs with "movie" or "film" in the title: the word asks for a movie (R1.8). */
+const NOT_A_MOVIE = [
+  "ONE PIECE FILM: Z - GLORIOUS ISLAND",
+  "My Hero Academia the Movie: Two Heroes Specials",
+  "Boku no Hero Academia THE MOVIE: Futari no Hero Specials",
+  "Boku no Hero Academia THE MOVIE: Heroes:Rising - Epilogue Plus: Yume wo Genjitsu ni",
+  "Mob Psycho 100 10th Anniversary Special Movie",
+];
+
+const KNOWN: Record<string, [number | "none", string]> = Object.fromEntries(
   [
     ...(["persona", "empty"] as const).flatMap((list) =>
       (["add", "status", "progress", "rate"] as const).map((intent) => [
@@ -86,7 +95,13 @@ const KNOWN: Record<string, [number, string]> = Object.fromEntries(
     // and a removal looks only at the list, where the movie isn't.
     ["persona progress Jujutsu Kaisen: Kaigyoku・Gyokusetsu", [145064, "R1.10: the season being watched has the name in a synonym"]],
     ["persona remove Jujutsu Kaisen: Kaigyoku・Gyokusetsu", [145064, "a removal sees only the list; the movie isn't on it"]],
-  ] as [string, [number, string]][],
+    // Finds nothing rather than a wrong show: the movie filter leaves only movies, and these aren't.
+    ...(["persona", "empty"] as const).flatMap((list) =>
+      (["add", "status", "progress", "rate"] as const).flatMap((intent) =>
+        NOT_A_MOVIE.map((title) => [`${list} ${intent} ${title}`, ["none", "a special or OVA with movie or film in its title: the word asks for a movie (R1.8)"]]),
+      ),
+    ),
+  ] as [string, [number | "none", string]][],
 );
 
 const outcome = (r: Resolution) => (r.kind === "match" ? r.media.id : r.kind);
@@ -110,8 +125,8 @@ describe("every exact title, every write intent", () => {
           if (got !== KNOWN[key][0]) wrong.push(`${key}: now ${got}; update KNOWN`);
           return;
         }
-        // Asking, or finding nothing, changes nothing: safe.
-        if (got === id || got === "ambiguous" || got === "none" || designed(list, intent, id, got)) return;
+        // Asking changes nothing: safe. Finding nothing is expected only for a removal of an unlisted show.
+        if (got === id || got === "ambiguous" || (got === "none" && intent === "remove") || (typeof got === "number" && designed(list, intent, id, got))) return;
         wrong.push(`${key} [${id}] -> ${got}`);
       });
       expect(wrong).toEqual([]);
