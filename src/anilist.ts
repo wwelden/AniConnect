@@ -205,8 +205,8 @@ export type ListItem = ListEntry & { media: Media };
 /**
  * How long the user's list is reused before it is fetched again (requirement R5.4).
  * Our own writes patch it, so this only bounds how long changes made elsewhere
- * (anilist.co, a scrobbler) take to show up, and how stale the progress a write
- * counts up from can be.
+ * (anilist.co, a scrobbler) take to show up in reads. A write reads its show again
+ * when the list is older than a few seconds (FRESH_LIST_MS in server.ts).
  */
 export const LIST_TTL_MS = 60_000;
 
@@ -860,6 +860,14 @@ export class AniListClient {
     }
     const entries = [...(await list.entries).values()];
     return status ? entries.filter((e) => e.status === status) : entries;
+  }
+
+  /**
+   * How long ago the cached list was fetched, so a write can tell whether a show taken from it
+   * may miss a change made elsewhere since. 0 when no list is cached.
+   */
+  listAge(): number {
+    return this.cache.list ? this.now() - this.cache.list.fetchedAt : 0;
   }
 
   private async fetchMyList(): Promise<Map<number, ListItem>> {

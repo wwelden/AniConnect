@@ -41,7 +41,9 @@ import {
 import {
   candidateLabel,
   describeCandidates,
+  matchScore,
   memo,
+  parseQuery,
   resolveAnime,
   titledWithNumber,
   type AnimeSource,
@@ -165,8 +167,8 @@ function adultFilter(viewer: Viewer): false | undefined {
  * Searches are collected until the work in progress settles (a timer turn), then sent, each
  * request at once and on its own, so one that fails fails only its own searches.
  */
-function batched(size: number, run: (queries: string[]) => Promise<Media[][]>): (query: string) => Promise<Media[]> {
-  let waiting: { query: string; resolve: (media: Media[]) => void; reject: (err: unknown) => void }[] = [];
+function batched<Q, R>(size: number, run: (queries: Q[]) => Promise<R[]>): (query: Q) => Promise<R> {
+  let waiting: { query: Q; resolve: (result: R) => void; reject: (err: unknown) => void }[] = [];
   return (query) =>
     new Promise((resolve, reject) => {
       if (waiting.length === 0) {
@@ -187,7 +189,7 @@ function batched(size: number, run: (queries: string[]) => Promise<Media[][]>): 
 }
 
 export function clientSource(client: AniListClient, options: MediaOptions = {}): AnimeSource {
-  const search = batched(searchBatch(options), async (queries) =>
+  const search = batched(searchBatch(options), async (queries: string[]) =>
     client.searchMany(queries, 15, options, adultFilter(await client.getViewer())),
   );
   return {
@@ -242,6 +244,13 @@ async function pick(
   return media ? { media } : undefined;
 }
 
+/**
+ * The show a tool call is about. `fresh` when it was just read from AniList by ID rather than
+ * taken from the (possibly cached) list; `loose` when its title matched the name only allowing
+ * for a typo, so it may not be the show the user meant.
+ */
+type Found = { media: Media; note: string; fresh?: boolean; loose?: boolean };
+
 /** Finds the show a tool call is about, or throws a message that tells the assistant what to do. */
 async function target(
   client: AniListClient,
@@ -253,13 +262,13 @@ async function target(
   fallback?: Intent,
   /** Asks the user directly to pick between ambiguous shows, when the client can. */
   ask?: Ask,
-): Promise<{ media: Media; note: string }> {
+): Promise<Found> {
   const prefix = changes ? "Nothing was changed. " : "";
   const resolve = async (query: string, src: AnimeSource, language: TitleLanguage) => {
     const r = await resolveAnime(query, intent, src, language);
     return r.kind === "none" && fallback ? resolveAnime(query, fallback, src, language) : r;
   };
-  if (typeof input === "number") return { media: await client.getAnime(input), note: "" };
+  if (typeof input === "number") return { media: await client.getAnime(input), note: "", fresh: true };
   const { titleLanguage } = await client.getViewer();
   const digits = /^\d+$/.test(input.trim()) ? input.trim() : undefined;
   let r: Resolution;
@@ -274,7 +283,7 @@ async function target(
       search: async (query) => titled(await source.search(query)),
     };
     r = await resolve(input, titledSource, titleLanguage);
-    if (r.kind === "none") return { media: await client.getAnime(Number(digits)), note: "" };
+    if (r.kind === "none") return { media: await client.getAnime(Number(digits)), note: "", fresh: true };
     if (r.kind === "match") {
       return {
         media: r.media,
@@ -286,7 +295,11 @@ async function target(
     r = await resolve(input, source, titleLanguage);
   }
   if (r.kind === "match") {
-    return { media: r.media, note: `Matched "${input}" to ${displayTitle(r.media.title, titleLanguage)}: ${r.why}.\n` };
+    return {
+      media: r.media,
+      note: `Matched "${input}" to ${displayTitle(r.media.title, titleLanguage)}: ${r.why}.\n`,
+      loose: matchScore(r.media, parseQuery(input)) < 2,
+    };
   }
   if (r.kind === "ambiguous") {
     const picked = ask && (await pick(ask, r.why, r.candidates, titleLanguage));
@@ -401,6 +414,12 @@ export class UserState {
   /** The count when each show was last saved. */
   readonly lastSave = new Map<number, number>();
   undoing: Promise<unknown> = Promise.resolve();
+  /**
+   * Removals shown but not yet confirmed, by show: the entry as it was shown, and until when a
+   * call with `confirmed: true` may remove it. Here rather than per conversation, so a hosted
+   * client that reconnects in between can still confirm.
+   */
+  readonly pendingRemovals = new Map<number, { entry: string; expires: number }>();
   /** Expiry warnings, one per client: on the hosted server, each sign-in's token expires on its own. */
   readonly watches = new WeakMap<AniListClient, ReturnType<typeof tokenWatch>>();
 }
@@ -421,6 +440,15 @@ const ASK_TIMEOUT_MS = 10 * 60_000;
 
 const REMOVE_DESCRIPTION =
   "Delete an anime from the user's list, including its progress, score, dates and notes.";
+
+/** How long after a removal is shown it can be confirmed with `confirmed: true`. */
+const CONFIRM_REMOVAL_MS = 10 * 60_000;
+
+/**
+ * A write reads its show again before planning from the cached list when the list is older than
+ * this, so a change made on anilist.co or in another app since isn't counted from or overwritten.
+ */
+const FRESH_LIST_MS = 5_000;
 
 export function createServer(client: AniListClient, options: ServerOptions = {}): McpServer {
   const now = options.now ?? Date.now;
@@ -783,9 +811,48 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
     }
   };
 
-  /** Runs `fn` on the show's turn with the show as it is now. */
-  const onTurn = <T>(media: Media, readAt: number, fn: (media: Media) => Promise<T>): Promise<T> =>
-    inTurn(media.id, readAt, async (stale) => fn(stale ? await client.getAnime(media.id) : media));
+  /** Whether a show `find` gave came from a list cached long enough to miss changes made elsewhere. */
+  const aged = (found: Found) => !found.fresh && client.listAge() > FRESH_LIST_MS;
+
+  /**
+   * Runs `fn` on the show's turn with the show as it is now: read again (with `read`) when
+   * another write to it finished in the meantime, or when `found` may be out of date.
+   */
+  const onTurn = <T>(
+    found: Found,
+    readAt: number,
+    fn: (media: Media) => Promise<T>,
+    read = (id: number) => client.getAnime(id),
+  ): Promise<T> => {
+    const reread = aged(found);
+    return inTurn(found.media.id, readAt, async (stale) => fn(stale || reread ? await read(found.media.id) : found.media));
+  };
+
+  /** Refuses an episode count past a show's last, naming the show. */
+  const checkEpisodes = (media: Media, progress: number | undefined, language: TitleLanguage) => {
+    const last = media.episodes;
+    if (progress === undefined || last == null || progress <= last) return;
+    throw new Error(
+      `${displayTitle(media.title, language)} has ${last} episode${last === 1 ? "" : "s"}, so ${progress} is past the last one.`,
+    );
+  };
+
+  /**
+   * A name that matched only allowing for a typo may not be the show the user meant, so moving a
+   * completed show back to watching on one waits for its ID. A name that matches, an ID, or a
+   * rewatch (status REPEATING) writes at once.
+   */
+  const checkRewind = (
+    found: Found,
+    media: Media,
+    plan: { status?: ListStatus; progress?: number },
+    language: TitleLanguage,
+  ) => {
+    if (!found.loose || media.mediaListEntry?.status !== "COMPLETED" || plan.status !== "CURRENT") return;
+    throw new Error(
+      `${displayTitle(media.title, language)} is completed, and episode ${plan.progress} would move it back to Watching. The name matched it only allowing for a typo: check it's the show the user meant, and if so, call again with its ID (${media.id}). For a rewatch, set the status to REPEATING.`,
+    );
+  };
 
   server.registerTool(
     "add_to_list",
@@ -800,7 +867,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       const readAt = user.saves;
       const [viewer, resolved] = await Promise.all([viewerIn(timeZone), find(anime, "add")]);
       const { note } = resolved;
-      return onTurn(resolved.media, readAt, async (media) => {
+      return onTurn(resolved, readAt, async (media) => {
         if (media.mediaListEntry) {
           return text(
             `${note}Already on your list, unchanged: ${describeEntry(media, media.mediaListEntry, viewer)}`,
@@ -829,7 +896,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       const readAt = user.saves;
       const [viewer, resolved] = await Promise.all([viewerIn(timeZone), find(anime, "status")]);
       const { note } = resolved;
-      return onTurn(resolved.media, readAt, async (media) => {
+      return onTurn(resolved, readAt, async (media) => {
         const entry = media.mediaListEntry;
         const plan = planStatus(media, entry, status, today(viewer));
         finishFromStart(viewer, plan, plan.startedAt ?? entry?.startedAt);
@@ -861,14 +928,19 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       const readAt = user.saves;
       const [viewer, resolved] = await Promise.all([client.getViewer(), find(anime, "rate")]);
       const { note } = resolved;
-      return onTurn(resolved.media, readAt, async (media) => {
+      return onTurn(resolved, readAt, async (media) => {
         if (score === 0 && !media.mediaListEntry) {
           return text(`${note}${displayTitle(media.title, viewer.titleLanguage)} isn't on your list, so there's no rating to clear.`);
         }
         const saved = await client.saveEntry({ mediaId: media.id, scoreRaw });
         journal.record("rate_anime", [change(media, media.mediaListEntry, saved)]);
+        const title = displayTitle(saved.media.title, viewer.titleLanguage);
+        const rated = formatScore(saved.displayScore, viewer.scoreFormat);
+        // Rating a show that isn't on the list adds it, in whatever status AniList gives it.
         return text(
-          `${note}Rated ${displayTitle(saved.media.title, viewer.titleLanguage)}: ${formatScore(saved.displayScore, viewer.scoreFormat)}`,
+          media.mediaListEntry
+            ? `${note}Rated ${title}: ${rated}`
+            : `${note}Added ${title} to your list as ${statusLabel(saved.status)} and rated it ${rated}.`,
         );
       });
     }),
@@ -880,7 +952,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
   const applyProgress = async (tool: string, input: string | number, timeZone: string | undefined, next: ProgressStep) => {
     const readAt = user.saves;
     const [viewer, resolved] = await Promise.all([viewerIn(timeZone), find(input, "progress")]);
-    return inTurn(resolved.media.id, readAt, (stale) => saveProgress(tool, viewer, resolved, stale, next));
+    return onTurn(resolved, readAt, (media) => saveProgress(tool, viewer, resolved, media, next));
   };
 
   /** Says when progress runs past what has aired. Saved anyway: AniList's schedule can lag, and some people watch early releases. */
@@ -903,22 +975,34 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
   const saveProgress = async (
     tool: string,
     viewer: Viewer,
-    resolved: { media: Media; note: string },
-    stale: boolean,
+    resolved: Found,
+    media: Media,
     next: ProgressStep,
   ) => {
     const { note } = resolved;
-    const media = stale ? await client.getAnime(resolved.media.id) : resolved.media;
     const entry = media.mediaListEntry;
     const before = entry?.progress ?? 0;
-    const step = next(before, media, viewer.titleLanguage);
-    const { episodes, note: stepNote } = typeof step === "number" ? { episodes: step, note: "" } : step;
-    const plan = planProgress(media, entry, episodes, today(viewer));
+    let plan: EntryPlan;
+    let stepNote: string;
+    try {
+      const step = next(before, media, viewer.titleLanguage);
+      let episodes: number;
+      ({ episodes, note: stepNote } = typeof step === "number" ? { episodes: step, note: "" } : step);
+      checkEpisodes(media, episodes, viewer.titleLanguage);
+      plan = planProgress(media, entry, episodes, today(viewer));
+      checkRewind(resolved, media, plan, viewer.titleLanguage);
+    } catch (err) {
+      // Said with the show it matched, so the assistant can tell when it isn't the one meant.
+      throw new Error(`Nothing was changed. ${note}${(err as Error).message.replace(/^Nothing was changed\. /, "")}`);
+    }
     finishFromStart(viewer, plan, plan.startedAt ?? entry?.startedAt);
     const saved = await client.saveEntry({ mediaId: media.id, ...plan });
     journal.record(tool, [change(media, entry, saved)]);
-    const was = entry ? ` (was ${statusLabel(entry.status)})` : "";
-    const statusNote = plan.status ? ` Status is now ${statusLabel(plan.status)}${was}.` : "";
+    const statusNote = !entry
+      ? ` Added to your list as ${statusLabel(saved.status)}.`
+      : plan.status
+        ? ` Status is now ${statusLabel(plan.status)} (was ${statusLabel(entry.status)}).`
+        : "";
     return text(
       `${note}${displayTitle(saved.media.title, viewer.titleLanguage)}: episode ${before} -> ${saved.progress}.${statusNote}${stepNote}${planDates(plan, viewer)}${airedNote(media, saved.progress)}\n${describeEntry(saved.media, saved, viewer)}`,
     );
@@ -995,7 +1079,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
   type Update = z.infer<typeof updateItem>;
 
   /** What one update_shows item would write, worked out from the show's entry as it is now. */
-  const planItem = (viewer: Viewer, media: Media, u: Update) => {
+  const planItem = (viewer: Viewer, found: Found, media: Media, u: Update) => {
     const entry = media.mediaListEntry;
     // Clearing a score, note or date on a show that isn't on the list would only add it.
     const clearsOnly =
@@ -1015,7 +1099,9 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
     } else if (u.episodes === "latest") {
       ({ episodes: progress, note: stepNote } = caughtUpProgress(media, current, now(), viewer.titleLanguage));
     } else progress = u.episodes;
+    checkEpisodes(media, progress, viewer.titleLanguage);
     const plan = planUpdate(media, entry, { progress, status: u.status }, day);
+    if (u.status === undefined) checkRewind(found, media, plan, viewer.titleLanguage);
     // Dates the user gave replace the ones a status change would fill in, and existing ones too.
     const readDate = (text: string) => (text === "clear" ? NO_DATE : parseFuzzyDate(text, day, latest(viewer)));
     const dates = {
@@ -1072,8 +1158,8 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
   };
 
   /** One update_shows item, on its show's turn: a line for the result and the change for undo. */
-  const saveUpdate = async (viewer: Viewer, resolved: { media: Media; note: string }, media: Media, u: Update) => {
-    const p = planItem(viewer, media, u);
+  const saveUpdate = async (viewer: Viewer, resolved: Found, media: Media, u: Update) => {
+    const p = planItem(viewer, resolved, media, u);
     const saved = await client.saveEntry({ mediaId: media.id, ...p.plan, ...p.dates, scoreRaw: p.scoreRaw, notes: p.notes });
     const parts = describeChange(viewer, u, p, { ...saved, score: formatScore(saved.displayScore, viewer.scoreFormat) });
     const title = displayTitle(saved.media.title, viewer.titleLanguage);
@@ -1085,9 +1171,9 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
   };
 
   /** One update_shows item in a dry run: what it would change, saving nothing. */
-  const previewUpdate = (viewer: Viewer, resolved: { media: Media; note: string }, u: Update) => {
+  const previewUpdate = (viewer: Viewer, resolved: Found, u: Update) => {
     const { media } = resolved;
-    const p = planItem(viewer, media, u);
+    const p = planItem(viewer, resolved, media, u);
     const progress = p.plan.progress ?? p.current;
     const parts = describeChange(viewer, u, p, {
       status: p.plan.status ?? p.entry?.status,
@@ -1147,6 +1233,12 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       // If that fails, each show is looked up on its own and reports its own error.
       const fetched = ids.length > 1 ? await client.getMany(ids).catch(() => []) : [];
       const byId = new Map(fetched.map((m) => [m.id, m]));
+      // Shows read again before saving (see `onTurn`), fetched together too.
+      const reread = batched(50, async (ids: number[]) => {
+        const shows = new Map((await client.getMany(ids)).map((m) => [m.id, m]));
+        return ids.map((id) => shows.get(id));
+      });
+      const read = async (id: number) => (await reread(id)) ?? client.getAnime(id);
       // In the order they were saved, so undo can take them back newest first.
       const changes: EntryChange[] = [];
       type ItemResult = { line: string; change?: EntryChange; filled?: boolean; kept?: boolean; ok?: boolean };
@@ -1179,8 +1271,8 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
                   ? "status"
                   : "rate";
             const known = typeof u.anime === "number" ? byId.get(u.anime) : undefined;
-            const resolved = known
-              ? { media: known, note: "" }
+            const resolved: Found = known
+              ? { media: known, note: "", fresh: true }
               : await target(client, u.anime, intent, source, false, undefined, askUser);
             const kept = (media: Media) => ({
               line: `${resolved.note}Already on your list, unchanged: ${describeEntry(media, media.mediaListEntry, viewer)}`,
@@ -1190,12 +1282,17 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
               if (addOnly && resolved.media.mediaListEntry) return kept(resolved.media);
               return { line: previewUpdate(viewer, resolved, u), ok: true };
             }
-            return await onTurn(resolved.media, readAt, async (media) => {
-              if (addOnly && media.mediaListEntry) return kept(media);
-              const result = await saveUpdate(viewer, resolved, media, u);
-              changes.push(result.change);
-              return { ...result, ok: true };
-            });
+            return await onTurn(
+              resolved,
+              readAt,
+              async (media) => {
+                if (addOnly && media.mediaListEntry) return kept(media);
+                const result = await saveUpdate(viewer, resolved, media, u);
+                changes.push(result.change);
+                return { ...result, ok: true };
+              },
+              read,
+            );
           } catch (err) {
             return { line: `Not changed: ${label}: ${(err as Error).message.replace(/^Nothing was changed\. /, "")}` };
           }
@@ -1221,19 +1318,18 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
     }),
   );
 
-  /** Shows whose removal dialog closed without an answer, so the assistant may confirm in chat instead. */
-  const unansweredRemovals = new Set<number>();
+  const { pendingRemovals } = user;
   const removeTool = server.registerTool(
     "remove_from_list",
     {
       title: "Remove from list",
-      description: `${REMOVE_DESCRIPTION} Confirm with the user first.${BY_NAME}`,
+      description: `${REMOVE_DESCRIPTION} The first call only shows the entry; call again with confirmed: true to remove it.${BY_NAME}`,
       inputSchema: {
         anime,
         confirmed: z
           .boolean()
           .optional()
-          .describe("true when the user has confirmed in the chat, after a dialog was closed without an answer"),
+          .describe("true on the second call, to remove the entry the first call showed"),
       },
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
     },
@@ -1243,33 +1339,43 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       const { note } = resolved;
       // Cached once fetched (resolving a name fetches it), so this is a request only on first use.
       const viewer = await client.getViewer();
-      return onTurn(resolved.media, readAt, async (media) => {
+      return onTurn(resolved, readAt, async (media) => {
         const title = displayTitle(media.title, viewer.titleLanguage);
         const entry = media.mediaListEntry;
+        const shown = pendingRemovals.get(media.id);
+        pendingRemovals.delete(media.id); // a confirmation is used once
         if (!entry) return text(`${title} isn't on your list.`);
-        // `confirmed` only stands in for a dialog that closed without an answer for this show.
-        if (canAsk() && !(confirmed && unansweredRemovals.has(media.id))) {
-          // The description told the assistant not to ask, so no answer means no.
-          const answer = await ask({
-            message: `Remove ${title} from your AniList list? ${describeEntry(media, entry, viewer).replace(/^\[\d+\] /, "")}. Its progress, score, dates and notes go with it.`,
-            requestedSchema: {
-              type: "object",
-              properties: { confirm: { type: "boolean", title: `Remove ${title}`, default: true } },
-              required: [],
-            },
-          });
-          if (!answer || answer.action === "cancel") {
-            unansweredRemovals.add(media.id);
-            return text(
-              `${note}Not removed: the confirmation dialog closed without an answer (some clients can't show it). Ask the user in the chat whether to remove ${title}; if they say yes, call again with confirmed: true.`,
-            );
-          }
-          if (answer.action === "decline" || answer.content?.confirm === false) {
+        // A deletion goes ahead only once the entry has been put in front of the user or the
+        // assistant: in a dialog, or by an earlier call, unchanged since and not long ago.
+        const state = JSON.stringify([entry.id, snapshot(entry)]);
+        const line = describeEntry(media, entry, viewer).replace(/^\[\d+\] /, "");
+        if (!(confirmed && shown && shown.entry === state && now() < shown.expires)) {
+          const answer = canAsk()
+            ? await ask({
+                message: `Remove ${title} from your AniList list? ${line}. Its progress, score, dates and notes go with it.`,
+                requestedSchema: {
+                  type: "object",
+                  properties: { confirm: { type: "boolean", title: `Remove ${title}`, default: true } },
+                  required: [],
+                },
+              })
+            : null;
+          if (answer?.action === "decline" || (answer?.action === "accept" && answer.content?.confirm === false)) {
             return text(`${note}Not removed: the user chose to keep ${title}.`);
+          }
+          // No dialog, or one closed without an answer (some clients can't show one, and
+          // claude -p closes every one): the assistant confirms with a second call.
+          if (answer?.action !== "accept") {
+            for (const [id, p] of pendingRemovals) if (p.expires <= now()) pendingRemovals.delete(id);
+            pendingRemovals.set(media.id, { entry: state, expires: now() + CONFIRM_REMOVAL_MS });
+            const changed =
+              confirmed && shown && shown.entry !== state ? "It changed since it was last shown, so it wasn't removed. " : "";
+            return text(
+              `${note}Not removed yet. ${changed}${line}; removing it deletes its progress, score, dates and notes. If this is the show the user asked to remove, call again with confirmed: true; if you're not sure, ask them first.`,
+            );
           }
         }
         const deleted = await client.deleteEntry(entry.id);
-        unansweredRemovals.delete(media.id);
         if (deleted) journal.record("remove_from_list", [change(media, entry, null)]);
         return text(`${note}${deleted ? `Removed ${title} from your list.` : `AniList did not delete ${title}.`}`);
       });

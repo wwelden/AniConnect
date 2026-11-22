@@ -268,7 +268,7 @@ describe("tools", () => {
   test("rate_anime sends a raw score and reports it in the user's format", async () => {
     const r = await call("rate_anime", { anime: 16498, score: 8 });
     expect(fake.calls.at(-1)!.variables.scoreRaw).toBe(80);
-    expect(r.text).toBe("Rated Attack on Titan: 4 stars (of 5)");
+    expect(r.text).toBe("Added Attack on Titan to your list as Plan to watch and rated it 4 stars (of 5).");
     expect(fake.entries.get(16498)!.scoreRaw).toBe(80);
   });
 
@@ -296,7 +296,7 @@ describe("tools", () => {
     await call("set_progress", { anime: 16498, episodes: 24 });
     const r = await call("mark_episodes_watched", { anime: 16498, count: 2 });
     expect(r.isError).toBe(true);
-    expect(r.text).toContain("only has 25 episodes");
+    expect(r.text).toContain("Attack on Titan has 25 episodes, so 26 is past the last one.");
     expect(fake.entries.get(16498)!.progress).toBe(24);
   });
 
@@ -308,6 +308,8 @@ describe("tools", () => {
   test("remove_from_list deletes the entry", async () => {
     await call("add_to_list", { anime: 16498 });
     let r = await call("remove_from_list", { anime: 16498 });
+    expect(r.text).toContain("Not removed yet");
+    r = await call("remove_from_list", { anime: 16498, confirmed: true });
     expect(r.text).toContain("Removed Attack on Titan");
     expect(fake.entries.has(16498)).toBe(false);
     r = await call("remove_from_list", { anime: 16498 });
@@ -324,11 +326,14 @@ describe("tools", () => {
     expect(fake.entries.has(142838)).toBe(true);
 
     r = await call("remove_from_list", { anime: "spy x family season 1 part 2" });
+    expect(r.text).toContain("Not removed yet");
+    r = await call("remove_from_list", { anime: "spy x family season 1 part 2", confirmed: true });
     expect(r.text).toContain("Removed");
     expect(fake.entries.has(142838)).toBe(false);
     expect(fake.entries.has(140960)).toBe(true);
 
-    r = await call("remove_from_list", { anime: 140960 });
+    await call("remove_from_list", { anime: 140960 });
+    r = await call("remove_from_list", { anime: 140960, confirmed: true });
     expect(r.text).toContain("Removed");
     expect(fake.entries.has(140960)).toBe(false);
   });
@@ -754,7 +759,9 @@ describe('set_progress "latest" (caught up)', () => {
       const before = fake.writes.length;
       const r = await call("set_progress", { anime: "one piece", episodes: "latest" });
       expect(r.isError).toBe(true);
-      expect(r.text).toContain("Nothing was changed. AniList doesn't say how many episodes of ONE PIECE are out");
+      expect(r.text).toContain(
+        'Nothing was changed. Matched "one piece" to ONE PIECE: you\'re watching it.\nAniList doesn\'t say how many episodes of ONE PIECE are out',
+      );
       expect(r.text).toContain("Ask the user which episode they're on");
       expect(fake.writes.length).toBe(before);
       expect(fake.entries.get(21)!.progress).toBe(1100);
@@ -802,11 +809,20 @@ describe("list cache (R5.4)", () => {
     expect(r.text).toContain("episode 3 -> 4");
     expect(r.requests.filter((k) => k !== "viewer")).toEqual(["list", "write"]);
 
-    clock += 30_000;
+    clock += 2_000;
     r = await run("mark_episodes_watched", { anime: "jjk" });
     expect(r.text).toContain("episode 4 -> 5");
     expect(r.requests).toEqual(["write"]);
     expect(fake.entries.get(145064)!.progress).toBe(5);
+  });
+
+  test("a write more than a few seconds after the list was fetched reads its show again first", async () => {
+    await run("mark_episodes_watched", { anime: "jjk" });
+    clock += 30_000;
+    fake.entries.get(145064)!.progress = 6; // a scrobbler, in between
+    const r = await run("mark_episodes_watched", { anime: "jjk" });
+    expect(r.text).toContain("episode 6 -> 7");
+    expect(r.requests).toEqual(["other", "write"]);
   });
 
   test("parallel progress updates to one show count every episode (#28)", async () => {
@@ -865,6 +881,8 @@ describe("list cache (R5.4)", () => {
     expect(r.text).toContain(`${PERSONA.length + 1} matches`);
 
     r = await run("remove_from_list", { anime: "frieren" });
+    expect(r.text).toContain("Not removed yet");
+    r = await run("remove_from_list", { anime: "frieren", confirmed: true });
     expect(r.text).toContain("Removed Frieren");
     r = await run("search_my_list", { query: "frieren" });
     expect(r.text).toContain("Nothing on tester's list");

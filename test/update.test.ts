@@ -106,7 +106,7 @@ describe("update_shows (R2.6)", () => {
     expect(r.text).toBe(
       'Not changed: "dandadan": Nothing to change: give status, episodes, watched, score, a date or a note.\n' +
         'Not changed: "jjk": Give episodes or watched, not both.\n' +
-        'Not changed: "dandadan": This show only has 12 episodes (got 99).',
+        'Not changed: "dandadan": DAN DA DAN has 12 episodes, so 99 is past the last one.',
     );
     expect(fake.writes).toHaveLength(0);
   });
