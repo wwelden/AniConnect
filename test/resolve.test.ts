@@ -725,6 +725,15 @@ describe("a misspelled name resolves as the right spelling does (R1.2)", () => {
       expect(r.kind === "match" && r.media.id).toBe(findMedia("Shingeki no Kyojin Season 2").id);
     }
   });
+
+  test("a misspelled abbreviation beside other words tries the reading as written, as the right spelling does", async () => {
+    for (const query of ["tensura movie 2", "tensuraa movie 2"]) {
+      seed([{ anime: 182206, status: "PLANNING" }]);
+      const r = await resolve(query, "progress");
+      if (r.kind !== "match") throw new Error(`${query}: expected match, got ${r.kind}: ${r.why}`);
+      expect(r.media.id).toBe(182206);
+    }
+  });
 });
 
 describe("a numbered season of two different shows asks which show (#62)", () => {

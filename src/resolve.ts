@@ -260,7 +260,15 @@ function correction(q: ParsedQuery, listed: Media[]): ParsedQuery | undefined {
   // Read again as the right spelling is: a respelled season word names the season ("aot seson 2"),
   // and an abbreviation expands ("rezzero" -> "rezero"). The season already read is kept.
   const text = q.exact.split(" ").map((w) => fixes.get(w) ?? w).join(" ");
-  const again = parseQuery(text);
+  let again = parseQuery(text);
+  // The right spelling tries a reading as written first ("tensura movie 2", not its expansion), so
+  // here too, when a listed show matches it.
+  for (let l = again.literal; l; l = l.literal) {
+    if (listed.some((m) => matchScore(m, l) >= 2)) {
+      again = l;
+      break;
+    }
+  }
   const fixed: ParsedQuery = { exact: again.exact, words: again.words, hint: { ...again.hint, ...q.hint } };
   // The title as typed keeps its marks, respelled too: "Kaguye-sama: Love is War?" still names season 2 (#73).
   if (q.typed && again.exact === text) fixed.typed = [...fixes].reduce((t, [word, fix]) => t.replace(word, fix), q.typed);
