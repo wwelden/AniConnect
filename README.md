@@ -49,7 +49,7 @@ claude mcp add --transport http --scope user aniconnect https://aniconnect-produ
 
 Then sign in from `/mcp` in a session, or with `claude mcp login aniconnect`.
 
-**ChatGPT** (on the web; changing your list needs a Business, Enterprise or Edu plan, since on Pro custom MCP servers are read-only): go to **Plugins**, click **+**, then **Add custom MCP server**. Name it AniConnect, enter the URL as the **Server URL**, choose **OAuth** for authentication, accept the risk warning and click **Create as a plugin**.
+**ChatGPT** (on the web; changing your list needs a Business, Enterprise or Edu plan, since on Pro custom MCP servers are read-only): go to **Plugins**, click **+**, then **Add custom MCP server**. Name it AniConnect, enter the URL as the **Server URL**, choose **OAuth** for authentication, accept the risk warning and click **Create as a plugin**. Then install the plugin, start a new chat, type `@` in the message box and pick AniConnect.
 
 **Cursor:** add it to `~/.cursor/mcp.json`, and Cursor asks you to sign in:
 
