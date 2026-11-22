@@ -139,6 +139,11 @@ function sourceIds(m: Pick<Media, "relations">): number[] {
   return (m.relations?.edges ?? []).filter((e) => SOURCE_LINKS.has(e.relationType) && e.node.type !== "ANIME").map((e) => e.node.id);
 }
 
+/** Whether a show links to one of `ids` by anything but a crossover (CHARACTER, OTHER): a season, spin-off or shared source. */
+function linksInto(m: Pick<Media, "relations">, ids: Set<number>): boolean {
+  return (m.relations?.edges ?? []).some((e) => e.relationType !== "CHARACTER" && e.relationType !== "OTHER" && ids.has(e.node.id));
+}
+
 function startNum(m: Media): number {
   const d = m.startDate;
   return d?.year ? d.year * 10000 + (d.month ?? 0) * 100 + (d.day ?? 0) : Number.POSITIVE_INFINITY;
@@ -157,7 +162,8 @@ export interface PickedRecommendations {
 /**
  * What to list from a show's recommendations: none with no net votes, no lost (null) or adult shows (unless 18+ is
  * on), none the user completed, is rewatching or dropped, none of the show's own franchise
- * (its relations, or another adaptation of its source), only ones `matches` keeps; then
+ * (its relations and anything linked to them, such as a sequel of a related show or another adaptation of its source),
+ * only ones `matches` keeps; then
  * several seasons of one recommended franchise fold into the earliest, most voted first.
  */
 export function pickRecommendations(
@@ -180,7 +186,7 @@ export function pickRecommendations(
   for (const r of valid) {
     const m = r.mediaRecommendation;
     const status = m.mediaListEntry?.status;
-    if (m.id === source.id || related.has(m.id) || sourceIds(m).some((id) => related.has(id))) result.sameFranchise++;
+    if (m.id === source.id || related.has(m.id) || linksInto(m, related)) result.sameFranchise++;
     else if (status === "COMPLETED" || status === "REPEATING" || status === "DROPPED") result.seen++;
     else if (!matches(m)) result.filtered++;
     else kept.push({ media: m, rating: r.rating ?? 0 });

@@ -295,7 +295,7 @@ describe("search_anime airing calendar", () => {
     expect(header(r.text)).toContain("tomorrow (Wed, Nov 18)");
     expect(r.text).toContain("Wed, Nov 18:");
     expect(r.text).toContain("[154587]");
-    r = await call("search_anime", { airing: "week" });
+    r = await call("search_anime", { airing: "week", timeZone: "UTC" });
     expect(header(r.text)).toContain("the next 7 days (Tue, Nov 17 to Mon, Nov 23)");
     // The fixture's own next episodes in that week: The Apothecary Diaries Season 3 on the 20th.
     expect(r.text).toContain("Fri, Nov 20:");
@@ -425,6 +425,13 @@ describe("search_anime similarTo", () => {
     ]);
     const r = await call("search_anime", { similarTo: 154587 });
     expect(ids(r.text.split("\n").slice(1).join("\n"))).toEqual([127230]);
+    expect(r.text).toContain("1 of the same franchise");
+  });
+
+  test("leaves out a show linked to the source's relations, such as a sequel of a related show", async () => {
+    // Steins;Gate 0 (21127) isn't a relation of Steins;Gate, but its prequel (21624) is.
+    const r = await call("search_anime", { similarTo: "steins;gate" });
+    expect(ids(r.text)).not.toContain(21127);
     expect(r.text).toContain("1 of the same franchise");
   });
 
