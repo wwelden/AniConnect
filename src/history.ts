@@ -344,11 +344,11 @@ export function formatHistory(activities: ListActivity[], o: HistoryOptions): st
       currentDay = day;
     }
     // Plan-to-watch adds in a row, close together on one day: a list import reads as one
-    // line, not hundreds.
+    // line, not hundreds. One show's history keeps each of its updates.
     let end = i;
     const joins = (prev: ListActivity, next: ListActivity | undefined) =>
       next !== undefined && isPlanAdd(next) && prev.createdAt - next.createdAt <= BULK_GAP && dayOfUpdate(next) === day;
-    while (isPlanAdd(a) && joins(activities[end]!, activities[end + 1])) end++;
+    while (!o.show && isPlanAdd(a) && joins(activities[end]!, activities[end + 1])) end++;
     const run = activities.slice(i, end + 1);
     if (run.length >= BULK_ADDS) {
       const titles =

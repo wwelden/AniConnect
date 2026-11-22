@@ -344,6 +344,15 @@ describe("watch_history tool", () => {
     expect(r.text).toMatch(/- 9:00 AM [^\n]+: added to plan to watch\n/);
   });
 
+  test("one show's history keeps each plan-to-watch update", async () => {
+    fake.seedActivity(
+      Array.from({ length: 5 }, (_, i) => ({ anime: "Sousou no Frieren", status: "plans to watch", at: `2026-11-17T09:0${i}:00Z` })),
+    );
+    const r = await call("watch_history", { anime: "frieren", timeZone: "UTC" });
+    expect(r.text.match(/Frieren[^\n]*: added to plan to watch\n/g)).toHaveLength(5);
+    expect(r.text).not.toContain("added 5 shows");
+  });
+
   test("finished shows over a long range come from the list's finish dates (#42)", async () => {
     // Hundreds of episode updates this year: the feed alone can't reach back to January.
     busy(300);
