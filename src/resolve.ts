@@ -258,7 +258,10 @@ function correction(q: ParsedQuery, listed: Media[]): ParsedQuery | undefined {
   }
   if (!fixes.size) return undefined;
   // finish expands an abbreviation the respelling lands on ("rezzero" -> "rezero"), as for the right spelling.
-  return finish(q.exact.split(" ").map((w) => fixes.get(w) ?? w).join(" "), q.hint);
+  const fixed = finish(q.exact.split(" ").map((w) => fixes.get(w) ?? w).join(" "), q.hint);
+  // The title as typed keeps its marks, respelled too: "Kaguye-sama: Love is War?" still names season 2 (#73).
+  if (q.typed) fixed.typed = [...fixes].reduce((t, [word, fix]) => t.replace(word, fix), q.typed);
+  return fixed;
 }
 
 /**

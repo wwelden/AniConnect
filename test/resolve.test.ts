@@ -709,6 +709,14 @@ describe("a misspelled name resolves as the right spelling does (R1.2)", () => {
     const r = await resolveAnime("helsingg", "progress", source, "ENGLISH");
     expect(r.kind === "match" && r.media.id).toBe(1);
   });
+
+  test("a misspelled title typed with its mark goes to the season the mark names (#73)", async () => {
+    for (const intent of ["progress", "status"] as const) {
+      seed(PERSONA);
+      const r = await resolve("Kaguye-sama: Love is War?", intent);
+      expect(r.kind === "match" && r.media.id).toBe(findMedia("Kaguya-sama: Love is War?").id);
+    }
+  });
 });
 
 describe("a numbered season of two different shows asks which show (#62)", () => {
