@@ -89,31 +89,9 @@ AniConnect can also run on your own computer, talking to your MCP client over st
 
 Treat the token like a password: it can edit your list.
 
-### 2. Add it to your MCP client with npx
+### 2. Add it to your MCP client
 
-You need [Node.js](https://nodejs.org) 20 or newer. AniConnect isn't on npm yet: until it is, use [From source](#from-source) below.
-
-**Claude Code:**
-
-```sh
-claude mcp add aniconnect --scope user --env ANILIST_TOKEN=your-token -- npx -y aniconnect
-```
-
-**Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json`), and other clients that take an `mcpServers` block:
-
-```json
-{
-  "mcpServers": {
-    "aniconnect": {
-      "command": "npx",
-      "args": ["-y", "aniconnect"],
-      "env": { "ANILIST_TOKEN": "your-token" }
-    }
-  }
-}
-```
-
-With [Bun](https://bun.sh) installed, `bunx aniconnect` works in place of `npx -y aniconnect`.
+AniConnect isn't published to npm yet, so run it from source. Don't use `npx aniconnect` until this section says it's published: a package by that name today wouldn't be this project.
 
 ### From source
 
