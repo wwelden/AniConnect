@@ -594,7 +594,9 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
   }) => {
     onlyWith(args, ["similarTo", "genres", "formats", "year", "yearFrom", "yearTo", "maxEpisodes", "limit"], "`similarTo`");
     const viewer = await client.getViewer();
-    const { media, note } = await find(args.similarTo, "show", memo(clientSource(client)), false);
+    // Like adding: the first season unless one is named, whatever the user's status on the others,
+    // since that's where AniList users leave most recommendations.
+    const { media, note } = await find(args.similarTo, "add", memo(clientSource(client)), false);
     const { relatedIds, recommendations } = await client.getRecommendations(media.id);
     // AniList's recommendations take no filters, so the call's apply here.
     const yearOf = (m: Media) => m.seasonYear ?? m.startDate?.year ?? null;
@@ -754,7 +756,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
           },
           limit ?? (browsing ? 10 : 5),
           page,
-          withTags && !known,
+          withTags && !client.cachedTags(),
         );
       const found = await browse(adult);
       if (found.tags) {

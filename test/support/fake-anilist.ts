@@ -493,7 +493,8 @@ resolveFields("Media", {
   recommendations: (m: MediaValue, args, ctx) => {
     if (args.sort && args.sort[0] !== "RATING_DESC") ctx.fake.unmodeled.add(`Media.recommendations(sort: ${args.sort[0]})`);
     const edges = [...(ctx.fake.recommendations.get(m.id) ?? [])].sort((a, b) => b.rating - a.rating);
-    const page = { page: Math.max(1, args.page ?? 1), perPage: Math.min(PER_PAGE, Math.max(1, args.perPage ?? PER_PAGE)) };
+    // AniList gives at most 25 recommendations a page, whatever perPage asks (checked live).
+    const page = { page: Math.max(1, args.page ?? 1), perPage: Math.min(25, Math.max(1, args.perPage ?? 25)) };
     const nodes = paginate(page, edges).map((e, i) => {
       const target = e.id === null ? undefined : catalog.find((c) => c.id === e.id);
       return { id: m.id * 100 + i, rating: e.rating, media: m, mediaRecommendation: target ? mediaValue(target, m.level + 1) : null };

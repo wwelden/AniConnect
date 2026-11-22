@@ -415,6 +415,23 @@ describe("search_anime similarTo", () => {
     expect(r.text).toContain("1 of the same franchise");
   });
 
+  test("a show named without a season is its first season, whatever the user is watching or planning", async () => {
+    // The persona plans Mob Psycho 100 III; recommendations sit mostly on season 1.
+    fake.seed(PERSONA);
+    const r = await call("search_anime", { similarTo: "mob psycho 100" });
+    expect(r.text).toContain("recommendations for Mob Psycho 100,");
+  });
+
+  test("recommendations with no net votes aren't listed", async () => {
+    fake.recommendations.set(154587, [
+      { id: 127230, rating: 0 },
+      { id: 108465, rating: -2 },
+      { id: 101922, rating: 3 },
+    ]);
+    const r = await call("search_anime", { similarTo: 154587 });
+    expect(ids(r.text)).toEqual([101922]);
+  });
+
   test("a show nobody has recommended anything for says so", async () => {
     fake.recommendations.set(154587, []);
     const r = await call("search_anime", { similarTo: 154587 });

@@ -43,7 +43,7 @@ export function checkTags(names: string[], known: TagName[], showAdult: boolean)
   if (unknown.length) {
     const lines = unknown.map((name) => {
       const want = name.toLowerCase();
-      const words = want.split(/\s+/).filter((w) => w.length > 2);
+      const words = want.split(/[\s-]+/).filter((w) => w.length > 2);
       const close = known
         .filter((t) => showAdult || !t.isAdult)
         .map((t) => {
@@ -148,7 +148,7 @@ export interface PickedRecommendations {
 }
 
 /**
- * What to list from a show's recommendations: no lost (null) or adult shows (unless 18+ is
+ * What to list from a show's recommendations: none with no net votes, no lost (null) or adult shows (unless 18+ is
  * on), none the user completed, is rewatching or dropped, none of the show's own franchise
  * (its relations, or another adaptation of its source), only ones `matches` keeps; then
  * several seasons of one recommended franchise fold into the earliest, most voted first.
@@ -161,7 +161,11 @@ export function pickRecommendations(
 ): PickedRecommendations {
   const valid = recommendations.filter(
     (r): r is Recommendation & { mediaRecommendation: Recommended } =>
-      Boolean(r.mediaRecommendation) && (r.mediaRecommendation!.type ?? "ANIME") === "ANIME" && (showAdult || !r.mediaRecommendation!.isAdult),
+      // Net-downvoted or unvoted ones aren't recommendations anyone stands behind.
+      (r.rating ?? 0) > 0 &&
+      Boolean(r.mediaRecommendation) &&
+      (r.mediaRecommendation!.type ?? "ANIME") === "ANIME" &&
+      (showAdult || !r.mediaRecommendation!.isAdult),
   );
   const related = new Set(source.relatedIds);
   const result: PickedRecommendations = { shown: [], total: valid.length, seen: 0, sameFranchise: 0, filtered: 0 };

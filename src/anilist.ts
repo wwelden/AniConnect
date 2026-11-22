@@ -872,11 +872,12 @@ export class AniListClient {
     // A page that says there's no next one ends the range, whatever the later aliases hold.
     const end = pages.findIndex((p) => !p.pageInfo.hasNextPage);
     const used = end === -1 ? pages : pages.slice(0, end + 1);
-    return { airings: used.flatMap((p) => p.airingSchedules), truncated: end === -1 };
+    // AniList's schema lets a schedule entry lose its show; those are skipped.
+    return { airings: used.flatMap((p) => p.airingSchedules).filter((a) => a.media), truncated: end === -1 };
   }
 
   /**
-   * AniList users' recommendations for a show, most voted first (up to 50, one page), with
+   * AniList users' recommendations for a show, most voted first (25, the most AniList gives in a page), with
    * the show's own relations, so its sequels and side stories can be told apart.
    */
   async getRecommendations(mediaId: number): Promise<{ relatedIds: number[]; recommendations: Recommendation[] }> {
@@ -886,7 +887,7 @@ export class AniListClient {
       `query ($id: Int) {
         Media(id: $id, type: ANIME) {
           relations { edges { node { id } } }
-          recommendations(sort: [RATING_DESC], perPage: 50) {
+          recommendations(sort: [RATING_DESC], perPage: 25) {
             nodes {
               rating
               mediaRecommendation {
