@@ -48,6 +48,7 @@ import {
   titledWithNumber,
   type AnimeSource,
   type Intent,
+  type ParsedQuery,
   type Resolution,
 } from "./resolve";
 import { formatFinished, formatHistory, isPlanAdd, parsePeriod } from "./history";
@@ -251,6 +252,16 @@ async function pick(
  */
 type Found = { media: Media; note: string; fresh?: boolean; loose?: boolean };
 
+/**
+ * Whether a show's titles match a name only allowing for a typo, by every reading of the name.
+ * 0 (no match) isn't a typo: a later season reached through its sequel chain can have a title of its own.
+ */
+function typoOnly(media: Media, input: string): boolean {
+  let best = 0;
+  for (let q: ParsedQuery | undefined = parseQuery(input); q; q = q.literal) best = Math.max(best, matchScore(media, q));
+  return best === 1;
+}
+
 /** Finds the show a tool call is about, or throws a message that tells the assistant what to do. */
 async function target(
   client: AniListClient,
@@ -298,7 +309,7 @@ async function target(
     return {
       media: r.media,
       note: `Matched "${input}" to ${displayTitle(r.media.title, titleLanguage)}: ${r.why}.\n`,
-      loose: matchScore(r.media, parseQuery(input)) < 2,
+      loose: typoOnly(r.media, input),
     };
   }
   if (r.kind === "ambiguous") {

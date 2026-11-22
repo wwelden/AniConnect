@@ -864,10 +864,11 @@ export class AniListClient {
 
   /**
    * How long ago the cached list was fetched, so a write can tell whether a show taken from it
-   * may miss a change made elsewhere since. 0 when no list is cached.
+   * may miss a change made elsewhere since. Infinity when none is cached: one dropped after a
+   * failed or overlapping write may have been read before it was dropped.
    */
   listAge(): number {
-    return this.cache.list ? this.now() - this.cache.list.fetchedAt : 0;
+    return this.cache.list ? this.now() - this.cache.list.fetchedAt : Infinity;
   }
 
   private async fetchMyList(): Promise<Map<number, ListItem>> {
