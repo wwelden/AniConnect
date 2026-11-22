@@ -147,7 +147,8 @@ export const CASES: EvalCase[] = [
     expect: { changes: [{ anime: "Dandadan", noteHas: ["dub"] }] } },
 
   // Removing.
-  { id: "remove", prompt: "remove haikyuu from my list", idealCalls: 1,
+  // Two calls: the first only shows the entry (claude -p closes the dialog unanswered).
+  { id: "remove", prompt: "remove haikyuu from my list", idealCalls: 2,
     expect: [{ changes: [{ anime: "Haikyuu!!", removed: true }] }, { asks: true }] },
 
   // Reading the list.

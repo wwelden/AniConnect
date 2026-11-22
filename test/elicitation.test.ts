@@ -141,7 +141,7 @@ describe("confirming removals (R2.7)", () => {
     const { tools } = await client.listTools();
     const remove = tools.find((t) => t.name === "remove_from_list")!;
     expect(remove.description).toContain("confirms in a dialog");
-    expect(remove.description).not.toContain("Confirm with the user first");
+    expect(remove.description).not.toContain("The first call only shows the entry");
   });
 
   test("removes after the user confirms", async () => {
@@ -166,7 +166,7 @@ describe("confirming removals (R2.7)", () => {
     }
   });
 
-  test("a dialog closed without an answer asks the assistant to confirm in chat (claude -p cancels every form)", async () => {
+  test("a dialog closed without an answer leaves the assistant to confirm with a second call (claude -p cancels every form)", async () => {
     for (const reply of [
       () => ({ action: "cancel" as const }),
       () => {
@@ -175,7 +175,7 @@ describe("confirming removals (R2.7)", () => {
     ]) {
       answer = reply;
       const r = await call("remove_from_list", { anime: "dandadan" });
-      expect(r.text).toContain("Not removed: the confirmation dialog closed without an answer");
+      expect(r.text).toContain("Not removed yet. DAN DA DAN (TV, 2024): Watching, 7/12 episodes, unrated");
       expect(r.text).toContain("call again with confirmed: true");
       expect(fake.entries.has(DANDADAN)).toBe(true);
     }
@@ -202,10 +202,14 @@ describe("clients without forms", () => {
     expect(r.text).toContain("Ask the user which one they mean");
   });
 
-  test("removal asks the assistant to confirm first, then removes without a form", async () => {
+  test("removal shows the entry first, then removes it on a second call, without a form", async () => {
     const { tools } = await client.listTools();
-    expect(tools.find((t) => t.name === "remove_from_list")!.description).toContain("Confirm with the user first");
-    const r = await call("remove_from_list", { anime: "dandadan" });
+    expect(tools.find((t) => t.name === "remove_from_list")!.description).toContain("The first call only shows the entry");
+    let r = await call("remove_from_list", { anime: "dandadan" });
+    expect(r.text).toContain("Not removed yet");
+    expect(fake.entries.has(DANDADAN)).toBe(true);
+    r = await call("remove_from_list", { anime: "dandadan", confirmed: true });
     expect(r.text).toContain("Removed DAN DA DAN");
+    expect(forms).toHaveLength(0);
   });
 });

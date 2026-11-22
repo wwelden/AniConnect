@@ -75,6 +75,7 @@ describe("undo (R3.1)", () => {
     } satisfies Partial<StoredEntry>);
     const before = state(DANDADAN);
     await call("remove_from_list", { anime: "dandadan" });
+    await call("remove_from_list", { anime: "dandadan", confirmed: true });
     expect(fake.entries.has(DANDADAN)).toBe(false);
 
     const r = await call("undo");
