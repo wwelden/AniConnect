@@ -210,15 +210,13 @@ test("a removal accepted after a while journals the entry as it was when deleted
 });
 
 test("update_shows still saves when the batched re-read fails", async () => {
-  await warmThenWait();
   const fetch = fake.fetch;
   fake.fetch = async (url: string, init: RequestInit) => {
     if (Array.isArray(JSON.parse(init.body as string).variables?.ids)) return new Response("down", { status: 500 });
     return fetch(url, init);
   };
   await connect();
-  await call("search_my_list", {});
-  clock += 20_000;
+  await warmThenWait();
   const r = await call("update_shows", { updates: [{ anime: "dandadan", watched: 1 }, { anime: "jjk", watched: 1 }] });
   expect(r.isError).toBe(false);
   expect(fake.entries.get(DANDADAN)!.progress).toBe(8);
