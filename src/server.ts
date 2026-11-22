@@ -82,7 +82,7 @@ import {
 const anime = z
   .union([z.string().min(1), z.number().int().positive()])
   .describe(
-    'The show: any title, abbreviation or season ("jjk", "spy x family season 2", "the new Frieren season"), or an AniList ID as a number.',
+    'The show: any title, abbreviation or season ("jjk", "spy x family season 2", "the new Frieren season"), or an AniList ID as a number or its anilist.co link.',
   );
 
 const status = z
@@ -275,6 +275,9 @@ function typoOnly(media: Media, input: string): boolean {
   return best === 1;
 }
 
+/** A link names the show by its ID: https://anilist.co/anime/154587/Sousou-no-Frieren. */
+const ANILIST_LINK = /^(?:https?:\/\/)?(?:www\.)?anilist\.co\/(anime|manga)\/(\d+)(?:[/?#]|$)/i;
+
 /** Finds the show a tool call is about, or throws a message that tells the assistant what to do. */
 async function target(
   client: AniListClient,
@@ -293,6 +296,9 @@ async function target(
     return r.kind === "none" && fallback ? resolveAnime(query, fallback, src, language) : r;
   };
   if (typeof input === "number") return { media: await client.getAnime(input), note: "", fresh: true };
+  const link = ANILIST_LINK.exec(input.trim());
+  if (link?.[1]!.toLowerCase() === "manga") throw new Error(`${prefix}That's a manga link; AniConnect manages anime only.`);
+  if (link) return { media: await client.getAnime(Number(link[2])), note: "", fresh: true };
   const { titleLanguage } = await client.getViewer();
   const digits = /^\d+$/.test(input.trim()) ? input.trim() : undefined;
   let r: Resolution;
@@ -1002,8 +1008,8 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       const { zone, note: zoneNote } = await readZone(timeZone);
       const at = now();
       const range = parsePeriod(period ?? (anime === undefined ? "last 7 days" : "all time"), at, zone);
-      // Most history is for shows on the list, so try the list alone first ("remove" never
-      // searches the rest of AniList): one request (R5.2). A show removed from the list still
+      // Most history is for shows on the list, so try the list alone first ("remove" searches the
+      // rest of AniList only for a title with a mark the listed one lacks, R1.13): one request (R5.2). A show removed from the list still
       // has history in the feed, so a name the list doesn't have is looked up on AniList.
       const show =
         anime === undefined ? undefined : await find(anime, "remove", undefined, false, "lookup");
@@ -1479,6 +1485,11 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
       // A form for one show only: in a batch, the names that need a choice come back together
       // for the assistant to ask about at once, rather than each stopping the call to ask.
       const askUser = updates.length === 1 && !dryRun ? ask : undefined;
+      // An anime link is its ID (a manga link stays as it is, for target to refuse).
+      updates = updates.map((u) => {
+        const link = typeof u.anime === "string" ? ANILIST_LINK.exec(u.anime.trim()) : null;
+        return link?.[1]!.toLowerCase() === "anime" ? { ...u, anime: Number(link[2]) } : u;
+      });
       // Shows given by ID, fetched together: one request rather than one each.
       const ids = [...new Set(updates.map((u) => u.anime).filter((a): a is number => typeof a === "number"))];
       // If that fails, each show is looked up on its own and reports its own error.

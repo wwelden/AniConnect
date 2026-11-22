@@ -165,8 +165,16 @@ function rawNames(m: Media, own = false): string[] {
   return [m.title.romaji, m.title.english, m.title.native, ...(own ? [] : m.synonyms)].filter((n): n is string => Boolean(n));
 }
 
+/** `names` of each anime, all and own, worked out once: a resolution compares every title many times. */
+const NAMES = new WeakMap<Media, [string[], string[]]>();
+
 function names(m: Media, own = false): string[] {
-  return rawNames(m, own).map(normalize).filter(Boolean);
+  let known = NAMES.get(m);
+  if (!known) {
+    known = [rawNames(m).map(normalize).filter(Boolean), rawNames(m, true).map(normalize).filter(Boolean)];
+    NAMES.set(m, known);
+  }
+  return known[own ? 1 : 0];
 }
 
 /**
@@ -213,7 +221,58 @@ function wordHit(word: string, name: string, nameWords: string[], inside = true)
 function typoHit(word: string, nameWords: string[]): boolean {
   if (word.length < 4 || !LATIN.test(word)) return false;
   const allowed = word.length >= 8 ? 2 : 1;
-  return nameWords.some((nw) => levenshtein(word, nw) <= allowed);
+  // The distance is at least the difference in length: skip the words that can't be in reach.
+  return nameWords.some((nw) => Math.abs(nw.length - word.length) <= allowed && levenshtein(word, nw) <= allowed);
+}
+
+/**
+ * The query respelled from the titles of the listed shows it only matches with typos
+ * ("frieran" -> "frieren"), so it resolves as the right spelling would: AniList's search has
+ * no typo tolerance, so the sequels and same-named shows the guards weigh never come back for
+ * the misspelling. Each mistyped word takes the closest word of the shows' own titles, else of
+ * their synonyms. Undefined when the shows disagree on a word (R1.2).
+ */
+function correction(q: ParsedQuery, listed: Media[]): ParsedQuery | undefined {
+  const fixes = new Map<string, string>();
+  for (const word of q.words) {
+    if (listed.some((m) => names(m).some((n) => wordHit(word, n, n.split(" "))))) continue;
+    // Each show's own nearest word: a show further off still counts, so two that would respell
+    // the word differently are left as they are, whichever is closer.
+    const closest = new Set<string>();
+    for (const m of listed) {
+      for (const own of [true, false]) {
+        let best = Number.POSITIVE_INFINITY;
+        let near: string[] = [];
+        for (const nw of names(m, own).flatMap((n) => n.split(" "))) {
+          if (!typoHit(word, [nw])) continue;
+          const d = levenshtein(word, nw);
+          if (d < best) [best, near] = [d, [nw]];
+          else if (d === best) near.push(nw);
+        }
+        near.forEach((nw) => closest.add(nw));
+        if (near.length) break;
+      }
+    }
+    if (closest.size !== 1) return undefined;
+    fixes.set(word, [...closest][0]!);
+  }
+  if (!fixes.size) return undefined;
+  // Read again as the right spelling is: a respelled season word names the season ("aot seson 2"),
+  // and an abbreviation expands ("rezzero" -> "rezero"). The season already read is kept.
+  const text = q.exact.split(" ").map((w) => fixes.get(w) ?? w).join(" ");
+  let again = parseQuery(text);
+  // The right spelling tries a reading as written first ("tensura movie 2", not its expansion), so
+  // here too, when a listed show matches it.
+  for (let l = again.literal; l; l = l.literal) {
+    if (listed.some((m) => matchScore(m, l) >= 2)) {
+      again = l;
+      break;
+    }
+  }
+  const fixed: ParsedQuery = { exact: again.exact, words: again.words, hint: { ...again.hint, ...q.hint } };
+  // The title as typed keeps its marks, respelled too: "Kaguye-sama: Love is War?" still names season 2 (#73).
+  if (q.typed && again.exact === text) fixed.typed = [...fixes].reduce((t, [word, fix]) => t.replace(word, fix), q.typed);
+  return fixed;
 }
 
 /**
@@ -367,6 +426,34 @@ interface Scored {
   yielded?: boolean;
   /** Set when it would give way, but to a show neither copy carries relations for (both from the list). */
   unsure?: boolean;
+  /**
+   * Titled exactly as written, beside shows that match only once normalized and lack a mark
+   * the query has ("Love is War?" beside "Love is War"): that show is the one meant (#73).
+   */
+  asTyped?: boolean;
+}
+
+/** Punctuation and symbols in a title as written (see `literalTitle`), counted. */
+function marks(literal: string): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const c of literal.replace(/[\p{L}\p{N}]/gu, "")) counts.set(c, (counts.get(c) ?? 0) + 1);
+  return counts;
+}
+
+/** The titles of `m` that are written as `typed` (see `literalTitle`). */
+function writtenAs(m: Media, typed: string): boolean {
+  return [...rawNames(m), ...untagged(m)].some((n) => literalTitle(n) === typed);
+}
+
+/** Every title of `m` that reads as the query lacks one of the marks it was typed with (`q.typed`). */
+function lacksMark(m: Media, q: ParsedQuery): boolean {
+  const asked = marks(q.typed ?? "");
+  return [...rawNames(m), ...untagged(m)]
+    .filter((n) => normalize(n) === q.exact)
+    .every((n) => {
+      const has = marks(literalTitle(n));
+      return [...asked].some(([c, k]) => (has.get(c) ?? 0) < k);
+    });
 }
 
 function dedupe(items: Media[]): Media[] {
@@ -404,10 +491,14 @@ function score(items: Media[], q: ParsedQuery): Scored[] {
   // "Kaguya-sama: Love is War?" and "Kaguya-sama: Love is War" normalize alike (#61): when a
   // title is written exactly as asked, the others that only match once normalized rank below it.
   if (q.typed) {
-    const exact = scored
-      .filter((s) => s.score === EXACT)
-      .map((s) => ({ s, typed: [...rawNames(s.media), ...untagged(s.media)].some((n) => literalTitle(n) === q.typed) }));
+    const typed = q.typed;
+    const exact = scored.filter((s) => s.score === EXACT).map((s) => ({ s, typed: writtenAs(s.media, typed) }));
     if (exact.some((e) => e.typed)) for (const e of exact) if (!e.typed) e.s.score = NORMALIZED_EXACT;
+    // The others' titles that read as the query lack one of its marks: the one titled as written
+    // is meant whatever the list says. Not the other way round: "Love is War" against "Love is
+    // War?" names the first season, which may mean the season being watched (R1.4).
+    const others = exact.filter((e) => !e.typed);
+    if (others.length && others.every((e) => lacksMark(e.s.media, q))) for (const e of exact) if (e.typed) e.s.asTyped = true;
   }
   const strong = scored.filter((s) => s.score >= 2);
   if (!strong.length) return scored.filter((s) => s.score === 1);
@@ -491,12 +582,14 @@ async function matchesStrongly(q: ParsedQuery, intent: Intent, source: AnimeSour
   return intent !== "remove" && strong(await source.search(q.words.join(" ")));
 }
 
+/** `corrected` is set when `q` is already a typo's correction (see `correction`). */
 async function resolveParsed(
   query: string,
   q: ParsedQuery,
   intent: Intent,
   source: AnimeSource,
   language: TitleLanguage,
+  corrected = false,
 ): Promise<Resolution> {
   if (q.words.length === 0) return { kind: "none", why: `"${query}" doesn't name a show.` };
 
@@ -513,10 +606,42 @@ async function resolveParsed(
     pool = score(dedupe(fetched), q);
   };
 
+  const typoOnly = () => pool.length > 0 && pool.every((s) => s.score === 1);
+  if (intent !== "remove" && !corrected && typoOnly()) {
+    // Matched only with typos, and only on the list. The name may be a real title one letter
+    // off a listed one ("kaiji" beside Kaiju No. 8): search it as written first. If nothing
+    // matches better, resolve the spelling the listed titles give, sequels and all (R1.2).
+    await searchAll();
+    const listed = pool.filter((s) => s.media.mediaListEntry).map((s) => s.media);
+    const fixed = typoOnly() && listed.length ? correction(q, listed) : undefined;
+    if (fixed) return resolveParsed(query, fixed, intent, source, language, true);
+  }
+
+  // A listed title reads as the query only once normalized, and the query has a mark it lacks
+  // ("Kaguya-sama: Love is War?" with only "Kaguya-sama: Love is War" listed): the show titled
+  // as written may be another season, off the list (#73). One search.
+  const twin = () => {
+    const exact = pool.filter((s) => s.media.mediaListEntry && s.score === EXACT);
+    return Boolean(q.typed && exact.length && exact.every((s) => lacksMark(s.media, q)));
+  };
+
   const named =
     q.hint.season !== undefined || q.hint.part !== undefined || q.hint.latest || q.hint.next || q.hint.movie;
   if (intent === "remove") {
-    // Removing only ever targets the list, so AniList-wide results can't change the answer.
+    // Removing only ever targets the list, so AniList-wide results can't change the answer,
+    // except to tell that the title written is a show the list doesn't have.
+    if (twin()) {
+      await searchAll();
+      const typed = pool.filter((s) => s.asTyped);
+      if (typed.length) {
+        const listed = pool.filter((s) => s.media.mediaListEntry && s.score >= NORMALIZED_EXACT);
+        return {
+          kind: "ambiguous",
+          candidates: [...typed, ...listed].slice(0, MAX_CANDIDATES).map((s) => s.media),
+          why: `"${query}" is the title of a show that isn't on your list, and shows with that name in their title are.`,
+        };
+      }
+    }
   } else if (intent === "add" || named) {
     await searchAll();
   } else {
@@ -532,7 +657,8 @@ async function resolveParsed(
       !listed.some((s) => ranks[status(s.media)] < ranks.NONE) ||
       (exactOnly(intent) && !listed.some((s) => s.score === EXACT)) ||
       (listed.length && listed.every((s) => s.own < 2 && s.own < s.score)) ||
-      listed.some((s) => s.unsure)
+      listed.some((s) => s.unsure) ||
+      twin()
     ) {
       await searchAll();
     }
@@ -576,6 +702,12 @@ async function resolveParsed(
         why: `"${query}" is the title of a show that isn't on your list, and shows with that name in their title are.`,
       };
     }
+  }
+  // A season titled exactly as written, beside one that lacks its mark, is the one meant,
+  // whatever either's list status (#73). Adding already goes by the title (see `pick`).
+  const typed = pool.filter((s) => s.asTyped);
+  if (intent !== "add" && typed.length === 1) {
+    return { kind: "match", media: typed[0]!.media, why: "its title is written exactly that way" };
   }
   const { planned, ...picked } = pick(query, intent, pool);
   let r: Resolution = picked;
@@ -844,9 +976,10 @@ function pick(query: string, intent: Intent, pool: Scored[]): Picked {
   const useScore = intent !== "rate" && intent !== "remove";
   const key = (s: Scored) => [
     ranks[status(s.media)],
-    // A rating ignores the score, but a show that gave way still ranks after the one it gave
-    // way to. A removal keeps asking.
-    useScore ? -s.score : intent === "rate" ? Number(Boolean(s.yielded)) : 0,
+    // A rating ignores the score between listed shows (which one was finished decides), but a
+    // show that gave way still ranks after the one it gave way to. Between shows not on the
+    // list, nothing else tells them apart: the better match is the one meant. A removal keeps asking.
+    useScore || (intent === "rate" && status(s.media) === "NONE") ? -s.score : intent === "rate" ? Number(Boolean(s.yielded)) : 0,
     FORMAT_ORDER[s.media.format ?? ""] ?? 5,
   ];
   const cmp = (a: Scored, b: Scored) => {
@@ -879,7 +1012,7 @@ function pick(query: string, intent: Intent, pool: Scored[]): Picked {
   // Shows that only contain the words, equally likely but for their format, are different
   // shows when they aren't one franchise ("Idol Jihen" and "Idol Ace" for "idol"): the format
   // decides between seasons and a movie of one show, not between shows.
-  if (useScore && top.score < NORMALIZED_EXACT) {
+  if ((useScore || (intent === "rate" && status(top.media) === "NONE")) && top.score < NORMALIZED_EXACT) {
     const alike = sorted.filter((s) => ranks[status(s.media)] === ranks[status(top.media)] && s.score === top.score);
     if (alike.length > 1 && !sameFranchise(alike.map((s) => s.media))) {
       return {

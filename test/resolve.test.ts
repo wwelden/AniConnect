@@ -8,7 +8,7 @@ import { normalize } from "../src/logic";
 import { parseQuery, resolveAnime, titleSeason, type AnimeSource, type Intent } from "../src/resolve";
 import { clientSource } from "../src/server";
 import { PERSONA } from "./fixtures/persona";
-import { catalog, FakeAniList, findMedia } from "./support/fake-anilist";
+import { catalog, FakeAniList, findMedia, type SeedEntry } from "./support/fake-anilist";
 
 let fake: FakeAniList;
 let client: AniListClient;
@@ -276,6 +276,10 @@ describe("intent-aware defaults (R1.6, R1.8)", () => {
     // Ratings go to what you've finished.
     ["bocchi the rock", "rate", "Bocchi the Rock!"],
     ["vinland saga", "status", "VINLAND SAGA"],
+    // Between shows not on the list, a rating goes to the one titled as asked, as other intents do.
+    ["Hitoribocchi no Isekai Kouryaku", "rate", "Hitoribocchi no Isekai Kouryaku"],
+    ["Bocchi the Rock! Re:Re:", "rate", "Bocchi the Rock! Re:Re:"],
+    ["Sword Art Online Fatal Bullet -The Third Episode-", "rate", "Sword Art Online Fatal Bullet -The Third Episode-"],
   ]);
 });
 
@@ -557,6 +561,181 @@ describe("titles that differ only in punctuation (#61)", () => {
   });
 });
 
+describe("a later season's title typed exactly as written beats list status on every intent (#73)", () => {
+  const S1 = 101921;
+  const S2 = 112641;
+  const S3 = 125367;
+  const s1 = "Kaguya-sama wa Kokurasetai: Tensaitachi no Renai Zunousen";
+  const s2 = "Kaguya-sama wa Kokurasetai?: Tensaitachi no Renai Zunousen";
+  const seed = (entries: SeedEntry[]) => {
+    fake = new FakeAniList().seed(entries);
+    client = new AniListClient("test", fake.fetch);
+  };
+  const searches = () => fake.calls.filter((c) => c.query.includes("search:")).length;
+  const shapes: [string, SeedEntry[], Partial<Record<Intent, number | "ambiguous">>][] = [
+    ["the persona: S1 and S2 completed, S3 watching", PERSONA, { status: S2, progress: S2, show: S2, rate: S2, remove: S2 }],
+    ["S1 and S2 completed", [{ anime: s1, status: "COMPLETED" }, { anime: s2, status: "COMPLETED" }], { status: S2, progress: S2, show: S2, rate: S2, remove: S2 }],
+    ["S1 completed, S2 watching", [{ anime: s1, status: "COMPLETED" }, { anime: s2, status: "CURRENT", progress: 3 }], { status: S2, progress: S2, show: S2, rate: S2, remove: S2 }],
+    // Only S1 listed: the season typed isn't on the list, so a change to S1 asks first.
+    ["only S1 listed", [{ anime: s1, status: "COMPLETED" }], { status: "ambiguous", rate: "ambiguous", remove: "ambiguous", progress: S2, show: S2 }],
+    ["an empty list", [], { status: S2, progress: S2, show: S2, rate: S2, add: S2 }],
+  ];
+  for (const [shape, entries, expected] of shapes) {
+    for (const query of ["Kaguya-sama: Love is War?", s2]) {
+      for (const [intent, want] of Object.entries(expected) as [Intent, number | "ambiguous"][]) {
+        test(`${shape}: ${intent} "${query}" -> ${want}`, async () => {
+          seed(entries);
+          const r = await resolve(query, intent);
+          if (want === "ambiguous") {
+            if (r.kind !== "ambiguous") throw new Error(`expected ambiguous, got ${r.kind}: ${r.why}`);
+            expect(r.candidates.map((m) => m.id)).toContain(S2);
+            expect(r.candidates.map((m) => m.id)).toContain(S1);
+          } else {
+            if (r.kind !== "match") throw new Error(`expected a match, got ${r.kind}: ${r.why}`);
+            expect(r.media.id).toBe(want);
+          }
+        });
+      }
+    }
+  }
+
+  test("the first season's title, without the mark, still means the season being watched (R1.4)", async () => {
+    seed(PERSONA);
+    for (const query of ["Kaguya-sama: Love is War", s1]) {
+      for (const intent of ["progress", "status"] as const) {
+        const r = await resolve(query, intent);
+        expect(r.kind === "match" && r.media.id).toBe(S3);
+      }
+    }
+  });
+
+  test("costs one search only when the listed season isn't the one typed", async () => {
+    seed(PERSONA);
+    await resolve("Kaguya-sama: Love is War?", "progress");
+    expect(searches()).toBe(0);
+    seed([{ anime: s1, status: "COMPLETED" }]);
+    await resolve("Kaguya-sama: Love is War?", "status");
+    expect(searches()).toBe(1);
+    seed([{ anime: s1, status: "COMPLETED" }]);
+    await resolve("Kaguya-sama: Love is War", "status");
+    expect(searches()).toBe(0);
+    // Fewer marks than the listed title: nothing can be titled as written but it.
+    seed([{ anime: s1, status: "COMPLETED" }]);
+    await resolve("kaguya-sama love is war", "remove");
+    expect(searches()).toBe(0);
+  });
+});
+
+describe("a misspelled name resolves as the right spelling does (R1.2)", () => {
+  const seed = (entries: SeedEntry[]) => {
+    fake = new FakeAniList().seed(entries);
+    client = new AniListClient("test", fake.fetch);
+  };
+  const searches = () => fake.calls.filter((c) => c.query.includes("search:")).length;
+
+  run([
+    // Season 1 is completed and season 2 has aired: an episode is season 2's (#35), as for "frieren".
+    ["frieran", "progress", "Sousou no Frieren 2nd Season"],
+    ["frieren", "progress", "Sousou no Frieren 2nd Season"],
+    ["frieran", "status", "Sousou no Frieren"],
+    ["jujutsu kaisan", "progress", "Jujutsu Kaisen 2nd Season"],
+  ]);
+
+  test("with only Shippuden listed, a misspelled \"naruto\" asks as \"naruto\" does (R1.3)", async () => {
+    for (const [query, intent] of [["naruto", "status"], ["narto", "status"], ["narutoo", "rate"]] as const) {
+      seed([{ anime: "NARUTO: Shippuuden", status: "COMPLETED" }]);
+      const r = await resolve(query, intent);
+      if (r.kind !== "ambiguous") throw new Error(`${query}: expected ambiguous, got ${r.kind}: ${r.why}`);
+      expect(r.candidates.map((m) => m.id)).toEqual([findMedia("NARUTO").id, findMedia("NARUTO: Shippuuden").id]);
+    }
+  });
+
+  test("a real title one letter off a listed one isn't corrected to it", async () => {
+    const make = (id: number, romaji: string, entry: Media["mediaListEntry"]): Media => ({
+      id, title: { romaji, english: null, native: null }, synonyms: [], episodes: 12, duration: 24, format: "TV",
+      status: "FINISHED", seasonYear: 2020, startDate: { year: 2020, month: 1, day: 1 }, averageScore: null,
+      siteUrl: "", nextAiringEpisode: null, mediaListEntry: entry, relations: { edges: [] },
+    });
+    const kaiju = make(1, "Kaiju No. 8", { status: "CURRENT", progress: 3 } as Media["mediaListEntry"]);
+    const kaiji = make(2, "Gyakkyou Burai Kaiji", null);
+    const source: AnimeSource = {
+      listMedia: async () => [kaiju],
+      search: async (q) => (q === "kaiji" ? [kaiji] : []),
+      getRelated: async () => [],
+    };
+    for (const intent of ["progress", "show", "status"] as const) {
+      const r = await resolveAnime("kaiji", intent, source, "ENGLISH");
+      expect(r.kind === "match" && r.media.id).toBe(2);
+    }
+  });
+
+  test("costs one search, only on the typo path", async () => {
+    seed(PERSONA);
+    await resolve("dandadan", "progress");
+    expect(searches()).toBe(0);
+    seed(PERSONA);
+    await resolve("dandadn", "progress");
+    expect(searches()).toBe(1);
+  });
+
+  test("a misspelling one letter off two listed names isn't guessed", async () => {
+    const make = (id: number, romaji: string): Media => ({
+      id, title: { romaji, english: null, native: null }, synonyms: [], episodes: 12, duration: 24, format: "TV",
+      status: "FINISHED", seasonYear: 2020, startDate: { year: 2020, month: 1, day: 1 }, averageScore: null,
+      siteUrl: "", nextAiringEpisode: null, mediaListEntry: { status: "COMPLETED", progress: 12 } as Media["mediaListEntry"], relations: { edges: [] },
+    });
+    const source: AnimeSource = {
+      listMedia: async () => [make(1, "Hyouka"), make(2, "Hyouko")],
+      search: async () => [],
+      getRelated: async () => [],
+    };
+    const r = await resolveAnime("hyoukq", "status", source, "ENGLISH");
+    if (r.kind !== "ambiguous") throw new Error(`expected ambiguous, got ${r.kind}: ${r.why}`);
+    expect(r.candidates.map((m) => m.id).sort()).toEqual([1, 2]);
+  });
+
+  test("two listed shows that would respell it differently, one closer: not respelled", async () => {
+    const make = (id: number, romaji: string, status: "CURRENT" | "COMPLETED"): Media => ({
+      id, title: { romaji, english: null, native: null }, synonyms: [], episodes: 12, duration: 24, format: "TV",
+      status: "FINISHED", seasonYear: 2020, startDate: { year: 2020, month: 1, day: 1 }, averageScore: null,
+      siteUrl: "", nextAiringEpisode: null, mediaListEntry: { status, progress: 3 } as Media["mediaListEntry"], relations: { edges: [] },
+    });
+    const source: AnimeSource = {
+      listMedia: async () => [make(1, "Hellsing", "CURRENT"), make(2, "Helsinge", "COMPLETED")],
+      search: async () => [],
+      getRelated: async () => [],
+    };
+    // As before: the show being watched takes the episode, not the closer spelling.
+    const r = await resolveAnime("helsingg", "progress", source, "ENGLISH");
+    expect(r.kind === "match" && r.media.id).toBe(1);
+  });
+
+  test("a misspelled title typed with its mark goes to the season the mark names (#73)", async () => {
+    for (const intent of ["progress", "status"] as const) {
+      seed(PERSONA);
+      const r = await resolve("Kaguye-sama: Love is War?", intent);
+      expect(r.kind === "match" && r.media.id).toBe(findMedia("Kaguya-sama: Love is War?").id);
+    }
+  });
+
+  test("a misspelled season word still names the season, as \"season\" does", async () => {
+    for (const query of ["aot season 2", "aot seson 2", "attack on titan seasn 2"]) {
+      seed(PERSONA);
+      const r = await resolve(query, "progress");
+      expect(r.kind === "match" && r.media.id).toBe(findMedia("Shingeki no Kyojin Season 2").id);
+    }
+  });
+
+  test("a misspelled abbreviation beside other words tries the reading as written, as the right spelling does", async () => {
+    for (const query of ["tensura movie 2", "tensuraa movie 2"]) {
+      seed([{ anime: 182206, status: "PLANNING" }]);
+      const r = await resolve(query, "progress");
+      if (r.kind !== "match") throw new Error(`${query}: expected match, got ${r.kind}: ${r.why}`);
+      expect(r.media.id).toBe(182206);
+    }
+  });
+});
+
 describe("a numbered season of two different shows asks which show (#62)", () => {
   const season2 = (id: number, romaji: string, related: number[] = []): Media => ({
     id, title: { romaji, english: null, native: null }, synonyms: [], episodes: 13, duration: 24, format: "TV",
@@ -674,9 +853,11 @@ describe("anime that share a name with a movie or a music video", () => {
   test("a music video titled as asked doesn't stand in for the shows with that word in their title", async () => {
     // AniList search results for "Idol": the MV for the Oshi no Ko song comes first.
     const idol = [media(164117, "Idol", "MUSIC", 2023), media(97618, "Idol Jihen", "TV", 2017), media(7569, "Idol Ace", "ONA", 1997)];
-    const r = await resolveAnime("Idol", "add", from(idol), "ENGLISH");
-    expect(r.kind).toBe("ambiguous");
-    if (r.kind === "ambiguous") expect(r.candidates.map((m) => m.id)).not.toContain(164117);
+    for (const intent of ["add", "rate"] as const) {
+      const r = await resolveAnime("Idol", intent, from(idol), "ENGLISH");
+      expect(r.kind).toBe("ambiguous");
+      if (r.kind === "ambiguous") expect(r.candidates.map((m) => m.id)).not.toContain(164117);
+    }
   });
 
   test("a music video on the user's list can still be named", async () => {
