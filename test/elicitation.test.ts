@@ -134,6 +134,29 @@ describe("picking between ambiguous shows (R2.7)", () => {
     expect(forms).toHaveLength(0);
     expect(r.text).toContain(`[${AOT}]`);
   });
+
+  test("an anime off the list or the manga on it (R0.17): the user picks the manga, and only it changes", async () => {
+    fake.seed([{ anime: 105778, status: "CURRENT", progress: 70 }]); // Chainsaw Man (manga)
+    answer = choose("MANGA");
+    const r = await call("set_status", { anime: "chainsaw man", status: "PAUSED" });
+    expect(forms).toHaveLength(1);
+    expect(forms[0]!.message).toContain('"chainsaw man" is on your manga list, and the anime it matches isn\'t on your anime list.');
+    expect(optionsOf(forms[0]!).map((o) => o.title)).toEqual([
+      "Chainsaw Man (TV, 2022), not on your list",
+      "Chainsaw Man (MANGA, 2018), on your list: current",
+    ]);
+    expect(r.text).toContain("Reading -> Paused: [105778] Chainsaw Man (MANGA, 2018)");
+    expect(fake.entries.get(105778)!.status).toBe("PAUSED");
+    expect(fake.entries.has(127230)).toBe(false);
+  });
+
+  test("picking the anime there adds the anime and leaves the manga", async () => {
+    fake.seed([{ anime: 105778, status: "CURRENT", progress: 70 }]);
+    answer = choose("(TV, 2022)");
+    await call("rate_anime", { anime: "chainsaw man", score: 8 });
+    expect(fake.entries.get(127230)!.scoreRaw).toBe(80);
+    expect(fake.entries.get(105778)!.scoreRaw).toBe(0);
+  });
 });
 
 describe("confirming removals (R2.7)", () => {

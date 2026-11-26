@@ -2,7 +2,7 @@
 
 # AniConnect: AniList MCP Server
 
-AniConnect is an AniList MCP server: it connects Claude (or any MCP client) to your [AniList](https://anilist.co) anime list. Ask it to add shows, search your list, rate things, and track episodes, by name.
+AniConnect is an AniList MCP server: it connects Claude (or any MCP client) to your [AniList](https://anilist.co) anime list, and your manga list too. Ask it to add shows, search your list, rate things, and track episodes (or chapters), by name.
 
 Every tool that changes your list takes the show the way you'd say it: "jjk", "the second season of Spy x Family", "frieran", "進撃の巨人", or its anilist.co link. AniConnect works out which AniList entry you mean: episode updates go to the season you're watching (or, with several seasons planned, the next one after those you finished), ratings to the one you finished, and new shows start at season 1. When a name could really mean two shows (the two Hunter x Hunter series, say), it changes nothing and asks. In clients that can show forms (MCP elicitation), you pick from the matches in a dialog, and removing a show asks you to confirm there; elsewhere, the first `remove_from_list` call only shows the entry, and a second call with `confirmed: true` removes it. Moving a completed show back to watching waits for its ID when the name only matched it allowing for a typo.
 
@@ -24,6 +24,8 @@ To start, add `https://aniconnect-production.up.railway.app/mcp` to your MCP cli
 | `remove_from_list` | Delete a show from your list, once confirmed. |
 | `undo` | Take back the last change, or the last few, exactly: a removed show comes back with its progress, score, dates and notes, and a show just added is removed again. |
 | `whats_next` | What to watch next: aired episodes you haven't seen and how long they take, when the next ones air, shows on hold with episodes left, and the next season or sequel movie of shows you've finished. On a long list each section lists the first few (what just aired, then the shows closest to done) and says how many more it has; `all` lists every show. Or ask about one show ("what's Frieren about?", "when's the next Apothecary Diaries episode?", "where can I watch Frieren?"), which also gives a short spoiler-free synopsis, its genres, studio, source material and main tags, and where it streams. |
+
+**Manga.** The list tools (`add_to_list`, `set_status`, `rate_anime`, `mark_episodes_watched`, `set_progress`, `update_shows`, `remove_from_list`, `undo`, and `search_my_list`) work on your manga list too: *"I read chapter 74 of Chainsaw Man"*, *"I'm on volume 5 of Berserk"*, *"what manga am I reading?"*. The assistant passes `type: "manga"`, or chapters and volumes in place of episodes, when you talk about a manga; otherwise a name means the anime, unless only your manga list has it, in which case AniConnect asks which one you mean instead of adding the anime. Reaching the last chapter completes a manga, as the last episode does a show. AniList counts a manga's chapters only once it has finished, so for one still running, give the chapter number rather than "I'm caught up". Searching all of AniList, `watch_history` and `whats_next` are for anime only so far.
 
 Project goals and requirements: [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md).
 

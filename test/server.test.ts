@@ -341,7 +341,7 @@ describe("tools", () => {
   test("unknown media is a readable error", async () => {
     const r = await call("add_to_list", { anime: 999999 });
     expect(r.isError).toBe(true);
-    expect(r.text).toContain("No anime found with id 999999");
+    expect(r.text).toContain("No anime or manga found with id 999999");
   });
 
   test("progress by name goes to the season being watched", async () => {
@@ -514,7 +514,7 @@ describe("titles made of digits", () => {
     // the fixture has no ID 1000.
     const r = await call("add_to_list", { anime: "1000" });
     expect(r.isError).toBe(true);
-    expect(r.text).toContain("No anime found with id 1000");
+    expect(r.text).toContain("No anime or manga found with id 1000");
   });
 });
 
@@ -590,10 +590,16 @@ describe("an anilist.co link names the show by its ID", () => {
     expect(lookups.map((c) => (c.query.includes("id_in") ? "many" : "one"))).toEqual(["many"]);
   });
 
-  test("a manga link says only anime are managed", async () => {
+  test("a manga link names the manga", async () => {
     const r = await call("add_to_list", { anime: "https://anilist.co/manga/30002/Berserk" });
+    expect(r.isError).toBe(false);
+    expect(r.text).toBe("Added: [30002] Berserk (MANGA, 1989): Plan to read, 0/? chapters, unrated");
+  });
+
+  test("a link of the other type than the call names is refused", async () => {
+    const r = await call("add_to_list", { anime: "https://anilist.co/manga/30002/Berserk", type: "anime" });
     expect(r.isError).toBe(true);
-    expect(r.text).toContain("AniConnect manages anime only");
+    expect(r.text).toBe("Nothing was changed. That's a manga link, and the call asked for an anime.");
     expect(fake.writes).toHaveLength(0);
   });
 });

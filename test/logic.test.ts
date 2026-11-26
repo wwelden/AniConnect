@@ -1,5 +1,22 @@
 import { describe, expect, test } from "bun:test";
-import { bothTitles, describePlanDates, displayTitle, formatScore, matchesTitle, parseFuzzyDate, planProgress, planStatus, planUpdate, toRawScore } from "../src/logic";
+import type { Media } from "../src/anilist";
+import {
+  bothTitles,
+  describeEntry,
+  describePlanDates,
+  displayTitle,
+  formatScore,
+  matchesTitle,
+  parseFuzzyDate,
+  planProgress,
+  planStatus,
+  planUpdate,
+  planVolumes,
+  statusLabel,
+  toRawScore,
+  total,
+  unit,
+} from "../src/logic";
 
 const today = { year: 2026, month: 11, day: 16 };
 const unset = { year: null, month: null, day: null };
@@ -297,5 +314,106 @@ describe("parseFuzzyDate (R0.10)", () => {
     expect(() => parseFuzzyDate("2025-02-29", today)).toThrow("no day 29");
     expect(() => parseFuzzyDate("2025-13", today)).toThrow("no month 13");
     expect(() => parseFuzzyDate("March 2025", today)).toThrow("YYYY-MM-DD");
+  });
+});
+
+describe("manga (R0.17)", () => {
+  const finished = { type: "MANGA", episodes: null, chapters: 147, volumes: 13 };
+  const releasing = { type: "MANGA", episodes: null, chapters: null, volumes: null };
+  const reading = { status: "CURRENT" as const, progress: 40, progressVolumes: 4, startedAt: earlier, completedAt: unset };
+
+  test("a manga counts chapters; an anime, or a show with no type, episodes", () => {
+    expect(total(finished)).toBe(147);
+    expect(total(releasing)).toBeNull();
+    expect(total({ type: "ANIME", episodes: 12, chapters: 99 })).toBe(12);
+    expect(total({ episodes: 12 })).toBe(12);
+    expect(unit(finished, 1)).toBe("chapter");
+    expect(unit(finished)).toBe("chapters");
+    expect(unit({ episodes: 12 }, 2)).toBe("episodes");
+  });
+
+  test("the last chapter completes a manga", () => {
+    expect(planProgress(finished, reading, 147, today)).toEqual({ progress: 147, status: "COMPLETED", completedAt: today });
+    expect(planProgress(finished, reading, 41, today)).toEqual({ progress: 41 });
+  });
+
+  test("a releasing manga, with no chapter count, never completes", () => {
+    expect(planProgress(releasing, reading, 5000, today)).toEqual({ progress: 5000 });
+  });
+
+  test("chapters past the last are refused, in chapters", () => {
+    expect(() => planProgress(finished, reading, 148, today)).toThrow("This manga only has 147 chapters (got 148).");
+    expect(() => planProgress(finished, reading, -1, today)).toThrow("Chapter count must be");
+  });
+
+  test("Completed reads every chapter and volume AniList counts", () => {
+    expect(planStatus(finished, reading, "COMPLETED", today)).toEqual({
+      status: "COMPLETED",
+      completedAt: today,
+      progress: 147,
+      progressVolumes: 13,
+    });
+    expect(planStatus(releasing, reading, "COMPLETED", today)).toEqual({ status: "COMPLETED", completedAt: today });
+  });
+
+  test("an anime's Completed sets no volumes", () => {
+    expect(planStatus({ episodes: 12, volumes: 3 }, null, "COMPLETED", today)).not.toHaveProperty("progressVolumes");
+  });
+
+  test("a reread starts over at chapter and volume 0", () => {
+    const done = { status: "COMPLETED" as const, progress: 147, progressVolumes: 13, startedAt: earlier, completedAt: earlier };
+    expect(planStatus(finished, done, "REPEATING", today)).toEqual({ status: "REPEATING", progress: 0, progressVolumes: 0 });
+  });
+
+  test("volumes alone move a planned, paused or dropped manga to reading, and never complete it", () => {
+    const planned = { status: "PLANNING" as const, progress: 0, startedAt: unset, completedAt: unset };
+    expect(planVolumes(finished, planned, 3, today)).toEqual({ progressVolumes: 3, status: "CURRENT", startedAt: today });
+    expect(planVolumes(finished, null, 3, today)).toEqual({ progressVolumes: 3, status: "CURRENT", startedAt: today });
+    expect(planVolumes(finished, { ...planned, status: "DROPPED" }, 3, today).status).toBe("CURRENT");
+    expect(planVolumes(finished, reading, 13, today)).toEqual({ progressVolumes: 13 });
+    expect(planVolumes(finished, planned, 0, today)).toEqual({ progressVolumes: 0 });
+  });
+
+  test("volumes past the last are refused; with no volume count, any goes", () => {
+    expect(() => planVolumes(finished, reading, 14, today)).toThrow("This manga only has 13 volumes (got 14).");
+    expect(planVolumes(releasing, reading, 99, today)).toEqual({ progressVolumes: 99 });
+  });
+
+  test("statuses read as AniList words them for a manga", () => {
+    expect(statusLabel("CURRENT", finished)).toBe("Reading");
+    expect(statusLabel("PLANNING", finished)).toBe("Plan to read");
+    expect(statusLabel("REPEATING", finished)).toBe("Rereading");
+    expect(statusLabel("COMPLETED", finished)).toBe("Completed");
+    expect(statusLabel("CURRENT")).toBe("Watching");
+    expect(statusLabel("CURRENT", { type: "ANIME" })).toBe("Watching");
+  });
+
+  test("an entry line gives chapters, volumes and the start year", () => {
+    const media = {
+      id: 34632,
+      type: "MANGA",
+      title: { romaji: "Oyasumi Punpun", english: "Goodnight Punpun", native: null },
+      synonyms: [],
+      episodes: null,
+      chapters: 147,
+      volumes: 13,
+      duration: null,
+      format: "MANGA",
+      status: "FINISHED",
+      seasonYear: null,
+      startDate: { year: 2007, month: 3, day: 15 },
+      averageScore: 85,
+      siteUrl: "",
+      nextAiringEpisode: null,
+      mediaListEntry: null,
+    } satisfies Media;
+    const viewer = { scoreFormat: "POINT_10_DECIMAL" as const, titleLanguage: "ENGLISH" as const };
+    expect(describeEntry(media, { status: "CURRENT", progress: 40, progressVolumes: 4, displayScore: 9 }, viewer)).toBe(
+      "[34632] Goodnight Punpun (MANGA, 2007): Reading, 40/147 chapters, volume 4/13, 9/10",
+    );
+    expect(describeEntry(media, { status: "CURRENT", progress: 40, progressVolumes: 0, displayScore: 0 }, viewer)).toBe(
+      "[34632] Goodnight Punpun (MANGA, 2007): Reading, 40/147 chapters, unrated",
+    );
+    expect(describeEntry(media, null, viewer)).toBe("[34632] Goodnight Punpun (MANGA, 2007): not on your list, 147 chapters");
   });
 });

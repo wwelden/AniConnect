@@ -3,8 +3,8 @@
  * "frieran") into one AniList entry, or a short list of candidates when it is
  * genuinely ambiguous. See docs/REQUIREMENTS.md, R1.
  */
-import type { ListStatus, Media, RelationEdge, TitleLanguage } from "./anilist";
-import { bothTitles, displayTitle, literalTitle, normalize } from "./logic";
+import { typeOf, type ListStatus, type Media, type RelationEdge, type TitleLanguage } from "./anilist";
+import { bothTitles, displayTitle, literalTitle, normalize, releaseYear } from "./logic";
 
 /**
  * What the caller wants to do with the show; it decides which season is most likely meant.
@@ -359,6 +359,18 @@ const STATUS_WHY: Record<Status, string> = {
   COMPLETED: "you've completed it",
   NONE: "it's not on your list yet",
 };
+
+const MANGA_STATUS_WHY: Record<Status, string> = {
+  ...STATUS_WHY,
+  CURRENT: "you're reading it",
+  REPEATING: "you're rereading it",
+  PLANNING: "it's on your plan-to-read list",
+};
+
+/** Why a show's list status makes it the likely one, in a manga's words for a manga. */
+function statusWhy(m: Media): string {
+  return (typeOf(m) === "MANGA" ? MANGA_STATUS_WHY : STATUS_WHY)[status(m)];
+}
 
 function status(m: Media): Status {
   return m.mediaListEntry?.status ?? "NONE";
@@ -1025,7 +1037,7 @@ function pick(query: string, intent: Intent, pool: Scored[]): Picked {
     }
   }
 
-  if (tied.length === 1) return { kind: "match", media: top.media, why: STATUS_WHY[status(top.media)] };
+  if (tied.length === 1) return { kind: "match", media: top.media, why: statusWhy(top.media) };
 
   // Several equally likely seasons of one franchise, none of them in progress on the list:
   // the earliest is the natural reading ("add Frieren" means season 1; after finishing
@@ -1262,7 +1274,7 @@ async function resolveSeason(
     const top = parts.filter((m) => ranks[status(m)] === bestRank);
     if (top.length === 1) {
       const m = top[0]!;
-      const why = parts.length === 1 ? "going by its title" : `and ${STATUS_WHY[status(m)]}`;
+      const why = parts.length === 1 ? "going by its title" : `and ${statusWhy(m)}`;
       return { kind: "match", media: m, why: `it's part ${part}, ${why}` };
     }
     if (top.length > 1) {
@@ -1330,7 +1342,7 @@ async function resolveSeason(
       ? partOnly
         ? `it's ${label}, the earliest that fits`
         : `it's the first part of ${label}`
-      : `it's ${label} and ${STATUS_WHY[status(best.media)]}`;
+      : `it's ${label} and ${statusWhy(best.media)}`;
   return { kind: "match", media: best.media, why };
 }
 
@@ -1390,7 +1402,7 @@ export function titledWithNumber(m: Media, digits: string): boolean {
 
 /** A candidate as the user would tell it apart: "Attack on Titan (Shingeki no Kyojin) (TV, 2013), on your list: completed". */
 export function candidateLabel(m: Media, language: TitleLanguage): string {
-  const meta = [m.format, m.seasonYear].filter(Boolean).join(", ");
+  const meta = [m.format, releaseYear(m)].filter(Boolean).join(", ");
   const entry = m.mediaListEntry ? `on your list: ${m.mediaListEntry.status.toLowerCase()}` : "not on your list";
   return `${bothTitles(m.title, language)}${meta ? ` (${meta})` : ""}, ${entry}`;
 }

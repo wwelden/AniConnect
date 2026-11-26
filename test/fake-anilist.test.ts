@@ -52,7 +52,7 @@ describe("fake AniList", () => {
       fake,
       `query ($page: Int) { Page(page: $page, perPage: 2) {
         pageInfo { total currentPage lastPage hasNextPage }
-        media(search: "jujutsu kaisen", sort: [START_DATE]) { title { romaji } }
+        media(search: "jujutsu kaisen", type: ANIME, sort: [START_DATE]) { title { romaji } }
       } }`,
       { page: 1 },
     );

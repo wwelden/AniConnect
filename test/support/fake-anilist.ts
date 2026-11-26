@@ -1,6 +1,7 @@
 /**
  * An in-memory stand-in for AniList's GraphQL API, backed by a snapshot of real AniList
- * metadata (test/fixtures/media.json). Used by the unit tests and by the eval harness.
+ * metadata (test/fixtures/media.json, and a few manga in test/fixtures/manga.json). Used by
+ * the unit tests and by the eval harness.
  *
  * Every request runs through a real GraphQL engine against AniList's own schema
  * (test/fixtures/anilist.graphql), so any query AniList would accept works here, whoever
@@ -28,11 +29,43 @@ import {
 } from "graphql";
 import type { ListStatus, ScoreFormat, TitleLanguage } from "../../src/anilist";
 import { normalize } from "../../src/logic";
+import mangaJson from "../fixtures/manga.json";
 import catalogJson from "../fixtures/media.json";
 import recommendationsJson from "../fixtures/recommendations.json";
 
-export type CatalogMedia = (typeof catalogJson)[number];
+/** A show (or manga) the fake knows. Anime have no `type` in the fixture; manga have no episodes. */
+export type CatalogMedia = (typeof catalogJson)[number] & {
+  type?: string;
+  chapters?: number | null;
+  volumes?: number | null;
+};
+/** The anime. Tests may add to it. */
 export const catalog: CatalogMedia[] = catalogJson;
+
+/**
+ * The manga, kept apart so tests that take a slice of `catalog` get anime only. Cast: the
+ * anime fixture's inferred types say every show has a duration and a season.
+ */
+export const mangaCatalog = mangaJson.map((m) => ({
+  ...m,
+  episodes: null,
+  duration: null,
+  season: null,
+  seasonYear: null,
+  nextAiringEpisode: null,
+  externalLinks: [],
+  studios: { edges: [] },
+  franchise: m.title.romaji,
+})) as unknown as CatalogMedia[];
+
+/** Everything AniList has, as far as the fake knows: anime, then manga. */
+function everything(): CatalogMedia[] {
+  return catalog.concat(mangaCatalog);
+}
+
+function mediaType(m: { type?: string }): string {
+  return m.type ?? "ANIME";
+}
 
 const EMPTY_DATE = { year: null, month: null, day: null };
 
@@ -50,6 +83,8 @@ export interface StoredEntry {
   mediaId: number;
   status: ListStatus;
   progress: number;
+  /** A manga's volumes read. */
+  progressVolumes?: number;
   /** Raw 0-100 score. */
   scoreRaw: number;
   startedAt: { year: number | null; month: number | null; day: number | null };
@@ -63,10 +98,11 @@ export interface StoredEntry {
 }
 
 export interface SeedEntry {
-  /** Exact romaji title from the fixture, or an AniList ID. */
+  /** Exact romaji title from the fixture (an anime's, else a manga's), or an AniList ID. */
   anime: string | number;
   status: ListStatus;
   progress?: number;
+  progressVolumes?: number;
   score?: number;
 }
 
@@ -74,6 +110,8 @@ export interface SeedEntry {
 export interface StoredActivity {
   id: number;
   mediaId: number;
+  /** ANIME_LIST or MANGA_LIST; ANIME_LIST when absent. */
+  type?: string;
   status: string;
   progress: string | null;
   /** Unix seconds. */
@@ -91,13 +129,14 @@ export interface SeedActivity {
 /** AniList folds a progress update into the previous activity for the same show if it came this soon after. */
 const MERGE_SECONDS = 60 * 60;
 
+/** A fixture show by ID or exact title: an anime's title before a manga's, since many are both. */
 export function findMedia(anime: string | number): CatalogMedia {
+  const all = everything();
   const m =
     typeof anime === "number"
-      ? catalog.find((c) => c.id === anime)
-      : catalog.find((c) => c.title.romaji === anime) ??
-        catalog.find((c) => c.title.english === anime);
-  if (!m) throw new Error(`Fixture has no anime "${anime}"`);
+      ? all.find((c) => c.id === anime)
+      : all.find((c) => c.title.romaji === anime) ?? all.find((c) => c.title.english === anime);
+  if (!m) throw new Error(`Fixture has no anime or manga "${anime}"`);
   return m;
 }
 
@@ -227,7 +266,8 @@ function resolveFields(type: string, resolvers: Record<string, Resolver>) {
 type MediaValue = Partial<CatalogMedia> & { id: number; type: string; level: number };
 
 function mediaValue(m: CatalogMedia, level: number): MediaValue {
-  return { ...m, type: "ANIME", level };
+  // An anime has no chapters or volumes: AniList answers null.
+  return { chapters: null, volumes: null, ...m, type: mediaType(m), level };
 }
 
 function requireAuth(ctx: Context) {
@@ -275,7 +315,7 @@ const MEDIA_FILTERS: Record<string, (m: CatalogMedia, value: any, ctx: Context, 
   id_not: (m, v) => m.id !== v,
   id_not_in: (m, v: number[]) => !v.includes(m.id),
   search: (m, v: string) => titleMatches(m, v),
-  type: (_m, v) => v === "ANIME",
+  type: (m, v) => mediaType(m) === v,
   season: (m, v) => m.season === v,
   seasonYear: (m, v) => m.seasonYear === v,
   format: (m, v) => m.format === v,
@@ -310,7 +350,7 @@ const MEDIA_FILTERS: Record<string, (m: CatalogMedia, value: any, ctx: Context, 
 
 function findMediaBy(args: Record<string, any>, ctx: Context): CatalogMedia[] {
   const { sort, minimumTagRank: _rank, ...filters } = args;
-  let list = catalog;
+  let list = everything();
   for (const [name, value] of Object.entries(filters)) {
     if (value == null) continue;
     const test = MEDIA_FILTERS[name];
@@ -330,7 +370,7 @@ function entryFilter(args: Record<string, any>, ctx: Context): (e: StoredEntry) 
   for (const [name, value] of Object.entries(args)) if (value != null && !known.has(name)) ctx.fake.unmodeled.add(`MediaList(${name})`);
   return (e) =>
     isViewer(args.userId, args.userName, ctx) &&
-    (args.type == null || args.type === "ANIME") &&
+    (args.type == null || args.type === mediaType(findMedia(e.mediaId))) &&
     (args.id == null || e.id === args.id) &&
     (args.mediaId == null || e.mediaId === args.mediaId) &&
     (args.mediaId_in == null || args.mediaId_in.includes(e.mediaId)) &&
@@ -355,9 +395,9 @@ function sortEntries(entries: StoredEntry[], sort: string[] | undefined): Stored
     ADDED_TIME: (e) => e.id,
     STARTED_ON: (e) => dateInt(e.startedAt) ?? 0,
     FINISHED_ON: (e) => dateInt(e.completedAt) ?? 0,
-    MEDIA_TITLE_ROMAJI: (e) => catalog.find((c) => c.id === e.mediaId)?.title.romaji ?? "",
-    MEDIA_TITLE_ENGLISH: (e) => catalog.find((c) => c.id === e.mediaId)?.title.english ?? "",
-    MEDIA_POPULARITY: (e) => catalog.find((c) => c.id === e.mediaId)?.popularity ?? 0,
+    MEDIA_TITLE_ROMAJI: (e) => findMedia(e.mediaId).title.romaji ?? "",
+    MEDIA_TITLE_ENGLISH: (e) => findMedia(e.mediaId).title.english ?? "",
+    MEDIA_POPULARITY: (e) => findMedia(e.mediaId).popularity ?? 0,
   };
   const key = keys[desc ? by.slice(0, -5) : by];
   if (!key) throw new FakeError(`The fake AniList can't sort lists by ${by}.`, 400);
@@ -438,13 +478,14 @@ resolveFields("Page", {
   activities: (page: PageValue, args, ctx) => {
     const known = new Set(["userId", "mediaId", "type", "type_in", "createdAt_greater", "createdAt_lesser", "sort"]);
     for (const [name, value] of Object.entries(args)) if (value != null && !known.has(name)) ctx.fake.unmodeled.add(`Activity(${name})`);
-    const listTypes = ["ANIME_LIST", "MEDIA_LIST"];
+    // MEDIA_LIST is either kind of list update.
+    const listTypes = (a: StoredActivity) => [a.type ?? "ANIME_LIST", "MEDIA_LIST"];
     const matching = ctx.fake.activities.filter(
       (a) =>
         (args.userId == null || args.userId === VIEWER_ID) &&
         (args.mediaId == null || a.mediaId === args.mediaId) &&
-        (args.type == null || listTypes.includes(args.type)) &&
-        (args.type_in == null || args.type_in.some((t: string) => listTypes.includes(t))) &&
+        (args.type == null || listTypes(a).includes(args.type)) &&
+        (args.type_in == null || args.type_in.some((t: string) => listTypes(a).includes(t))) &&
         (args.createdAt_greater == null || a.createdAt > args.createdAt_greater) &&
         (args.createdAt_lesser == null || a.createdAt < args.createdAt_lesser),
     );
@@ -454,7 +495,7 @@ resolveFields("Page", {
       __typename: "ListActivity",
       ...a,
       userId: VIEWER_ID,
-      type: "ANIME_LIST",
+      type: a.type ?? "ANIME_LIST",
       replyCount: 0,
       likeCount: 0,
       isLocked: false,
@@ -510,7 +551,7 @@ resolveFields("Media", {
     if (m.level > RELATION_LEVELS || !m.relations) return { edges: [] };
     return {
       edges: m.relations.edges.map((e) => {
-        const target = catalog.find((c) => c.id === e.node.id);
+        const target = everything().find((c) => c.id === e.node.id);
         return {
           relationType: e.relationType,
           node: target
@@ -533,6 +574,7 @@ resolveFields("MediaTitle", {
 resolveFields("MediaList", {
   userId: () => VIEWER_ID,
   score: (e: StoredEntry, args, ctx) => displayScore(e.scoreRaw, args.format ?? ctx.fake.scoreFormat),
+  progressVolumes: (e: StoredEntry) => e.progressVolumes ?? 0,
   repeat: (e: StoredEntry) => e.repeat ?? 0,
   // AniList returns an empty note as null.
   notes: (e: StoredEntry) => e.notes || null,
@@ -544,7 +586,7 @@ resolveFields("MediaList", {
     return args.asArray ? lists : Object.fromEntries(lists.map((l) => [l.name, l.enabled]));
   },
   media: (e: StoredEntry) => {
-    const m = catalog.find((c) => c.id === e.mediaId);
+    const m = everything().find((c) => c.id === e.mediaId);
     return m ? mediaValue(m, 1) : null;
   },
   user: (_e, _args, ctx) => ctx.fake.viewer(),
@@ -552,7 +594,7 @@ resolveFields("MediaList", {
 
 resolveFields("ListActivity", {
   media: (a: StoredActivity) => {
-    const m = catalog.find((c) => c.id === a.mediaId);
+    const m = everything().find((c) => c.id === a.mediaId);
     return m ? mediaValue(m, 1) : null;
   },
   user: (_a, _args, ctx) => ctx.fake.viewer(),
@@ -677,7 +719,8 @@ export class FakeAniList {
         id: this.nextEntryId++,
         mediaId: m.id,
         status: s.status,
-        progress: s.progress ?? (s.status === "COMPLETED" ? (m.episodes ?? 0) : 0),
+        progress: s.progress ?? (s.status === "COMPLETED" ? ((mediaType(m) === "MANGA" ? m.chapters : m.episodes) ?? 0) : 0),
+        ...(s.progressVolumes !== undefined && { progressVolumes: s.progressVolumes }),
         scoreRaw: Math.round((s.score ?? 0) * 10),
         startedAt: EMPTY_DATE,
         completedAt: EMPTY_DATE,
@@ -769,19 +812,20 @@ export class FakeAniList {
     const was = before?.progress ?? 0;
     const statusChanged = before?.status !== after.status;
     const rewatch = after.status === "REPEATING";
+    const manga = mediaType(findMedia(after.mediaId)) === "MANGA";
     let status: string;
     let progress: string | null = null;
     if (after.progress > was && (after.status === "CURRENT" || rewatch)) {
-      status = rewatch ? "rewatched episode" : "watched episode";
+      status = manga ? (rewatch ? "reread chapter" : "read chapter") : rewatch ? "rewatched episode" : "watched episode";
       progress = after.progress === was + 1 ? String(after.progress) : `${was + 1} - ${after.progress}`;
     } else if (statusChanged) {
       status = {
-        CURRENT: "watching",
-        PLANNING: "plans to watch",
-        COMPLETED: before?.status === "REPEATING" ? "rewatched" : "completed",
+        CURRENT: manga ? "reading" : "watching",
+        PLANNING: manga ? "plans to read" : "plans to watch",
+        COMPLETED: before?.status === "REPEATING" ? (manga ? "reread" : "rewatched") : "completed",
         DROPPED: "dropped",
-        PAUSED: "paused watching",
-        REPEATING: "rewatching",
+        PAUSED: manga ? "paused reading" : "paused watching",
+        REPEATING: manga ? "rereading" : "rewatching",
       }[after.status];
     } else {
       return;
@@ -798,7 +842,14 @@ export class FakeAniList {
       last.progress = `${last.progress.split(" - ")[0]} - ${after.progress}`;
       return;
     }
-    this.activities.push({ id: this.nextActivityId++, mediaId: after.mediaId, status, progress, createdAt: now });
+    this.activities.push({
+      id: this.nextActivityId++,
+      mediaId: after.mediaId,
+      ...(manga && { type: "MANGA_LIST" }),
+      status,
+      progress,
+      createdAt: now,
+    });
   }
 
   /** SaveMediaListEntry: creates or updates the entry named by `id` or `mediaId`. */
@@ -806,10 +857,10 @@ export class FakeAniList {
     const byId = args.id != null ? [...this.entries.values()].find((e) => e.id === args.id) : undefined;
     if (args.id != null && !byId) throw new FakeError("validation", 400, { id: ["The selected id is invalid."] });
     const mediaId: number | undefined = byId?.mediaId ?? args.mediaId;
-    if (mediaId == null || !catalog.some((c) => c.id === mediaId)) {
+    if (mediaId == null || !everything().some((c) => c.id === mediaId)) {
       throw new FakeError("validation", 400, { mediaId: ["The selected media id is invalid."] });
     }
-    for (const name of ["progressVolumes", "priority", "advancedScores"]) {
+    for (const name of ["priority", "advancedScores"]) {
       if (args[name] != null) this.unmodeled.add(`SaveMediaListEntry(${name})`);
     }
     const before = this.entries.get(mediaId);
@@ -828,6 +879,7 @@ export class FakeAniList {
       ...existing,
       ...(args.status != null && { status: args.status }),
       ...(args.progress != null && { progress: args.progress }),
+      ...(args.progressVolumes != null && { progressVolumes: args.progressVolumes }),
       ...(scoreRaw != null && { scoreRaw }),
       ...(args.startedAt !== undefined && { startedAt: date(args.startedAt) }),
       ...(args.completedAt !== undefined && { completedAt: date(args.completedAt) }),

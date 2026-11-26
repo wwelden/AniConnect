@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { CASES, type Change } from "../evals/cases";
 import { serveFake } from "../evals/fake-http";
 import { diff, gradeCase, mentions } from "../evals/grade";
-import { PERSONA } from "./fixtures/persona";
+import { MANGA_PERSONA, PERSONA } from "./fixtures/persona";
 import { FakeAniList, findMedia } from "./support/fake-anilist";
 
 function date(text: string) {
@@ -13,7 +13,7 @@ function date(text: string) {
 }
 
 function applyChanges(changes: Change[]) {
-  const fake = new FakeAniList().seed(PERSONA);
+  const fake = new FakeAniList().seed([...PERSONA, ...MANGA_PERSONA]);
   const before = fake.exportState().entries.map((e) => ({ ...e }));
   for (const c of changes) {
     const m = findMedia(c.anime);
@@ -29,6 +29,7 @@ function applyChanges(changes: Change[]) {
       ...e,
       ...(c.status && { status: c.status }),
       ...(c.progress !== undefined && { progress: c.progress }),
+      ...(c.volumes !== undefined && { progressVolumes: c.volumes }),
       ...(c.score !== undefined && { scoreRaw: Math.round(c.score * 10) }),
       ...(c.startedAt !== undefined && { startedAt: date(c.startedAt) }),
       ...(c.completedAt !== undefined && { completedAt: date(c.completedAt) }),

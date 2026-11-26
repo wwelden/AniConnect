@@ -37,6 +37,7 @@ export function diff(before: StoredEntry[], after: StoredEntry[]) {
       !y ||
       x.status !== y.status ||
       x.progress !== y.progress ||
+      (x.progressVolumes ?? 0) !== (y.progressVolumes ?? 0) ||
       x.scoreRaw !== y.scoreRaw ||
       shownDate(x.startedAt) !== shownDate(y.startedAt) ||
       shownDate(x.completedAt) !== shownDate(y.completedAt) ||
@@ -61,6 +62,8 @@ function checkChange(want: Change, got: { before?: StoredEntry; after?: StoredEn
   if (want.status && got.after.status !== want.status) return `${title} status ${got.after.status}, wanted ${want.status}`;
   if (want.progress !== undefined && got.after.progress !== want.progress)
     return `${title} progress ${got.after.progress}, wanted ${want.progress}`;
+  if (want.volumes !== undefined && (got.after.progressVolumes ?? 0) !== want.volumes)
+    return `${title} volumes ${got.after.progressVolumes ?? 0}, wanted ${want.volumes}`;
   if (want.score !== undefined && got.after.scoreRaw !== Math.round(want.score * 10))
     return `${title} score ${got.after.scoreRaw / 10}, wanted ${want.score}`;
   for (const field of ["startedAt", "completedAt"] as const) {

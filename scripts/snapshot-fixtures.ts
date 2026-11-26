@@ -51,6 +51,12 @@ const SEEDS = [
   "Hitoribocchi no Isekai Kouryaku",
 ];
 
+/**
+ * Manga, one entry each (no franchise walk): ones that share a name with an anime in SEEDS, and
+ * ones with no anime at all, for telling a user's anime from their manga.
+ */
+const MANGA_SEEDS = ["Chainsaw Man", "Sousou no Frieren", "ONE PIECE", "Jujutsu Kaisen", "Hunter x Hunter", "Berserk", "Vagabond", "Oyasumi Punpun"];
+
 /** Relations followed when collecting a franchise. */
 const FOLLOW = new Set(["SEQUEL", "PREQUEL", "PARENT", "SIDE_STORY", "ALTERNATIVE"]);
 const MAX_PER_FRANCHISE = 14;
@@ -112,6 +118,50 @@ type Media = {
   [key: string]: unknown;
 };
 
+/** A manga's fields: no episodes, seasons, air dates or studios, but chapters and volumes. */
+const MANGA_FIELDS = `
+  id
+  type
+  title { romaji english native }
+  synonyms
+  chapters
+  volumes
+  format
+  status
+  isAdult
+  genres
+  startDate { year month day }
+  averageScore
+  popularity
+  siteUrl
+  description
+  source(version: 3)
+  tags { name rank isAdult isMediaSpoiler isGeneralSpoiler }
+  relations { edges { relationType node { id type } } }
+`;
+
+/** Tags kept, the highest ranked; manga.json gets the same treatment. */
+const topTags = <T extends Media>(m: T) => ({
+  ...m,
+  tags: [...m.tags].sort((a, b) => (b.rank ?? 0) - (a.rank ?? 0)).slice(0, MAX_TAGS),
+});
+
+const manga: Media[] = [];
+for (const seed of MANGA_SEEDS) {
+  const { Page } = await gql<{ Page: { media: Media[] } }>(
+    `query ($s: String) { Page(perPage: 1) { media(search: $s, type: MANGA, sort: SEARCH_MATCH) { ${MANGA_FIELDS} } } }`,
+    { s: seed },
+  );
+  if (Page.media[0]) manga.push(topTags(Page.media[0]));
+  else console.error(`no manga for ${seed}`);
+}
+await Bun.write(
+  new URL("../test/fixtures/manga.json", import.meta.url),
+  JSON.stringify(manga.sort((a, b) => a.id - b.id), null, 1) + "\n",
+);
+console.error(`wrote ${manga.length} manga`);
+if (process.argv.includes("--manga")) process.exit(0);
+
 const all = new Map<number, Media & { franchise: string }>();
 
 for (const seed of SEEDS) {
@@ -153,10 +203,7 @@ for (const seed of SEEDS) {
   console.error(`${seed}: ${seen.size} entries`);
 }
 
-const out = [...all.values()].sort((a, b) => a.id - b.id).map((m) => ({
-  ...m,
-  tags: [...m.tags].sort((a, b) => (b.rank ?? 0) - (a.rank ?? 0)).slice(0, MAX_TAGS),
-}));
+const out = [...all.values()].sort((a, b) => a.id - b.id).map(topTags);
 await Bun.write(
   new URL("../test/fixtures/media.json", import.meta.url),
   JSON.stringify(out, null, 1) + "\n",
