@@ -36,6 +36,17 @@ export const PERSONA: SeedEntry[] = [
 ];
 
 /**
+ * The persona's manga list, for evals and tests of manga: two that share a name with an anime on
+ * the list above, and two with no anime. By ID where the title is also an anime's.
+ */
+export const MANGA_PERSONA: SeedEntry[] = [
+  { anime: 118586, status: "CURRENT", progress: 120 }, // Sousou no Frieren (manga)
+  { anime: 30013, status: "CURRENT", progress: 1120 }, // ONE PIECE (manga)
+  { anime: "Vagabond", status: "PAUSED", progress: 300 },
+  { anime: "Oyasumi Punpun", status: "PLANNING" },
+];
+
+/**
  * The persona's activity feed, consistent with the list above. Evals run on Tuesday
  * 2026-11-17 at 12:00 UTC, so "this week" started on Monday the 16th.
  */

@@ -13,6 +13,15 @@ export const LIST_STATUSES = [
 ] as const;
 export type ListStatus = (typeof LIST_STATUSES)[number];
 
+/** AniList keeps two lists per user: anime, and manga (which takes in light novels and one-shots). */
+export const MEDIA_TYPES = ["ANIME", "MANGA"] as const;
+export type MediaType = (typeof MEDIA_TYPES)[number];
+
+/** A media's type; ANIME when it wasn't fetched (AniConnect's default). */
+export function typeOf(m: { type?: string | null }): MediaType {
+  return m.type === "MANGA" ? "MANGA" : "ANIME";
+}
+
 export type ScoreFormat =
   | "POINT_100"
   | "POINT_10_DECIMAL"
@@ -44,7 +53,10 @@ export interface MediaTitle {
 export interface ListEntry {
   id: number;
   status: ListStatus;
+  /** Episodes watched, or for a manga, chapters read. */
   progress: number;
+  /** Volumes read (manga only; 0 or null for anime). */
+  progressVolumes?: number | null;
   /** Score out of 10 (one decimal). 0 means unrated. */
   score: number;
   /** Score in the user's own scoring format, as AniList shows it. */
@@ -63,9 +75,14 @@ export interface ListEntry {
 
 export interface Media {
   id: number;
+  /** ANIME or MANGA; see typeOf. Absent in hand-made test data, which is anime. */
+  type?: string | null;
   title: MediaTitle;
   synonyms: string[];
   episodes: number | null;
+  /** A manga's chapter and volume counts: null while it's still releasing. */
+  chapters?: number | null;
+  volumes?: number | null;
   /** Minutes per episode. */
   duration: number | null;
   format: string | null;
@@ -461,9 +478,12 @@ export type FetchFn = (input: string, init: RequestInit) => Promise<Response>;
 
 const MEDIA_FIELDS = `
   id
+  type
   title { romaji english native }
   synonyms
   episodes
+  chapters
+  volumes
   duration
   format
   status
@@ -485,6 +505,7 @@ const ENTRY_FIELDS = `
   id
   status
   progress
+  progressVolumes
   score(format: POINT_10_DECIMAL)
   displayScore: score
   startedAt { year month day }
@@ -504,11 +525,16 @@ const VIEWER_TTL_MS = 5 * 60_000;
  * hosted server gives each of a user's sign-ins its own client (each with its own token) and
  * lets them share one of these, so a write through one is seen by the others.
  */
+interface CachedList {
+  fetchedAt: number;
+  entries: Promise<Map<number, ListItem>>;
+}
+
 export class UserCache {
   viewer: Promise<Viewer> | null = null;
   viewerAt = 0;
-  /** The whole list keyed by media ID, shared by calls that start while it loads. */
-  list: { fetchedAt: number; entries: Promise<Map<number, ListItem>> } | null = null;
+  /** Each of the user's lists (anime, manga) keyed by media ID, shared by calls that start while it loads. */
+  lists: Partial<Record<MediaType, CachedList>> = {};
   /** Writes in flight, by media ID (null: any); each is flagged if another write to it overlapped. */
   readonly writes = new Set<{ mediaId: number | null; overlapped: boolean }>();
   /**
@@ -756,16 +782,29 @@ export class AniListClient {
    * `isAdult: false` leaves out adult (18+) titles and `true` returns only them;
    * leaving it out returns both, as AniList does when the argument is omitted.
    */
-  async searchAnime(search: string, perPage: number, options: MediaOptions = {}, isAdult?: boolean): Promise<Media[]> {
-    return (await this.searchMany([search], perPage, options, isAdult))[0]!;
+  async searchAnime(
+    search: string,
+    perPage: number,
+    options: MediaOptions = {},
+    isAdult?: boolean,
+    type: MediaType = "ANIME",
+  ): Promise<Media[]> {
+    return (await this.searchMany([search], perPage, options, isAdult, type))[0]!;
   }
 
   /**
    * Several title searches in one request, as aliased Page queries (searchBatch per request),
    * so resolving a batch of names costs one request instead of one each against AniList's
    * rate limit. Results are in the order of `searches`, each as searchAnime would return it.
+   * `type` searches the manga instead.
    */
-  async searchMany(searches: string[], perPage: number, options: MediaOptions = {}, isAdult?: boolean): Promise<Media[][]> {
+  async searchMany(
+    searches: string[],
+    perPage: number,
+    options: MediaOptions = {},
+    isAdult?: boolean,
+    type: MediaType = "ANIME",
+  ): Promise<Media[][]> {
     const results: Media[][] = [];
     const size = searchBatch(options);
     for (let i = 0; i < searches.length; i += size) {
@@ -773,7 +812,7 @@ export class AniListClient {
       const pages = chunk
         .map(
           (_, j) => `s${j}: Page(perPage: $perPage) {
-            media(search: $search${j}, type: ANIME, sort: SEARCH_MATCH, isAdult: $isAdult) {
+            media(search: $search${j}, type: $type, sort: SEARCH_MATCH, isAdult: $isAdult) {
               ${MEDIA_FIELDS}
               ${oneShowFields(options)}
               mediaListEntry { ${ENTRY_FIELDS} }
@@ -784,8 +823,8 @@ export class AniListClient {
         .join("\n");
       const params = chunk.map((_, j) => `$search${j}: String`).join(", ");
       const data = await this.request<Record<string, { media: Media[] }>>(
-        `query (${params}, $perPage: Int, $isAdult: Boolean) {\n${pages}\n}`,
-        { ...Object.fromEntries(chunk.map((search, j) => [`search${j}`, search])), perPage, isAdult },
+        `query (${params}, $perPage: Int, $isAdult: Boolean, $type: MediaType) {\n${pages}\n}`,
+        { ...Object.fromEntries(chunk.map((search, j) => [`search${j}`, search])), perPage, isAdult, type },
       );
       results.push(...chunk.map((_, j) => data[`s${j}`]!.media));
     }
@@ -919,33 +958,34 @@ export class AniListClient {
     };
   }
 
-  async getAnime(mediaId: number): Promise<Media> {
+  /** An anime or manga by ID (AniList's IDs don't repeat across the two); `type` says which it is. */
+  async getMedia(mediaId: number): Promise<Media> {
     const data = await this.request<{ Media: Media | null }>(
       `query ($id: Int) {
-        Media(id: $id, type: ANIME) {
+        Media(id: $id) {
           ${MEDIA_FIELDS}
           mediaListEntry { ${ENTRY_FIELDS} }
         }
       }`,
       { id: mediaId },
     ).catch((err) => {
-      // AniList answers an unknown ID, or a manga ID, with HTTP 404 "Not Found.".
+      // AniList answers an unknown ID with HTTP 404 "Not Found.".
       if (err instanceof AniListError && err.status === 404) return { Media: null };
       throw err;
     });
     if (!data.Media) {
-      throw new AniListError(`No anime found with id ${mediaId}. Check the number, or pass the show's name.`);
+      throw new AniListError(`No anime or manga found with id ${mediaId}. Check the number, or pass the show's name.`);
     }
     return data.Media;
   }
 
-  /** Fetches several anime at once, with their relations (sequels, prequels, ...). */
+  /** Fetches several anime (or manga) at once, with their relations (sequels, prequels, ...). */
   async getMany(ids: number[], options: MediaOptions = {}): Promise<Media[]> {
     if (ids.length === 0) return [];
     const data = await this.request<{ Page: { media: Media[] } }>(
       `query ($ids: [Int]) {
         Page(perPage: 50) {
-          media(id_in: $ids, type: ANIME) {
+          media(id_in: $ids) {
             ${MEDIA_FIELDS}
             ${oneShowFields(options)}
             mediaListEntry { ${ENTRY_FIELDS} }
@@ -968,7 +1008,7 @@ export class AniListClient {
     const data = await this.request<{ Page: { media: Media[] } }>(
       `query ($ids: [Int]) {
         Page(perPage: 50) {
-          media(id_in: $ids, type: ANIME) {
+          media(id_in: $ids) {
             ${MEDIA_FIELDS}
             ${oneShowFields(options)}
             mediaListEntry { ${ENTRY_FIELDS} }
@@ -992,15 +1032,18 @@ export class AniListClient {
     return data.Page.media;
   }
 
-  /** The user's list, from a cache that lives for LIST_TTL_MS and is patched by our own writes. */
-  async getMyList(status?: ListStatus): Promise<ListItem[]> {
+  /**
+   * The user's anime list (or with `type`, their manga list), from a cache that lives for
+   * LIST_TTL_MS and is patched by our own writes.
+   */
+  async getMyList(status?: ListStatus, type: MediaType = "ANIME"): Promise<ListItem[]> {
     await this.confirm();
-    let list = this.cache.list;
+    let list = this.cache.lists[type];
     if (!list || this.now() - list.fetchedAt >= LIST_TTL_MS) {
-      const fresh = { fetchedAt: this.now(), entries: this.fetchMyList() };
-      this.cache.list = list = fresh;
+      const fresh = { fetchedAt: this.now(), entries: this.fetchMyList(type) };
+      this.cache.lists[type] = list = fresh;
       fresh.entries.catch(() => {
-        if (this.cache.list === fresh) this.cache.list = null;
+        if (this.cache.lists[type] === fresh) delete this.cache.lists[type];
       });
     }
     const entries = [...(await list.entries).values()];
@@ -1012,17 +1055,18 @@ export class AniListClient {
    * may miss a change made elsewhere since. Infinity when none is cached: one dropped after a
    * failed or overlapping write may have been read before it was dropped.
    */
-  listAge(): number {
-    return this.cache.list ? this.now() - this.cache.list.fetchedAt : Infinity;
+  listAge(type: MediaType = "ANIME"): number {
+    const list = this.cache.lists[type];
+    return list ? this.now() - list.fetchedAt : Infinity;
   }
 
-  private async fetchMyList(): Promise<Map<number, ListItem>> {
+  private async fetchMyList(type: MediaType): Promise<Map<number, ListItem>> {
     const viewer = await this.getViewer();
     const data = await this.request<{
       MediaListCollection: { lists: { entries: ListItem[] }[] };
     }>(
-      `query ($userId: Int) {
-        MediaListCollection(userId: $userId, type: ANIME) {
+      `query ($userId: Int, $type: MediaType) {
+        MediaListCollection(userId: $userId, type: $type) {
           lists {
             entries {
               ${ENTRY_FIELDS}
@@ -1031,7 +1075,7 @@ export class AniListClient {
           }
         }
       }`,
-      { userId: viewer.id },
+      { userId: viewer.id, type },
     );
     // An entry can appear in more than one list (e.g. a status list and a custom list).
     const entries = new Map<number, ListItem>();
@@ -1045,15 +1089,16 @@ export class AniListClient {
    * Applies one of our own writes to the cached list, after it finishes loading if it is
    * still in flight. A failed write may or may not have landed, overlapping writes to the
    * same show can answer out of order, and a list refetched mid-write may be newer than the
-   * write's answer, so all of these drop the cache instead.
+   * write's answer, so all of these drop the cache instead. `patch` is given each cached list
+   * (anime, manga) and its type.
    */
   private async patchList<T>(
     mediaId: number | null,
     write: Promise<T>,
-    patch: (entries: Map<number, ListItem>, result: T) => void,
+    patch: (entries: Map<number, ListItem>, result: T, type: MediaType) => void,
   ): Promise<T> {
     const self = { mediaId, overlapped: false };
-    const startList = this.cache.list;
+    const startLists = { ...this.cache.lists };
     for (const other of this.cache.writes) {
       if (other.mediaId === null || mediaId === null || other.mediaId === mediaId) {
         other.overlapped = self.overlapped = true;
@@ -1064,22 +1109,25 @@ export class AniListClient {
     try {
       result = await write;
     } catch (err) {
-      this.cache.list = null;
+      this.cache.lists = {};
       throw err;
     } finally {
       this.cache.writes.delete(self);
     }
     // A list fetched while the write was in flight may already hold something newer.
-    if (self.overlapped || this.cache.list !== startList) this.cache.list = null;
-    else if (this.cache.list) {
-      const list = this.cache.list;
-      list.entries = list.entries.then((entries) => {
-        patch(entries, result);
-        return entries;
-      });
-      list.entries.catch(() => {
-        if (this.cache.list === list) this.cache.list = null;
-      });
+    if (self.overlapped || MEDIA_TYPES.some((t) => this.cache.lists[t] !== startLists[t])) this.cache.lists = {};
+    else {
+      for (const type of MEDIA_TYPES) {
+        const list = this.cache.lists[type];
+        if (!list) continue;
+        list.entries = list.entries.then((entries) => {
+          patch(entries, result, type);
+          return entries;
+        });
+        list.entries.catch(() => {
+          if (this.cache.lists[type] === list) delete this.cache.lists[type];
+        });
+      }
     }
     return result;
   }
@@ -1148,6 +1196,7 @@ export class AniListClient {
     mediaId: number;
     status?: ListStatus;
     progress?: number;
+    progressVolumes?: number;
     scoreRaw?: number;
     startedAt?: FuzzyDate;
     completedAt?: FuzzyDate;
@@ -1159,12 +1208,12 @@ export class AniListClient {
   }): Promise<ListItem> {
     const save = this.request<{ SaveMediaListEntry: ListItem }>(
       `mutation (
-        $mediaId: Int, $status: MediaListStatus, $progress: Int, $scoreRaw: Int,
+        $mediaId: Int, $status: MediaListStatus, $progress: Int, $progressVolumes: Int, $scoreRaw: Int,
         $startedAt: FuzzyDateInput, $completedAt: FuzzyDateInput, $repeat: Int, $notes: String,
         $private: Boolean, $hiddenFromStatusLists: Boolean, $customLists: [String]
       ) {
         SaveMediaListEntry(
-          mediaId: $mediaId, status: $status, progress: $progress, scoreRaw: $scoreRaw,
+          mediaId: $mediaId, status: $status, progress: $progress, progressVolumes: $progressVolumes, scoreRaw: $scoreRaw,
           startedAt: $startedAt, completedAt: $completedAt, repeat: $repeat, notes: $notes,
           private: $private, hiddenFromStatusLists: $hiddenFromStatusLists, customLists: $customLists
         ) {
@@ -1174,7 +1223,9 @@ export class AniListClient {
       }`,
       input,
     ).then((data) => data.SaveMediaListEntry);
-    return this.patchList(input.mediaId, save, (entries, saved) => entries.set(saved.media.id, saved));
+    return this.patchList(input.mediaId, save, (entries, saved, type) => {
+      if (typeOf(saved.media) === type) entries.set(saved.media.id, saved);
+    });
   }
 
   async deleteEntry(entryId: number): Promise<boolean> {

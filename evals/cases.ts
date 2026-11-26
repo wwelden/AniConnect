@@ -2,7 +2,7 @@
  * End-to-end eval cases (requirement R6.3): a plain-language request, run by a real
  * model against the MCP server, graded on the list it leaves behind.
  *
- * Every case starts from the persona list in test/fixtures/persona.ts. Phrasing is
+ * Every case starts from the persona list in test/fixtures/persona.ts (anime and manga). Phrasing is
  * deliberately different from the resolver unit tests, so these also catch overfitting.
  */
 import type { ListStatus } from "../src/anilist";
@@ -12,6 +12,8 @@ export interface Change {
   anime: string | number;
   status?: ListStatus;
   progress?: number;
+  /** A manga's volumes read. */
+  volumes?: number;
   /** Out of 10. */
   score?: number;
   added?: true;
@@ -228,4 +230,23 @@ export const CASES: EvalCase[] = [
     expect: { readOnly: true, tools: ["watch_history"], mentions: ["Oct"] } },
   { id: "history-empty-day", prompt: "did I log anything on November 1st?", idealCalls: 1,
     expect: { readOnly: true, tools: ["watch_history"] } },
+
+  // Manga (R0.17). The persona reads the Frieren and One Piece manga (IDs, since the anime share
+  // the titles), has Vagabond paused and Goodnight Punpun planned. Chapters go to the manga even
+  // where the anime is on the list too; episodes still go to the anime (progress-one-piece-bump).
+  { id: "manga-chapter", prompt: "I just read chapter 1125 of One Piece", idealCalls: 1,
+    expect: { changes: [{ anime: 30013, progress: 1125 }] } },
+  { id: "manga-more-chapters", prompt: "read 3 more chapters of the Frieren manga", idealCalls: 1,
+    expect: { changes: [{ anime: 118586, progress: 123 }] } },
+  { id: "manga-volume", prompt: "I'm on volume 5 of Goodnight Punpun now", idealCalls: 1,
+    expect: { changes: [{ anime: "Oyasumi Punpun", volumes: 5, status: "CURRENT" }] } },
+  { id: "manga-finished-rated", prompt: "finished reading Oyasumi Punpun, 10/10", idealCalls: 1,
+    expect: { changes: [{ anime: "Oyasumi Punpun", status: "COMPLETED", progress: 147, score: 10 }] } },
+  // No anime is called Vagabond: the name alone finds the manga on the list.
+  { id: "manga-only-name", prompt: "I picked Vagabond back up", idealCalls: 1,
+    expect: { changes: [{ anime: "Vagabond", status: "CURRENT" }] } },
+  { id: "manga-add", prompt: "add the Berserk manga to my plan to read", idealCalls: 1,
+    expect: { changes: [{ anime: "Berserk", added: true, status: "PLANNING" }] } },
+  { id: "manga-list", prompt: "what manga am I reading right now?", idealCalls: 1,
+    expect: { readOnly: true, tools: ["search_my_list"], mentions: ["Frieren", "One Piece"] } },
 ];

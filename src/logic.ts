@@ -1,4 +1,18 @@
-import type { FuzzyDate, ListEntry, ListStatus, Media, MediaTitle, ScoreFormat, TitleLanguage } from "./anilist";
+import { typeOf, type FuzzyDate, type ListEntry, type ListStatus, type Media, type MediaTitle, type ScoreFormat, type TitleLanguage } from "./anilist";
+
+/** What the planners and labels read of a show: its episodes, or for a manga, its chapters and volumes. */
+export type Counted = Pick<Media, "episodes"> & Partial<Pick<Media, "type" | "chapters" | "volumes">>;
+
+/** How many units (episodes, or a manga's chapters) a show has; null when AniList doesn't know yet. */
+export function total(media: Counted): number | null {
+  return typeOf(media) === "MANGA" ? (media.chapters ?? null) : media.episodes;
+}
+
+/** "episode" or "chapter", plural when `n` isn't 1 (or not given). */
+export function unit(media: Counted, n?: number): string {
+  const word = typeOf(media) === "MANGA" ? "chapter" : "episode";
+  return n === 1 ? word : `${word}s`;
+}
 
 export function normalize(text: string): string {
   return text
@@ -82,6 +96,8 @@ function isSet(date: FuzzyDate | undefined | null): boolean {
 /** What to save on an entry; fields left out are not changed. */
 export interface EntryPlan {
   progress?: number;
+  /** Volumes read, for a manga. */
+  progressVolumes?: number;
   status?: ListStatus;
   startedAt?: FuzzyDate;
   completedAt?: FuzzyDate;
@@ -95,7 +111,7 @@ export interface ProgressPlan extends EntryPlan {
 
 /** The parts of a list entry the planners read. */
 export type PriorEntry = Pick<ListEntry, "status" | "startedAt" | "completedAt"> &
-  Partial<Pick<ListEntry, "progress" | "repeat">>;
+  Partial<Pick<ListEntry, "progress" | "repeat" | "progressVolumes">>;
 
 /**
  * Dates and rewatch count for a move to `next`, shared by every tool that changes status
@@ -117,29 +133,30 @@ function transition(entry: PriorEntry | null, next: ListStatus, today: FuzzyDate
 }
 
 /**
- * Works out what to save when the user's episode count changes:
+ * Works out what to save when the user's episode count (a manga's chapter count) changes:
  * reaching the last episode completes the show, watching an episode of
  * something planned, paused or dropped moves it to watching, and going back
  * below the last episode of a completed show moves it back to watching.
  */
 export function planProgress(
-  media: Pick<Media, "episodes">,
+  media: Counted,
   entry: PriorEntry | null,
   progress: number,
   today: FuzzyDate = todayFuzzy(),
 ): ProgressPlan {
+  const last = total(media);
   if (!Number.isInteger(progress) || progress < 0) {
-    throw new Error(`Episode count must be a whole number of 0 or more (got ${progress}).`);
+    const word = unit(media, 1);
+    throw new Error(`${word[0]!.toUpperCase()}${word.slice(1)} count must be a whole number of 0 or more (got ${progress}).`);
   }
-  if (media.episodes != null && progress > media.episodes) {
-    throw new Error(`This show only has ${media.episodes} episodes (got ${progress}).`);
+  if (last != null && progress > last) {
+    throw new Error(`This ${typeOf(media) === "MANGA" ? "manga" : "show"} only has ${last} ${unit(media)} (got ${progress}).`);
   }
 
   const current = entry?.status;
-  const finished = media.episodes != null && media.episodes > 0 && progress === media.episodes;
+  const finished = last != null && last > 0 && progress === last;
   // Lowered, not just below the full count: a show marked completed at 0 episodes stays completed.
-  const lowered =
-    entry?.progress != null ? progress < entry.progress : media.episodes != null && progress < media.episodes;
+  const lowered = entry?.progress != null ? progress < entry.progress : last != null && progress < last;
 
   let next: ListStatus | undefined;
   if (finished && current !== "COMPLETED") {
@@ -157,21 +174,44 @@ export function planProgress(
 }
 
 /**
+ * A manga's volume count changing on its own ("I'm on volume 5"): reading a volume of something
+ * planned, paused or dropped moves it to reading, like a chapter would. Volumes never complete
+ * it: AniList's volume count can run ahead of the chapters it knows of.
+ */
+export function planVolumes(
+  media: Counted,
+  entry: PriorEntry | null,
+  volumes: number,
+  today: FuzzyDate = todayFuzzy(),
+): EntryPlan {
+  if (media.volumes != null && volumes > media.volumes) {
+    throw new Error(`This manga only has ${media.volumes} volumes (got ${volumes}).`);
+  }
+  const current = entry?.status;
+  const starts = volumes > 0 && (current === undefined || current === "PLANNING" || current === "PAUSED" || current === "DROPPED");
+  return starts ? { progressVolumes: volumes, status: "CURRENT", ...transition(entry, "CURRENT", today) } : { progressVolumes: volumes };
+}
+
+/**
  * Works out what to save when the user sets a status directly: the same date rules as
- * episode changes, all episodes for Completed, and episode 0 when a rewatch starts.
+ * episode changes, all episodes (a manga's chapters and volumes) for Completed, and episode 0
+ * when a rewatch starts.
  */
 export function planStatus(
-  media: Pick<Media, "episodes">,
+  media: Counted,
   entry: PriorEntry | null,
   status: ListStatus,
   today: FuzzyDate = todayFuzzy(),
 ): EntryPlan {
   const plan: EntryPlan = { status, ...transition(entry, status, today) };
-  if (status === "COMPLETED" && media.episodes) plan.progress = media.episodes;
+  const last = total(media);
+  const manga = typeOf(media) === "MANGA";
+  if (status === "COMPLETED" && last) plan.progress = last;
+  if (status === "COMPLETED" && manga && media.volumes) plan.progressVolumes = media.volumes;
   if (status === "REPEATING" && entry && entry.status !== "REPEATING") {
-    const watchedAll =
-      entry.status === "COMPLETED" || (media.episodes != null && (entry.progress ?? 0) >= media.episodes);
+    const watchedAll = entry.status === "COMPLETED" || (last != null && (entry.progress ?? 0) >= last);
     if (watchedAll && entry.progress !== 0) plan.progress = 0;
+    if (watchedAll && manga && entry.progressVolumes) plan.progressVolumes = 0;
   }
   return plan;
 }
@@ -185,7 +225,7 @@ export const NO_DATE: FuzzyDate = { year: null, month: null, day: null };
  * implies (all episodes for Completed, 0 for a rewatch).
  */
 export function planUpdate(
-  media: Pick<Media, "episodes">,
+  media: Counted,
   entry: PriorEntry | null,
   change: { progress?: number; status?: ListStatus },
   today: FuzzyDate = todayFuzzy(),
@@ -204,11 +244,16 @@ export function planUpdate(
           startedAt: plan.startedAt ?? entry?.startedAt ?? NO_DATE,
           completedAt: plan.completedAt ?? entry?.completedAt ?? NO_DATE,
           progress: plan.progress ?? entry?.progress,
+          progressVolumes: plan.progressVolumes ?? entry?.progressVolumes,
           repeat: plan.repeat ?? entry?.repeat,
         }
       : null;
     plan = { ...plan, ...planStatus(media, afterProgress, change.status, today) };
     if (change.progress !== undefined) plan.progress = change.progress;
+    // A reread from a given chapter still starts the volumes over, judged from the entry as it was.
+    if (change.status === "REPEATING" && change.progress !== undefined && planStatus(media, entry, "REPEATING", today).progressVolumes === 0) {
+      plan.progressVolumes = 0;
+    }
   }
   return plan;
 }
@@ -300,18 +345,33 @@ const STATUS_LABEL: Record<ListStatus, string> = {
   REPEATING: "Rewatching",
 };
 
-export function statusLabel(status: ListStatus): string {
-  return STATUS_LABEL[status];
+/** AniList's own words for a manga list's statuses. */
+const MANGA_STATUS_LABEL: Record<ListStatus, string> = {
+  ...STATUS_LABEL,
+  CURRENT: "Reading",
+  PLANNING: "Plan to read",
+  REPEATING: "Rereading",
+};
+
+/** A status as the user's list shows it: "Watching" for an anime, "Reading" for a manga (pass the media, or its type). */
+export function statusLabel(status: ListStatus, media?: { type?: string | null } | null): string {
+  return (media && typeOf(media) === "MANGA" ? MANGA_STATUS_LABEL : STATUS_LABEL)[status];
+}
+
+/** The year to show beside a title: an anime's season year, a manga's start year. */
+export function releaseYear(media: Pick<Media, "seasonYear" | "startDate" | "type">): number | null {
+  return media.seasonYear ?? (typeOf(media) === "MANGA" ? (media.startDate?.year ?? null) : null);
 }
 
 export function describeEntry(
   media: Media,
-  entry: Pick<ListEntry, "status" | "progress" | "displayScore"> | null,
+  entry: Pick<ListEntry, "status" | "progress" | "displayScore" | "progressVolumes"> | null,
   viewer: { scoreFormat: ScoreFormat; titleLanguage: TitleLanguage },
 ): string {
-  const episodes = media.episodes ?? "?";
-  const meta = [media.format, media.seasonYear].filter(Boolean).join(", ");
+  const count = total(media) ?? "?";
+  const meta = [media.format, releaseYear(media)].filter(Boolean).join(", ");
   const head = `[${media.id}] ${displayTitle(media.title, viewer.titleLanguage)}${meta ? ` (${meta})` : ""}`;
-  if (!entry) return `${head}: not on your list, ${episodes} episodes`;
-  return `${head}: ${statusLabel(entry.status)}, ${entry.progress}/${episodes} episodes, ${formatScore(entry.displayScore, viewer.scoreFormat)}`;
+  if (!entry) return `${head}: not on your list, ${count} ${unit(media)}`;
+  const volumes = entry.progressVolumes ? `, volume ${entry.progressVolumes}/${media.volumes ?? "?"}` : "";
+  return `${head}: ${statusLabel(entry.status, media)}, ${entry.progress}/${count} ${unit(media)}${volumes}, ${formatScore(entry.displayScore, viewer.scoreFormat)}`;
 }

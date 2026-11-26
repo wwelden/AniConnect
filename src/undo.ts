@@ -5,6 +5,8 @@ import { describeEntry, displayTitle } from "./logic";
 export interface Snapshot {
   status: ListStatus;
   progress: number;
+  /** A manga's volumes read; 0 for an anime. */
+  progressVolumes: number;
   /** Out of 10, one decimal (AniList's raw score / 10). */
   score: number;
   startedAt: FuzzyDate;
@@ -36,6 +38,7 @@ export function snapshot(entry: Partial<ListEntry> | null | undefined): Snapshot
   return {
     status: entry.status,
     progress: entry.progress ?? 0,
+    progressVolumes: entry.progressVolumes ?? 0,
     score: entry.score ?? 0,
     startedAt: date(entry.startedAt),
     completedAt: date(entry.completedAt),
@@ -149,6 +152,8 @@ async function undoOne(
     mediaId: change.mediaId,
     status: before.status,
     progress: before.progress,
+    // Only where volumes were counted (a manga's), so an anime's save stays as it always was.
+    ...(Boolean(before.progressVolumes || change.after?.progressVolumes) && { progressVolumes: before.progressVolumes }),
     scoreRaw: Math.round(before.score * 10),
     startedAt: before.startedAt,
     completedAt: before.completedAt,

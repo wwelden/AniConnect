@@ -1,0 +1,1560 @@
+[
+ {
+  "id": 30002,
+  "type": "MANGA",
+  "title": {
+   "romaji": "Berserk",
+   "english": "Berserk",
+   "native": "ベルセルク"
+  },
+  "synonyms": [
+   "بيرسيرك",
+   "Beruseruku",
+   "Берсерк",
+   "ברזרק",
+   "برزرک",
+   "เบอร์เซิร์ก",
+   "烙印勇士",
+   "烙印战士",
+   "베르세르크",
+   "Berserk Max",
+   "烙印戰士"
+  ],
+  "chapters": null,
+  "volumes": null,
+  "format": "MANGA",
+  "status": "RELEASING",
+  "isAdult": false,
+  "genres": [
+   "Action",
+   "Adventure",
+   "Drama",
+   "Fantasy",
+   "Horror",
+   "Psychological"
+  ],
+  "startDate": {
+   "year": 1989,
+   "month": 8,
+   "day": 25
+  },
+  "averageScore": 92,
+  "popularity": 249892,
+  "siteUrl": "https://anilist.co/manga/30002",
+  "description": "His name is Guts, the Black Swordsman, a feared warrior spoken of only in whispers. Bearer of a gigantic sword, an iron hand, and the scars of countless battles and tortures, his flesh is also indelibly marked with The Brand, an unholy symbol that draws the forces of darkness to him and dooms him as their sacrifice. But Guts won't take his fate lying down; he'll cut a crimson swath of carnage through the ranks of the damned—and anyone else foolish enough to oppose him! Accompanied by Puck the Elf, more an annoyance than a companion, Guts relentlessly follows a dark, bloodstained path that leads only to death...or vengeance.<br>\n<br>\n(Source: Dark Horse)<br>\n<br>\n<i>Notes:<br>\n- Volumes 1-5 contain the 16 prequel chapters 0A - 0P.<br>\n- <a href=\"https://anilist.co/manga/95821/\">Chapter 83</a> was omitted from Volume 13 due to the author’s request.<br>\n- Volume 14 includes “<a href=\"https://anilist.co/manga/36408/\">Berserk: The Prototype</a>”.<br>\n- Due to the author's passing, starting from Chapter 365, the manga is illustrated by Studio Gaga (Miura's assistants) and supervised by Kouji Mori (a close friend of Miura's).</i>",
+  "source": "ORIGINAL",
+  "tags": [
+   {
+    "name": "Tragedy",
+    "rank": 97,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": true
+   },
+   {
+    "name": "Seinen",
+    "rank": 95,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Revenge",
+    "rank": 94,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Male Protagonist",
+    "rank": 94,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Demons",
+    "rank": 92,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Cosmic Horror",
+    "rank": 90,
+    "isAdult": false,
+    "isMediaSpoiler": true,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Gore",
+    "rank": 88,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Philosophy",
+    "rank": 86,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Found Family",
+    "rank": 85,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Travel",
+    "rank": 83,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   }
+  ],
+  "relations": {
+   "edges": [
+    {
+     "relationType": "ADAPTATION",
+     "node": {
+      "id": 33,
+      "type": "ANIME"
+     }
+    },
+    {
+     "relationType": "ADAPTATION",
+     "node": {
+      "id": 10218,
+      "type": "ANIME"
+     }
+    },
+    {
+     "relationType": "ADAPTATION",
+     "node": {
+      "id": 12113,
+      "type": "ANIME"
+     }
+    },
+    {
+     "relationType": "ADAPTATION",
+     "node": {
+      "id": 12115,
+      "type": "ANIME"
+     }
+    },
+    {
+     "relationType": "ALTERNATIVE",
+     "node": {
+      "id": 36408,
+      "type": "MANGA"
+     }
+    },
+    {
+     "relationType": "ADAPTATION",
+     "node": {
+      "id": 21560,
+      "type": "ANIME"
+     }
+    },
+    {
+     "relationType": "ADAPTATION",
+     "node": {
+      "id": 97643,
+      "type": "ANIME"
+     }
+    },
+    {
+     "relationType": "OTHER",
+     "node": {
+      "id": 95821,
+      "type": "MANGA"
+     }
+    },
+    {
+     "relationType": "CHARACTER",
+     "node": {
+      "id": 100299,
+      "type": "MANGA"
+     }
+    },
+    {
+     "relationType": "ADAPTATION",
+     "node": {
+      "id": 155011,
+      "type": "ANIME"
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": 30013,
+  "type": "MANGA",
+  "title": {
+   "romaji": "ONE PIECE",
+   "english": "One Piece",
+   "native": "ONE PIECE"
+  },
+  "synonyms": [
+   "원피스",
+   "וואן פיס ",
+   "One Piece - Большой куш",
+   "ワンピース",
+   "ONE PIECE～航海王～",
+   "วันพีซ"
+  ],
+  "chapters": null,
+  "volumes": null,
+  "format": "MANGA",
+  "status": "RELEASING",
+  "isAdult": false,
+  "genres": [
+   "Action",
+   "Adventure",
+   "Comedy",
+   "Fantasy"
+  ],
+  "startDate": {
+   "year": 1997,
+   "month": 7,
+   "day": 22
+  },
+  "averageScore": 91,
+  "popularity": 237789,
+  "siteUrl": "https://anilist.co/manga/30013",
+  "description": "As a child, Monkey D. Luffy was inspired to become a pirate by listening to the tales of the buccaneer \"Red-Haired\" Shanks. But his life changed when Luffy accidentally ate the Gum-Gum Devil Fruit and gained the power to stretch like rubber...at the cost of never being able to swim again! Years later, still vowing to become the king of the pirates, Luffy sets out on his adventure...one guy alone in a rowboat, in search of the legendary \"One Piece,\" said to be the greatest treasure in the world...\n<br><br>\n(Source: VIZ Media)",
+  "source": "ORIGINAL",
+  "tags": [
+   {
+    "name": "Travel",
+    "rank": 96,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Pirates",
+    "rank": 96,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Found Family",
+    "rank": 95,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Shounen",
+    "rank": 92,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Ensemble Cast",
+    "rank": 91,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Prophecy",
+    "rank": 90,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Super Power",
+    "rank": 87,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Dystopian",
+    "rank": 85,
+    "isAdult": false,
+    "isMediaSpoiler": true,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Ships",
+    "rank": 81,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Male Protagonist",
+    "rank": 81,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   }
+  ],
+  "relations": {
+   "edges": [
+    {
+     "relationType": "ADAPTATION",
+     "node": {
+      "id": 15323,
+      "type": "ANIME"
+     }
+    },
+    {
+     "relationType": "ADAPTATION",
+     "node": {
+      "id": 2107,
+      "type": "ANIME"
+     }
+    },
+    {
+     "relationType": "ADAPTATION",
+     "node": {
+      "id": 19123,
+      "type": "ANIME"
+     }
+    },
+    {
+     "relationType": "ADAPTATION",
+     "node": {
+      "id": 21,
+      "type": "ANIME"
+     }
+    },
+    {
+     "relationType": "ALTERNATIVE",
+     "node": {
+      "id": 35114,
+      "type": "MANGA"
+     }
+    },
+    {
+     "relationType": "ADAPTATION",
+     "node": {
+      "id": 101918,
+      "type": "ANIME"
+     }
+    },
+    {
+     "relationType": "SPIN_OFF",
+     "node": {
+      "id": 102533,
+      "type": "MANGA"
+     }
+    },
+    {
+     "relationType": "SPIN_OFF",
+     "node": {
+      "id": 103252,
+      "type": "MANGA"
+     }
+    },
+    {
+     "relationType": "ADAPTATION",
+     "node": {
+      "id": 3848,
+      "type": "ANIME"
+     }
+    },
+    {
+     "relationType": "SIDE_STORY",
+     "node": {
+      "id": 96427,
+      "type": "MANGA"
+     }
+    },
+    {
+     "relationType": "SIDE_STORY",
+     "node": {
+      "id": 44414,
+      "type": "MANGA"
+     }
+    },
+    {
+     "relationType": "CHARACTER",
+     "node": {
+      "id": 41926,
+      "type": "MANGA"
+     }
+    },
+    {
+     "relationType": "SIDE_STORY",
+     "node": {
+      "id": 47152,
+      "type": "MANGA"
+     }
+    },
+    {
+     "relationType": "SIDE_STORY",
+     "node": {
+      "id": 105234,
+      "type": "MANGA"
+     }
+    },
+    {
+     "relationType": "SPIN_OFF",
+     "node": {
+      "id": 82353,
+      "type": "MANGA"
+     }
+    },
+    {
+     "relationType": "SPIN_OFF",
+     "node": {
+      "id": 53251,
+      "type": "MANGA"
+     }
+    },
+    {
+     "relationType": "CHARACTER",
+     "node": {
+      "id": 30881,
+      "type": "MANGA"
+     }
+    },
+    {
+     "relationType": "ADAPTATION",
+     "node": {
+      "id": 99302,
+      "type": "ANIME"
+     }
+    },
+    {
+     "relationType": "ALTERNATIVE",
+     "node": {
+      "id": 30793,
+      "type": "MANGA"
+     }
+    },
+    {
+     "relationType": "ADAPTATION",
+     "node": {
+      "id": 106572,
+      "type": "ANIME"
+     }
+    },
+    {
+     "relationType": "CHARACTER",
+     "node": {
+      "id": 55146,
+      "type": "MANGA"
+     }
+    },
+    {
+     "relationType": "SPIN_OFF",
+     "node": {
+      "id": 110232,
+      "type": "MANGA"
+     }
+    },
+    {
+     "relationType": "SPIN_OFF",
+     "node": {
+      "id": 110233,
+      "type": "MANGA"
+     }
+    },
+    {
+     "relationType": "SPIN_OFF",
+     "node": {
+      "id": 110258,
+      "type": "MANGA"
+     }
+    },
+    {
+     "relationType": "SPIN_OFF",
+     "node": {
+      "id": 110259,
+      "type": "MANGA"
+     }
+    },
+    {
+     "relationType": "SPIN_OFF",
+     "node": {
+      "id": 104664,
+      "type": "MANGA"
+     }
+    },
+    {
+     "relationType": "SPIN_OFF",
+     "node": {
+      "id": 110409,
+      "type": "MANGA"
+     }
+    },
+    {
+     "relationType": "SPIN_OFF",
+     "node": {
+      "id": 110715,
+      "type": "MANGA"
+     }
+    },
+    {
+     "relationType": "SPIN_OFF",
+     "node": {
+      "id": 113686,
+      "type": "MANGA"
+     }
+    },
+    {
+     "relationType": "SPIN_OFF",
+     "node": {
+      "id": 117802,
+      "type": "MANGA"
+     }
+    },
+    {
+     "relationType": "SPIN_OFF",
+     "node": {
+      "id": 119425,
+      "type": "MANGA"
+     }
+    },
+    {
+     "relationType": "PREQUEL",
+     "node": {
+      "id": 125826,
+      "type": "MANGA"
+     }
+    },
+    {
+     "relationType": "SIDE_STORY",
+     "node": {
+      "id": 128291,
+      "type": "MANGA"
+     }
+    },
+    {
+     "relationType": "SIDE_STORY",
+     "node": {
+      "id": 128292,
+      "type": "MANGA"
+     }
+    },
+    {
+     "relationType": "ALTERNATIVE",
+     "node": {
+      "id": 134184,
+      "type": "MANGA"
+     }
+    },
+    {
+     "relationType": "ALTERNATIVE",
+     "node": {
+      "id": 138283,
+      "type": "MANGA"
+     }
+    },
+    {
+     "relationType": "ALTERNATIVE",
+     "node": {
+      "id": 110450,
+      "type": "MANGA"
+     }
+    },
+    {
+     "relationType": "ALTERNATIVE",
+     "node": {
+      "id": 146516,
+      "type": "MANGA"
+     }
+    },
+    {
+     "relationType": "CHARACTER",
+     "node": {
+      "id": 154266,
+      "type": "MANGA"
+     }
+    },
+    {
+     "relationType": "ADAPTATION",
+     "node": {
+      "id": 466,
+      "type": "ANIME"
+     }
+    },
+    {
+     "relationType": "CHARACTER",
+     "node": {
+      "id": 75757,
+      "type": "MANGA"
+     }
+    },
+    {
+     "relationType": "ADAPTATION",
+     "node": {
+      "id": 171630,
+      "type": "ANIME"
+     }
+    },
+    {
+     "relationType": "ADAPTATION",
+     "node": {
+      "id": 177475,
+      "type": "ANIME"
+     }
+    },
+    {
+     "relationType": "ADAPTATION",
+     "node": {
+      "id": 183423,
+      "type": "ANIME"
+     }
+    },
+    {
+     "relationType": "PARENT",
+     "node": {
+      "id": 183727,
+      "type": "MANGA"
+     }
+    },
+    {
+     "relationType": "SPIN_OFF",
+     "node": {
+      "id": 184804,
+      "type": "MANGA"
+     }
+    },
+    {
+     "relationType": "SPIN_OFF",
+     "node": {
+      "id": 188120,
+      "type": "MANGA"
+     }
+    },
+    {
+     "relationType": "SPIN_OFF",
+     "node": {
+      "id": 216503,
+      "type": "MANGA"
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": 30026,
+  "type": "MANGA",
+  "title": {
+   "romaji": "HUNTER×HUNTER",
+   "english": "Hunter x Hunter",
+   "native": "HUNTER×HUNTER"
+  },
+  "synonyms": [
+   "ハンター×ハンター",
+   "HxH",
+   "헌터×헌터",
+   "القناص"
+  ],
+  "chapters": null,
+  "volumes": null,
+  "format": "MANGA",
+  "status": "RELEASING",
+  "isAdult": false,
+  "genres": [
+   "Action",
+   "Adventure",
+   "Comedy",
+   "Fantasy"
+  ],
+  "startDate": {
+   "year": 1998,
+   "month": 3,
+   "day": 3
+  },
+  "averageScore": 88,
+  "popularity": 111613,
+  "siteUrl": "https://anilist.co/manga/30026",
+  "description": "Gon might be a country boy, but he has high aspirations. Despite his Aunt Mito's protests, Gon decides to follow in his father's footsteps and become a legendary Hunter. The Hunter hopefuls begin their journey by storm-tossed ship, where Gon meets Leorio and Kurapika, the only other applicants who aren't devastated by bouts of seasickness.\n<br><br>\nHaving survived the terrors of the high seas, Gon and his companions now have to prove their worth in a variety of tests in order to find the elusive Exam Hall. And once they get there, will they ever leave alive...?<br><br>\n(Source: VIZ Media)",
+  "source": "ORIGINAL",
+  "tags": [
+   {
+    "name": "Shounen",
+    "rank": 89,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Super Power",
+    "rank": 88,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Cultivation",
+    "rank": 88,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Ensemble Cast",
+    "rank": 85,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Travel",
+    "rank": 82,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Male Protagonist",
+    "rank": 81,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Primarily Male Cast",
+    "rank": 76,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Politics",
+    "rank": 75,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Tragedy",
+    "rank": 75,
+    "isAdult": false,
+    "isMediaSpoiler": true,
+    "isGeneralSpoiler": true
+   },
+   {
+    "name": "Assassins",
+    "rank": 73,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   }
+  ],
+  "relations": {
+   "edges": [
+    {
+     "relationType": "ADAPTATION",
+     "node": {
+      "id": 136,
+      "type": "ANIME"
+     }
+    },
+    {
+     "relationType": "ADAPTATION",
+     "node": {
+      "id": 137,
+      "type": "ANIME"
+     }
+    },
+    {
+     "relationType": "ADAPTATION",
+     "node": {
+      "id": 138,
+      "type": "ANIME"
+     }
+    },
+    {
+     "relationType": "ADAPTATION",
+     "node": {
+      "id": 139,
+      "type": "ANIME"
+     }
+    },
+    {
+     "relationType": "ADAPTATION",
+     "node": {
+      "id": 11061,
+      "type": "ANIME"
+     }
+    },
+    {
+     "relationType": "ADAPTATION",
+     "node": {
+      "id": 10189,
+      "type": "ANIME"
+     }
+    },
+    {
+     "relationType": "PREQUEL",
+     "node": {
+      "id": 75996,
+      "type": "MANGA"
+     }
+    },
+    {
+     "relationType": "PREQUEL",
+     "node": {
+      "id": 103186,
+      "type": "MANGA"
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": 30656,
+  "type": "MANGA",
+  "title": {
+   "romaji": "Vagabond",
+   "english": "Vagabond",
+   "native": "バガボンド"
+  },
+  "synonyms": [
+   "배가본드"
+  ],
+  "chapters": null,
+  "volumes": null,
+  "format": "MANGA",
+  "status": "RELEASING",
+  "isAdult": false,
+  "genres": [
+   "Action",
+   "Adventure",
+   "Drama"
+  ],
+  "startDate": {
+   "year": 1998,
+   "month": 9,
+   "day": 3
+  },
+  "averageScore": 91,
+  "popularity": 166492,
+  "siteUrl": "https://anilist.co/manga/30656",
+  "description": "At seventeen years of age, Miyamoto Musashi--still known by his childhood name, Shinmen Takezo--was a wild young brute just setting out along the way of the sword.\n<br><br>\nIn the aftermath of the epic Battle of Sekigahara, Takezo finds himself a fugitive survivor on the losing side of the war. Takezo's vicious nature has made him an outcast even in his own village, and he is hunted down like an animal. At this crucial crossroads in Takezo's life, an eccentric monk and a childhood friend are the only ones who can help him find his way.<br><br>(Source: VIZ Media)",
+  "source": "NOVEL",
+  "tags": [
+   {
+    "name": "Samurai",
+    "rank": 96,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Seinen",
+    "rank": 95,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Swordplay",
+    "rank": 95,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Historical",
+    "rank": 94,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Philosophy",
+    "rank": 93,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Travel",
+    "rank": 90,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Coming of Age",
+    "rank": 88,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Male Protagonist",
+    "rank": 87,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Martial Arts",
+    "rank": 82,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Rehabilitation",
+    "rank": 79,
+    "isAdult": false,
+    "isMediaSpoiler": true,
+    "isGeneralSpoiler": false
+   }
+  ],
+  "relations": {
+   "edges": [
+    {
+     "relationType": "SIDE_STORY",
+     "node": {
+      "id": 135129,
+      "type": "MANGA"
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": 34632,
+  "type": "MANGA",
+  "title": {
+   "romaji": "Oyasumi Punpun",
+   "english": "Goodnight Punpun",
+   "native": "おやすみプンプン"
+  },
+  "synonyms": [
+   "Dobranoc, Punpunie",
+   "Bonne nuit Punpun!",
+   "Boa Noite Punpun",
+   "Bona nit, Punpun",
+   "Buenas noches, Punpun",
+   "Gute Nacht, Punpun",
+   "잘자 뿡뿡",
+   "晚安布布",
+   "לילה טוב, פונפון",
+   "Buonanotte, Punpun",
+   "İyi Geceler, Punpun",
+   "ฝันดีนะปุนปุน",
+   "Laku noć, Punpune",
+   "Добраніч, Пунпуне"
+  ],
+  "chapters": 147,
+  "volumes": 13,
+  "format": "MANGA",
+  "status": "FINISHED",
+  "isAdult": false,
+  "genres": [
+   "Drama",
+   "Psychological",
+   "Slice of Life"
+  ],
+  "startDate": {
+   "year": 2007,
+   "month": 3,
+   "day": 15
+  },
+  "averageScore": 88,
+  "popularity": 189646,
+  "siteUrl": "https://anilist.co/manga/34632",
+  "description": "Meet Punpun Punyama. He’s an average kid in an average town.<br>\nHe wants to win a Nobel Prize and save the world.<br>\nHe wants the girl he has a crush on to like him back.<br>\nHe wants to find some porn.<br>\nThat’s what he wants, but what does he get…?\n<br><br>\n(Source: VIZ Media)",
+  "source": "ORIGINAL",
+  "tags": [
+   {
+    "name": "Coming of Age",
+    "rank": 98,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Seinen",
+    "rank": 92,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Tragedy",
+    "rank": 91,
+    "isAdult": false,
+    "isMediaSpoiler": true,
+    "isGeneralSpoiler": true
+   },
+   {
+    "name": "Philosophy",
+    "rank": 88,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Denpa",
+    "rank": 87,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Psychosexual",
+    "rank": 85,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Suicide",
+    "rank": 84,
+    "isAdult": false,
+    "isMediaSpoiler": true,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Urban",
+    "rank": 79,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Male Protagonist",
+    "rank": 78,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Heterosexual",
+    "rank": 78,
+    "isAdult": false,
+    "isMediaSpoiler": true,
+    "isGeneralSpoiler": false
+   }
+  ],
+  "relations": {
+   "edges": []
+  }
+ },
+ {
+  "id": 101517,
+  "type": "MANGA",
+  "title": {
+   "romaji": "Jujutsu Kaisen",
+   "english": "Jujutsu Kaisen",
+   "native": "呪術廻戦"
+  },
+  "synonyms": [
+   "Sorcery Fight",
+   "주술회전",
+   "咒术回战",
+   "Guerra de Hechiceros",
+   "Batalha de Feiticeiros",
+   "JJK",
+   "มหาเวทย์ผนึกมาร",
+   "Chú thuật hồi chiến",
+   "Магическая битва",
+   "La guerra màgica",
+   "Prokleté války",
+   "咒術迴戰",
+   "Contiendas de Brujería",
+   "Lanet Savaşları"
+  ],
+  "chapters": 272,
+  "volumes": 30,
+  "format": "MANGA",
+  "status": "FINISHED",
+  "isAdult": false,
+  "genres": [
+   "Action",
+   "Drama",
+   "Supernatural"
+  ],
+  "startDate": {
+   "year": 2018,
+   "month": 3,
+   "day": 5
+  },
+  "averageScore": 80,
+  "popularity": 257743,
+  "siteUrl": "https://anilist.co/manga/101517",
+  "description": "Although Yuji Itadori looks like your average teenager, his immense physical strength is something to behold! Every sports club wants him to join, but Itadori would rather hang out with the school outcasts in the Occult Research Club. One day, the club manages to get their hands on a sealed cursed object. Little do they know the terror they’ll unleash when they break the seal…\n<br><br>\n(Source: VIZ Media)\n<br><br>\n<i>Notes:<br>\n- Ranked 1st in Japan's Bookstore Employees Top Manga of 2018.<br>\n- Nominated for the 25th Annual Tezuka Osamu Cultural Prize in 2021.<br>\n- Nominated for the 65th Shogakukan Manga Award in the Shounen Category in 2019.<br>\n- Includes one extra chapter.</i>",
+  "source": "ORIGINAL",
+  "tags": [
+   {
+    "name": "Urban Fantasy",
+    "rank": 97,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Demons",
+    "rank": 93,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Super Power",
+    "rank": 93,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Curses",
+    "rank": 91,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Shounen",
+    "rank": 91,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Male Protagonist",
+    "rank": 87,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Tragedy",
+    "rank": 87,
+    "isAdult": false,
+    "isMediaSpoiler": true,
+    "isGeneralSpoiler": true
+   },
+   {
+    "name": "Youkai",
+    "rank": 87,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Monster Boy",
+    "rank": 86,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Magic",
+    "rank": 83,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   }
+  ],
+  "relations": {
+   "edges": [
+    {
+     "relationType": "PREQUEL",
+     "node": {
+      "id": 105469,
+      "type": "MANGA"
+     }
+    },
+    {
+     "relationType": "ADAPTATION",
+     "node": {
+      "id": 113415,
+      "type": "ANIME"
+     }
+    },
+    {
+     "relationType": "SIDE_STORY",
+     "node": {
+      "id": 117024,
+      "type": "MANGA"
+     }
+    },
+    {
+     "relationType": "SIDE_STORY",
+     "node": {
+      "id": 117042,
+      "type": "MANGA"
+     }
+    },
+    {
+     "relationType": "SIDE_STORY",
+     "node": {
+      "id": 142781,
+      "type": "MANGA"
+     }
+    },
+    {
+     "relationType": "ADAPTATION",
+     "node": {
+      "id": 145064,
+      "type": "ANIME"
+     }
+    },
+    {
+     "relationType": "ADAPTATION",
+     "node": {
+      "id": 147463,
+      "type": "ANIME"
+     }
+    },
+    {
+     "relationType": "ADAPTATION",
+     "node": {
+      "id": 172463,
+      "type": "ANIME"
+     }
+    },
+    {
+     "relationType": "ADAPTATION",
+     "node": {
+      "id": 192809,
+      "type": "ANIME"
+     }
+    },
+    {
+     "relationType": "SPIN_OFF",
+     "node": {
+      "id": 198372,
+      "type": "MANGA"
+     }
+    },
+    {
+     "relationType": "ADAPTATION",
+     "node": {
+      "id": 204066,
+      "type": "ANIME"
+     }
+    },
+    {
+     "relationType": "ADAPTATION",
+     "node": {
+      "id": 209895,
+      "type": "ANIME"
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": 105778,
+  "type": "MANGA",
+  "title": {
+   "romaji": "Chainsaw Man",
+   "english": "Chainsaw Man",
+   "native": "チェンソーマン"
+  },
+  "synonyms": [
+   "CSM",
+   "رجل المنشار",
+   "Человек-бензопила",
+   "체인소 맨",
+   "鏈鋸人",
+   "电锯人",
+   "มนุษย์เลื่อยยนต์",
+   "Testere Adam"
+  ],
+  "chapters": 232,
+  "volumes": 24,
+  "format": "MANGA",
+  "status": "FINISHED",
+  "isAdult": false,
+  "genres": [
+   "Action",
+   "Comedy",
+   "Drama",
+   "Horror",
+   "Supernatural"
+  ],
+  "startDate": {
+   "year": 2018,
+   "month": 12,
+   "day": 3
+  },
+  "averageScore": 84,
+  "popularity": 338325,
+  "siteUrl": "https://anilist.co/manga/105778",
+  "description": "The name says it all! Denji's life of poverty is changed forever when he merges with his pet chainsaw dog, Pochita! Now he's living in the big city and an official Devil Hunter. But he's got a lot to learn about his new job and chainsaw powers!<br>\n<br>\n(Source: MANGA Plus)<br>\n<br>\n<i>Notes:<br>\n- Nominated for the 2020 Manga Taisho Award.<br>\n- Winner of the 2021 Kono Manga ga Sugoi Award.<br>\n- Winner of the 66th Shogakukan Manga Award in the shounen category.<br>\n- Winner of the 2021 and 2022 Harvey Award for Best Manga.<br>\n- Chapters 1-97 were released in Weekly Shounen Jump from Dec 3, 2018 to Dec 13, 2020. The series resumed from Ch. 98 in Shounen Jump+ on July 12, 2022</i>",
+  "source": "ORIGINAL",
+  "tags": [
+   {
+    "name": "Tragedy",
+    "rank": 96,
+    "isAdult": false,
+    "isMediaSpoiler": true,
+    "isGeneralSpoiler": true
+   },
+   {
+    "name": "Demons",
+    "rank": 96,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Urban Fantasy",
+    "rank": 92,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Coming of Age",
+    "rank": 90,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Psychosexual",
+    "rank": 90,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Male Protagonist",
+    "rank": 89,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Dissociative Identities",
+    "rank": 89,
+    "isAdult": false,
+    "isMediaSpoiler": true,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Gore",
+    "rank": 88,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Body Horror",
+    "rank": 88,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Cosmic Horror",
+    "rank": 86,
+    "isAdult": false,
+    "isMediaSpoiler": true,
+    "isGeneralSpoiler": false
+   }
+  ],
+  "relations": {
+   "edges": [
+    {
+     "relationType": "ADAPTATION",
+     "node": {
+      "id": 127230,
+      "type": "ANIME"
+     }
+    },
+    {
+     "relationType": "SIDE_STORY",
+     "node": {
+      "id": 138829,
+      "type": "MANGA"
+     }
+    },
+    {
+     "relationType": "ADAPTATION",
+     "node": {
+      "id": 171627,
+      "type": "ANIME"
+     }
+    },
+    {
+     "relationType": "ADAPTATION",
+     "node": {
+      "id": 198726,
+      "type": "ANIME"
+     }
+    },
+    {
+     "relationType": "ADAPTATION",
+     "node": {
+      "id": 204429,
+      "type": "ANIME"
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": 118586,
+  "type": "MANGA",
+  "title": {
+   "romaji": "Sousou no Frieren",
+   "english": "Frieren: Beyond Journey’s End",
+   "native": "葬送のフリーレン"
+  },
+  "synonyms": [
+   "Frieren at the Funeral",
+   "장송의 프리렌",
+   "Frieren: Oltre la Fine del Viaggio",
+   "คำอธิษฐานในวันที่จากลา Frieren",
+   "Frieren e a Jornada para o Além",
+   "Frieren – Nach dem Ende der Reise",
+   "葬送的芙莉蓮",
+   "Frieren After \"The End\"",
+   "Frieren: Remnants of the Departed",
+   "Frieren. U kresu drogi",
+   "Frieren",
+   "FRIEREN: Más allá del fin del viaje",
+   "Проводжальниця Фрірен",
+   "Frieren: Ved reisens ende",
+   "Frieren - Pháp sư tiễn táng"
+  ],
+  "chapters": null,
+  "volumes": null,
+  "format": "MANGA",
+  "status": "RELEASING",
+  "isAdult": false,
+  "genres": [
+   "Adventure",
+   "Drama",
+   "Fantasy"
+  ],
+  "startDate": {
+   "year": 2020,
+   "month": 4,
+   "day": 28
+  },
+  "averageScore": 87,
+  "popularity": 87265,
+  "siteUrl": "https://anilist.co/manga/118586",
+  "description": "The adventure is over but life goes on for an elf mage just beginning to learn what living is all about.\n<br><br>\nElf mage Frieren and her courageous fellow adventurers have defeated the Demon King and brought peace to the land. With the great struggle over, they all go their separate ways to live a quiet life. But as an elf, Frieren, nearly immortal, will long outlive the rest of her former party. How will she come to terms with the mortality of her friends? How can she find fulfillment in her own life, and can she learn to understand what life means to the humans around her? Frieren begins a new journey to find the answer.<br><br>\n(Source: VIZ Media)\n<br><br>\n<i>Notes:<br>\n- Winner of the Grand Prize at the 14th Manga Taisho Awards.<br>\n- Nominated for the 25th Annual Tezuka Osamu Cultural Prize.<br>\n- Placed 3rd at the 7th Annual Next Manga Award.</i>",
+  "source": "ORIGINAL",
+  "tags": [
+   {
+    "name": "Magic",
+    "rank": 96,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Travel",
+    "rank": 95,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Elf",
+    "rank": 94,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Philosophy",
+    "rank": 90,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Female Protagonist",
+    "rank": 87,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Time Skip",
+    "rank": 84,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": true
+   },
+   {
+    "name": "Snowscape",
+    "rank": 79,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Unrequited Love",
+    "rank": 79,
+    "isAdult": false,
+    "isMediaSpoiler": true,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Demons",
+    "rank": 73,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   },
+   {
+    "name": "Iyashikei",
+    "rank": 72,
+    "isAdult": false,
+    "isMediaSpoiler": false,
+    "isGeneralSpoiler": false
+   }
+  ],
+  "relations": {
+   "edges": [
+    {
+     "relationType": "ADAPTATION",
+     "node": {
+      "id": 154587,
+      "type": "ANIME"
+     }
+    },
+    {
+     "relationType": "SIDE_STORY",
+     "node": {
+      "id": 173310,
+      "type": "MANGA"
+     }
+    },
+    {
+     "relationType": "SIDE_STORY",
+     "node": {
+      "id": 179850,
+      "type": "MANGA"
+     }
+    },
+    {
+     "relationType": "ADAPTATION",
+     "node": {
+      "id": 182255,
+      "type": "ANIME"
+     }
+    },
+    {
+     "relationType": "ADAPTATION",
+     "node": {
+      "id": 209939,
+      "type": "ANIME"
+     }
+    }
+   ]
+  }
+ }
+]
