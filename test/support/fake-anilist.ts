@@ -78,6 +78,9 @@ const PER_PAGE = 50;
 /** The signed-in user's AniList ID. */
 const VIEWER_ID = 1;
 
+/** Favorites AniList gives per page, its default and its most (checked live 2026-11-28). */
+const FAVORITES_PER_PAGE = 25;
+
 export interface StoredEntry {
   id: number;
   mediaId: number;
@@ -526,6 +529,9 @@ resolveFields("Media", {
     return m.description ?? null;
   },
   mediaListEntry: (m: MediaValue, _args, ctx) => (ctx.authed ? (ctx.fake.entries.get(m.id) ?? null) : null),
+  // Whose favorite: the signed-in user's, so false without a token.
+  isFavourite: (m: MediaValue, _args, ctx) => ctx.authed && ctx.fake.favorites.includes(m.id),
+  isFavouriteBlocked: (m: MediaValue, _args, ctx) => ctx.fake.favoriteBlocked.has(m.id),
   nextAiringEpisode: (m: MediaValue, _args, ctx) => {
     const next = m.nextAiringEpisode;
     return next ? ctx.fake.schedule(m.id, next.episode, next.airingAt) : null;
@@ -561,6 +567,33 @@ resolveFields("Media", {
         };
       }),
     };
+  },
+});
+
+/** The user's favorites, as `User.favourites` and `ToggleFavourite` return them. */
+const FAVORITES = {};
+
+/** One type of favorite as a MediaConnection, in the user's order. */
+function favoriteConnection(type: string): Resolver {
+  return (_root, args, ctx) => {
+    const all = ctx.fake.favorites.map((id) => everything().find((c) => c.id === id)!).filter((m) => mediaType(m) === type);
+    const page = { page: Math.max(1, args.page ?? 1), perPage: Math.min(FAVORITES_PER_PAGE, Math.max(1, args.perPage ?? FAVORITES_PER_PAGE)) };
+    const nodes = paginate(page, all).map((m) => mediaValue(m, 1));
+    const lastPage = Math.max(1, Math.ceil(all.length / page.perPage));
+    return {
+      nodes,
+      edges: nodes.map((node, i) => ({ node, favouriteOrder: (page.page - 1) * page.perPage + i + 1 })),
+      pageInfo: { total: all.length, perPage: page.perPage, currentPage: page.page, lastPage, hasNextPage: page.page < lastPage },
+    };
+  };
+}
+
+resolveFields("Favourites", { anime: favoriteConnection("ANIME"), manga: favoriteConnection("MANGA") });
+
+resolveFields("User", {
+  favourites: (_user, args, ctx) => {
+    if (args.page != null) ctx.fake.unmodeled.add("User.favourites(page)");
+    return FAVORITES;
   },
 });
 
@@ -612,6 +645,24 @@ resolveFields("Mutation", {
     const { ids, ...changes } = args;
     const targets = [...ctx.fake.entries.values()].filter((e) => (ids ?? []).includes(e.id));
     return targets.map((e) => ctx.fake.save({ ...changes, mediaId: e.mediaId }));
+  },
+  ToggleFavourite: (_root, args, ctx) => {
+    requireAuth(ctx);
+    for (const name of ["characterId", "staffId", "studioId"]) {
+      if (args[name] != null) {
+        ctx.fake.unmodeled.add(`ToggleFavourite(${name})`);
+        throw new FakeError(`The fake AniList doesn't support ToggleFavourite(${name}).`, 400);
+      }
+    }
+    const [field, type] = args.animeId != null ? ["animeId", "ANIME"] : ["mangaId", "MANGA"];
+    const id = args[field];
+    const m = id == null ? undefined : everything().find((c) => c.id === id && mediaType(c) === type);
+    if (!m) throw new FakeError("validation", 400, { [field]: [`The selected ${field.replace("Id", " id")} is invalid.`] });
+    if (ctx.fake.favoriteBlocked.has(m.id)) throw new FakeError("This media can't be favourited.", 400);
+    const at = ctx.fake.favorites.indexOf(m.id);
+    if (at >= 0) ctx.fake.favorites.splice(at, 1);
+    else ctx.fake.favorites.push(m.id);
+    return FAVORITES;
   },
   DeleteMediaListEntry: (_root, args, ctx) => {
     requireAuth(ctx);
@@ -680,6 +731,10 @@ function prepare(query: string): DocumentNode | readonly GraphQLError[] {
 
 export class FakeAniList {
   entries = new Map<number, StoredEntry>();
+  /** The user's favorite anime and manga by media ID, in their profile order (new ones go last). */
+  favorites: number[] = [];
+  /** Shows AniList doesn't let be a favorite. */
+  favoriteBlocked = new Set<number>();
   nextEntryId = 1000;
   calls: { query: string; variables: Record<string, any> }[] = [];
   rateLimited = false;
@@ -899,8 +954,18 @@ export class FakeAniList {
     return this.calls.filter((c) => /^\s*mutation/.test(c.query));
   }
 
+  /** Makes these shows (exact romaji titles, as in `seed`, or IDs) the user's favorites, in this order. */
+  seedFavorites(shows: (string | number)[]): this {
+    for (const s of shows) {
+      const id = findMedia(s).id;
+      if (!this.favorites.includes(id)) this.favorites.push(id);
+    }
+    return this;
+  }
+
   exportState() {
     return {
+      favorites: [...this.favorites],
       entries: [...this.entries.values()],
       nextEntryId: this.nextEntryId,
       activities: this.activities,
@@ -909,11 +974,13 @@ export class FakeAniList {
   }
 
   importState(state: {
+    favorites?: number[];
     entries: StoredEntry[];
     nextEntryId: number;
     activities?: StoredActivity[];
     nextActivityId?: number;
   }) {
+    this.favorites = [...(state.favorites ?? [])];
     this.entries = new Map(state.entries.map((e) => [e.mediaId, e]));
     this.nextEntryId = state.nextEntryId;
     this.activities = state.activities ?? [];

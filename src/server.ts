@@ -7,6 +7,7 @@ import {
   AIRING_PAGES,
   AniListClient,
   CALL_WAIT_MS,
+  FAVORITES_PAGE,
   LIST_STATUSES,
   SEASONS,
   searchBatch,
@@ -116,6 +117,7 @@ export const WRITE_TOOLS = [
   "add_to_list",
   "set_status",
   "rate_anime",
+  "set_favorite",
   "mark_episodes_watched",
   "set_progress",
   "remove_from_list",
@@ -131,6 +133,8 @@ export const INSTRUCTIONS = `AniConnect manages the user's AniList anime list.
 The tools that change the list (${WRITE_TOOLS.join(", ")}) take the show as the user named it ("jjk", "spy x family season 2") and pick the right entry and season from the user's list themselves, so don't search first. If a name is ambiguous, nothing changes and the candidates come back: ask the user which one they mean, then call again with its ID.
 
 For several shows in one request, or several changes to one show ("finished Frieren, 9/10"), make one update_shows call instead of one call per change.
+
+The user's AniList favorites (the shows on their profile, kept apart from the list) change with set_favorite, alongside any other change in the same request ("finished Frieren, 10/10, it's a new favorite" is update_shows and set_favorite), and are read with search_my_list and favorites: true.
 
 To take back a change (the user says "undo that" or that you got it wrong), call undo rather than writing the old values back: it restores the entry exactly, dates and all.
 
@@ -586,6 +590,9 @@ const UTC_READ_NOTE =
 /** How many recently finished shows to check for sequels (one AniList request). */
 const SEQUEL_CHECK_LIMIT = 50;
 
+/** Most pages of favorites search_my_list reads (FAVORITES_PAGE each, a request each). */
+const FAVORITE_PAGES = 8;
+
 /** How long the user has to answer a form before the tool goes on without them. */
 const ASK_TIMEOUT_MS = 10 * 60_000;
 
@@ -673,6 +680,44 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
     if (extra.length) {
       throw new Error(`${mode} takes only ${allowed.slice(1).map((k) => `\`${k}\``).join(", ")}; call again without ${extra.map((k) => `\`${k}\``).join(", ")}.`);
     }
+  };
+
+  /** search_my_list's `favorites`: the user's AniList favorites of one type, in the order they set. */
+  const listFavorites = async (type: MediaType, limit: number, offset: number) => {
+    const max = FAVORITE_PAGES * FAVORITES_PAGE;
+    if (offset >= max) throw new Error(`AniConnect reads the first ${max} favorites; pass an offset below ${max}.`);
+    const viewer = await client.getViewer();
+    const pages = Math.min(FAVORITE_PAGES, Math.ceil((offset + limit) / FAVORITES_PAGE));
+    const { media, total } = await client.getFavorites(type, pages);
+    const noun = type === "MANGA" ? "manga" : "anime";
+    if (total === 0) return text(`${viewer.name} has no favorite ${noun} on AniList.`);
+    const head = `${total} favorite ${noun} on ${viewer.name}'s AniList profile, in their order`;
+    const shown = media.slice(offset, offset + limit);
+    if (shown.length === 0) return text(`${head}; offset ${offset} is past the end, so use one below ${total}.`);
+    const end = offset + shown.length;
+    // Past the first `max`, an offset can't reach them.
+    const reachable = Math.min(total, max);
+    const more = end < reachable ? `; offset ${end} for more` : "";
+    const page = offset > 0 || end < total ? ` (showing ${offset + 1}-${end}${more})` : "";
+    const cut = total > max && end === reachable ? `\nAniConnect reads only the first ${max}.` : "";
+    const lines = shown.map((m, i) => `${offset + i + 1}. ${describeEntry(m, m.mediaListEntry, viewer)}`);
+    return text(`${head}${page}:\n${lines.join("\n")}${cut}`);
+  };
+
+  /**
+   * For taking a show out of the favorites: the one favorite a plain name matches ("mob psycho"
+   * with only season 1 a favorite), else undefined, to resolve the name as usual. Not for an ID,
+   * a link, or a name with a season or part in it, which say which show by themselves.
+   */
+  const amongFavorites = async (input: string | number, type: MediaType, language: TitleLanguage): Promise<Found | undefined> => {
+    if (typeof input !== "string" || ANILIST_LINK.test(input.trim()) || /^\d+$/.test(input.trim())) return undefined;
+    const q = parseQuery(input);
+    const { hint } = q;
+    if (hint.season !== undefined || hint.part !== undefined || hint.latest || hint.next || hint.movie) return undefined;
+    const { media } = await client.getFavorites(type, FAVORITE_PAGES);
+    const matches = media.filter((m) => matchScore(m, q) >= 2);
+    if (matches.length !== 1) return undefined;
+    return { media: matches[0]!, note: `Matched "${input}" to ${displayTitle(matches[0]!.title, language)}, one of your favorites.\n` };
   };
 
   /** search_anime's `airing`: AniList's schedule for whole days in the user's zone (R4.6). */
@@ -919,7 +964,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
     {
       title: "Search my list",
       description:
-        "Answer questions about the user's own AniList anime list as it is now (what they're watching, whether something is on it, their private notes on a show), or with type \"manga\", their manga list (what they're reading); for when things happened, use watch_history. Filter by title words, list status, score, format (movies: MOVIE) or release year; leave query empty to list everything in a status. Sort plan-to-watch by AniList score or length to pick from it.",
+        "Answer questions about the user's own AniList anime list as it is now (what they're watching, whether something is on it, their private notes on a show), or with type \"manga\", their manga list (what they're reading); for when things happened, use watch_history. Filter by title words, list status, score, format (movies: MOVIE) or release year; leave query empty to list everything in a status. Sort plan-to-watch by AniList score or length to pick from it. With favorites: true, the user's AniList favorites instead (\"what are my favorite anime?\"), in their own order.",
       inputSchema: {
         type: z.enum(["anime", "manga"]).optional().describe('"manga" for the user\'s manga list; default anime'),
         query: z.string().optional().describe("Words that must all appear in the title"),
@@ -934,13 +979,21 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
           .enum(["title", "score", "finished", "started", "progress", "anilistScore", "length"])
           .optional()
           .describe("score: highest first; finished, started: latest first; progress: most episodes (chapters) first; anilistScore: best on AniList first; length: shortest first"),
+        favorites: z
+          .boolean()
+          .optional()
+          .describe("The user's AniList favorites instead (the shows on their profile, on the list or not), in their order; takes only type, limit and offset"),
         limit: z.number().int().min(1).max(200).default(50),
         offset: z.number().int().min(0).default(0),
       },
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
-    safe(async ({ type, query, status, unrated, minScore, maxScore, formats, yearFrom, yearTo, sort = "title", limit, offset }) => {
+    safe(async ({ type, query, status, unrated, minScore, maxScore, formats, yearFrom, yearTo, sort, favorites, limit, offset }) => {
       const kind: MediaType = type === "manga" ? "MANGA" : "ANIME";
+      if (favorites) {
+        onlyWith({ favorites, type, query, status, unrated, minScore, maxScore, formats, yearFrom, yearTo, sort }, ["favorites", "type"], "`favorites`");
+        return listFavorites(kind, limit, offset);
+      }
       const manga = kind === "MANGA";
       const label = (s: ListStatus) => statusLabel(s, { type: kind });
       if (unrated && (minScore !== undefined || maxScore !== undefined)) {
@@ -1018,7 +1071,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
                 e.media.episodes && e.media.duration ? watchTime(e.media.episodes, e.media.duration) : ", length unknown",
             },
       };
-      const order = orders[sort];
+      const order = orders[sort ?? "title"];
       // Two unknown lengths subtract to NaN, which falls through to the title like a tie.
       entries.sort(
         (a, b) => order.key(b) - order.key(a) || title(a).localeCompare(title(b)) || a.media.id - b.media.id,
@@ -1319,6 +1372,49 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
             ? `${note}Rated ${title}: ${rated}`
             : `${note}Added ${title} to your list as ${statusLabel(saved.status, saved.media)} and rated it ${rated}.`,
         );
+      });
+    }),
+  );
+
+  server.registerTool(
+    "set_favorite",
+    {
+      title: "Set favorite",
+      description:
+        "Add an anime (or a manga, with type) to the user's AniList favorites, the shows on their profile, or with favorite: false take it out. Favorites are apart from the list: this doesn't add the show to the list or change its entry." +
+        BY_NAME,
+      inputSchema: {
+        anime,
+        type: mediaType,
+        favorite: z.boolean().default(true).describe("false to take the show out of the favorites"),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    },
+    safe(async ({ anime, type, favorite }) => {
+      const readAt = user.saves;
+      const named = namedType(type);
+      const viewer = await client.getViewer();
+      // Named like a rating (the season the user watched, else AniList's best match); taken out,
+      // first as the one favorite the name matches, since only a favorite can be taken out.
+      const resolved =
+        (!favorite && (await amongFavorites(anime, named ?? "ANIME", viewer.titleLanguage))) ||
+        (await find(anime, "rate", { type: named }));
+      const { media, note } = resolved;
+      const kind = typeOf(media);
+      const title = displayTitle(media.title, viewer.titleLanguage);
+      const noun = kind === "MANGA" ? "manga" : "anime";
+      // On the show's turn, so two calls about it can't both toggle from the same state.
+      return inTurn(media.id, readAt, async () => {
+        // AniList only toggles a favorite, so read whether it is one now, not from the list.
+        const state = (await client.favoriteStates([media.id])).get(media.id);
+        if (!state) throw new Error(`Nothing was changed. AniList didn't return ${title} [${media.id}].`);
+        if (state.isFavorite === favorite) {
+          return text(`${note}${title} is ${favorite ? "already" : "not"} one of your favorite ${noun}, so nothing changed.`);
+        }
+        if (favorite && state.blocked) throw new Error(`Nothing was changed. AniList doesn't let ${title} be a favorite.`);
+        await client.toggleFavorite(media.id, kind);
+        journal.record("set_favorite", [{ mediaId: media.id, type: kind, title: media.title, favorite: { before: state.isFavorite, after: favorite } }]);
+        return text(`${note}${favorite ? `Added ${title} to` : `Took ${title} out of`} your favorite ${noun} on AniList.`);
       });
     }),
   );
@@ -1860,7 +1956,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
     {
       title: "Undo",
       description:
-        "Undo the latest change(s) AniConnect made to the user's list since it started, newest first, restoring each show exactly as it was: a removed show comes back with its progress, score, dates and notes, and a newly added one is removed again. Shows changed since on anilist.co are left alone. AniList's activity feed keeps its posts about the undone change.",
+        "Undo the latest change(s) AniConnect made to the user's list since it started, newest first, restoring each show exactly as it was: a removed show comes back with its progress, score, dates and notes, a newly added one is removed again, and a favorite added or taken out goes back. Shows changed since on anilist.co are left alone. AniList's activity feed keeps its posts about the undone change.",
       inputSchema: {
         count: z
           .number()
@@ -1884,7 +1980,7 @@ export function createServer(client: AniListClient, options: ServerOptions = {})
     if (journal.size === 0) return text("Nothing to undo: AniConnect hasn't changed the list since it started.");
     const viewer = await client.getViewer();
     const groups = journal.take(count);
-    const body = await undoGroups(client, journal, groups, viewer);
+    const body = await undoGroups(client, journal, groups, viewer, (id, fn) => inTurn(id, user.saves, () => fn()));
     const what =
       groups.length === 1 ? `the last change (${groups[0]!.tool})` : `the last ${groups.length} changes (${groups.map((g) => g.tool).join(", ")})`;
     const short = groups.length < count ? ` Only ${groups.length} could be undone; that's every change since AniConnect started.` : "";

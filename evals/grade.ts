@@ -22,13 +22,21 @@ function customLists(e: StoredEntry): string {
   return JSON.stringify([...(e.customLists ?? [])].sort());
 }
 
-export type Changes = Map<number, { before?: StoredEntry; after?: StoredEntry }>;
+/**
+ * One show's change. `entry`: its list entry changed (`before` and `after` are the entry, or
+ * absent when it wasn't on the list). `favorite`: it was made a favorite (true) or taken out (false).
+ */
+export type ShowChange = { before?: StoredEntry; after?: StoredEntry; entry: boolean; favorite?: boolean };
+export type Changes = Map<number, ShowChange>;
 
-/** What changed between two list states, keyed by AniList media ID: any field the user can edit. */
-export function diff(before: StoredEntry[], after: StoredEntry[]) {
+/**
+ * What changed between two states, keyed by AniList media ID: any field of a list entry the user
+ * can edit, and with `favorites` (the media IDs before and after), the user's favorites.
+ */
+export function diff(before: StoredEntry[], after: StoredEntry[], favorites?: { before: number[]; after: number[] }): Changes {
   const b = new Map(before.map((e) => [e.mediaId, e]));
   const a = new Map(after.map((e) => [e.mediaId, e]));
-  const changed = new Map<number, { before?: StoredEntry; after?: StoredEntry }>();
+  const changed: Changes = new Map();
   for (const id of new Set([...b.keys(), ...a.keys()])) {
     const x = b.get(id);
     const y = a.get(id);
@@ -47,15 +55,35 @@ export function diff(before: StoredEntry[], after: StoredEntry[]) {
       (x.hiddenFromStatusLists ?? false) !== (y.hiddenFromStatusLists ?? false) ||
       customLists(x) !== customLists(y)
     ) {
-      changed.set(id, { before: x, after: y });
+      changed.set(id, { before: x, after: y, entry: true });
+    }
+  }
+  if (favorites) {
+    const was = new Set(favorites.before);
+    const is = new Set(favorites.after);
+    for (const id of new Set([...was, ...is])) {
+      if (was.has(id) === is.has(id)) continue;
+      const show = changed.get(id) ?? { before: b.get(id), after: a.get(id), entry: false };
+      changed.set(id, { ...show, favorite: is.has(id) });
     }
   }
   return changed;
 }
 
-function checkChange(want: Change, got: { before?: StoredEntry; after?: StoredEntry } | undefined): string | null {
+/** Whether a wanted change asks for anything about the list entry, not just the favorite. */
+function wantsEntry(want: Change): boolean {
+  return Object.entries(want).some(([k, v]) => k !== "anime" && k !== "favorite" && v !== undefined);
+}
+
+function checkChange(want: Change, got: ShowChange | undefined): string | null {
   const title = typeof want.anime === "number" ? want.anime : `"${want.anime}"`;
   if (!got) return `${title} was not changed`;
+  if (got.favorite !== want.favorite) {
+    if (want.favorite === undefined) return `${title} ${got.favorite ? "was made a favorite" : "was taken out of the favorites"} too`;
+    return `${title} ${want.favorite ? "was not made a favorite" : "is still a favorite"}`;
+  }
+  if (!wantsEntry(want)) return got.entry ? `${title}'s list entry changed too` : null;
+  if (!got.entry) return `${title}'s list entry was not changed`;
   if (want.removed) return got.after ? `${title} was not removed` : null;
   if (!got.after) return `${title} was removed`;
   if (want.added && got.before) return `${title} was already on the list`;

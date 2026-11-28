@@ -254,6 +254,16 @@ export class AniListError extends Error {
 
 export type ListItem = ListEntry & { media: Media };
 
+/** A show's place among the user's AniList favorites (AniList's `isFavourite`, `isFavouriteBlocked`). */
+export interface FavoriteState {
+  isFavorite: boolean;
+  /** AniList doesn't let this show be a favorite. */
+  blocked: boolean;
+}
+
+/** Favorites AniList returns per page, however many are asked for (checked live 2026-11-28). */
+export const FAVORITES_PAGE = 25;
+
 /**
  * How long the user's list is reused before it is fetched again (requirement R5.4).
  * Our own writes patch it, so this only bounds how long changes made elsewhere
@@ -1226,6 +1236,68 @@ export class AniListClient {
     return this.patchList(input.mediaId, save, (entries, saved, type) => {
       if (typeOf(saved.media) === type) entries.set(saved.media.id, saved);
     });
+  }
+
+  /**
+   * Whether each show is among the user's AniList favorites (the ones on their profile, apart
+   * from the list), and whether AniList lets it be one. Read fresh every time: AniList only
+   * toggles a favorite, so a change must start from the state as it is now. Shows AniList
+   * doesn't know are left out.
+   */
+  async favoriteStates(ids: number[]): Promise<Map<number, FavoriteState>> {
+    const states = new Map<number, FavoriteState>();
+    for (let i = 0; i < ids.length; i += 50) {
+      const data = await this.request<{ Page: { media: { id: number; isFavourite: boolean; isFavouriteBlocked: boolean }[] } }>(
+        `query ($ids: [Int]) { Page(perPage: 50) { media(id_in: $ids) { id isFavourite isFavouriteBlocked } } }`,
+        { ids: ids.slice(i, i + 50) },
+      );
+      for (const m of data.Page.media) states.set(m.id, { isFavorite: m.isFavourite, blocked: m.isFavouriteBlocked });
+    }
+    return states;
+  }
+
+  /**
+   * Adds the show to the user's favorites, or takes it out if it's there: AniList's only way
+   * to change one. Like every write, never retried, so a toggle can't be sent twice.
+   */
+  async toggleFavorite(mediaId: number, type: MediaType): Promise<void> {
+    await this.request(
+      `mutation ($id: Int) { ToggleFavourite(${type === "MANGA" ? "mangaId" : "animeId"}: $id) { __typename } }`,
+      { id: mediaId },
+    );
+  }
+
+  /**
+   * The user's favorite anime (or manga), in the order they set on their profile, a page of
+   * FAVORITES_PAGE at a time (AniList's most), up to `pages` pages: one request each.
+   */
+  async getFavorites(type: MediaType = "ANIME", pages = 1): Promise<{ media: Media[]; hasNextPage: boolean; total: number }> {
+    const field = type === "MANGA" ? "manga" : "anime";
+    const media: Media[] = [];
+    let hasNextPage = false;
+    let total = 0;
+    for (let page = 1; page <= pages; page++) {
+      const data = await this.request<{
+        Viewer: { favourites: Record<string, { pageInfo: { hasNextPage: boolean; total: number }; nodes: Media[] }> };
+      }>(
+        `query ($page: Int) {
+          Viewer {
+            favourites {
+              ${field}(page: $page, perPage: ${FAVORITES_PAGE}) {
+                pageInfo { hasNextPage total }
+                nodes { ${MEDIA_FIELDS} mediaListEntry { ${ENTRY_FIELDS} } }
+              }
+            }
+          }
+        }`,
+        { page },
+      );
+      const found = data.Viewer.favourites[field]!;
+      media.push(...found.nodes);
+      ({ hasNextPage, total } = found.pageInfo);
+      if (!hasNextPage) break;
+    }
+    return { media, hasNextPage, total };
   }
 
   async deleteEntry(entryId: number): Promise<boolean> {

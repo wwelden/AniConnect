@@ -66,7 +66,7 @@ interface RunResult {
 async function runCase(c: EvalCase): Promise<RunResult> {
   const dir = await mkdtemp(join(tmpdir(), "aniconnect-eval-"));
   const fake = personaFake();
-  const initial = structuredClone(fake.exportState().entries);
+  const initial = structuredClone(fake.exportState());
   const anilist = serveFake(fake);
   try {
     const mcpPath = join(dir, "mcp.json");
@@ -141,7 +141,9 @@ async function runCase(c: EvalCase): Promise<RunResult> {
       return { ...base, passed: false, detail: `claude exited ${proc.exitCode}: ${err.trim().slice(0, 300)}` };
     }
 
-    const problem = gradeCase(c, diff(initial, fake.exportState().entries), reply, toolCalls, { anyTool: !ownServer });
+    const final = fake.exportState();
+    const changed = diff(initial.entries, final.entries, { before: initial.favorites, after: final.favorites });
+    const problem = gradeCase(c, changed, reply, toolCalls, { anyTool: !ownServer });
     return { ...base, passed: problem === null, detail: problem ?? "" };
   } finally {
     anilist.stop();
