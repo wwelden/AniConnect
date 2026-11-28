@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { CASES, type Change } from "../evals/cases";
 import { serveFake } from "../evals/fake-http";
 import { diff, gradeCase, mentions } from "../evals/grade";
-import { MANGA_PERSONA, PERSONA } from "./fixtures/persona";
+import { MANGA_PERSONA, PERSONA, PERSONA_FAVORITES } from "./fixtures/persona";
 import { FakeAniList, findMedia } from "./support/fake-anilist";
 
 function date(text: string) {
@@ -13,10 +13,16 @@ function date(text: string) {
 }
 
 function applyChanges(changes: Change[]) {
-  const fake = new FakeAniList().seed([...PERSONA, ...MANGA_PERSONA]);
-  const before = fake.exportState().entries.map((e) => ({ ...e }));
+  const fake = new FakeAniList().seed([...PERSONA, ...MANGA_PERSONA]).seedFavorites(PERSONA_FAVORITES);
+  const before = structuredClone(fake.exportState());
   for (const c of changes) {
     const m = findMedia(c.anime);
+    if (c.favorite !== undefined) {
+      fake.favorites = fake.favorites.filter((id) => id !== m.id);
+      if (c.favorite) fake.favorites.push(m.id);
+    }
+    // A change of the favorite alone leaves the list entry as it is.
+    if (Object.keys(c).every((k) => k === "anime" || k === "favorite")) continue;
     if (c.removed) {
       fake.entries.delete(m.id);
       continue;
@@ -36,7 +42,8 @@ function applyChanges(changes: Change[]) {
       ...(c.noteHas && { notes: c.noteHas.join(" ") }),
     });
   }
-  return diff(before, fake.exportState().entries);
+  const after = fake.exportState();
+  return diff(before.entries, after.entries, { before: before.favorites, after: after.favorites });
 }
 
 describe("eval cases", () => {
@@ -75,6 +82,22 @@ describe("eval cases", () => {
     expect(mentions("Here's an explanation", "plan")).toBe(false);
   });
 
+  test("a favorite case fails when the favorite changes but the entry was wanted too, and the other way", () => {
+    const c = CASES.find((x) => x.id === "favorite-with-finish")!;
+    expect(gradeCase(c, applyChanges([{ anime: "Dandadan", favorite: true }]), "Done.")).toBe('"Dandadan"\'s list entry was not changed');
+    expect(gradeCase(c, applyChanges([{ anime: "Dandadan", status: "COMPLETED", score: 9 }]), "Done.")).toBe('"Dandadan" was not made a favorite');
+    const add = CASES.find((x) => x.id === "favorite-add")!;
+    expect(gradeCase(add, applyChanges([{ anime: "Sousou no Frieren", favorite: true, score: 10 }]), "Done.")).toBe(
+      '"Sousou no Frieren"\'s list entry changed too',
+    );
+  });
+
+  test("a favorite nobody asked for fails a list change", () => {
+    const c = CASES.find((x) => x.id === "rate-simple")!;
+    const changed = applyChanges([{ anime: "Bocchi the Rock!", score: 9, favorite: true }]);
+    expect(gradeCase(c, changed, "Done.")).toBe('"Bocchi the Rock!" was made a favorite too');
+  });
+
   test("an unexpected extra change fails", () => {
     const c = CASES.find((x) => x.id === "rate-simple")!;
     const changed = applyChanges([
@@ -104,6 +127,15 @@ describe("a read-only request (#65)", () => {
       expect(gradeCase(c, diff(before, fake.exportState().entries), reply)).toBe("changed 1 entries on a read-only request");
     });
   }
+
+  test("fails when it changes only a favorite", () => {
+    const fake = new FakeAniList().seed(PERSONA);
+    const before = fake.exportState();
+    fake.seedFavorites(["Dandadan"]);
+    const after = fake.exportState();
+    const changed = diff(before.entries, after.entries, { before: before.favorites, after: after.favorites });
+    expect(gradeCase(c, changed, reply)).toBe("changed 1 entries on a read-only request");
+  });
 
   test("an unset field and its default are the same", () => {
     const fake = new FakeAniList().seed(PERSONA);

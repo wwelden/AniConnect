@@ -1,4 +1,4 @@
-import type { AniListClient, FuzzyDate, ListEntry, ListStatus, MediaTitle, Viewer } from "./anilist";
+import type { AniListClient, FuzzyDate, ListEntry, ListStatus, MediaTitle, MediaType, Viewer } from "./anilist";
 import { describeEntry, displayTitle } from "./logic";
 
 /** Everything AniConnect can change on an entry, so undoing a change restores it exactly (R3.1). */
@@ -27,10 +27,25 @@ export interface EntryChange {
   after: Snapshot | null;
 }
 
+/** A show added to or taken out of the user's AniList favorites, which are kept apart from the list. */
+export interface FavoriteChange {
+  mediaId: number;
+  /** Which favorites it's among: AniList toggles anime and manga favorites apart. */
+  type: MediaType;
+  title: MediaTitle;
+  favorite: { before: boolean; after: boolean };
+}
+
+export type Change = EntryChange | FavoriteChange;
+
+function isFavoriteChange(c: Change): c is FavoriteChange {
+  return "favorite" in c;
+}
+
 /** The changes one tool call made, undone together. */
 export interface ChangeGroup {
   tool: string;
-  changes: EntryChange[];
+  changes: Change[];
 }
 
 export function snapshot(entry: Partial<ListEntry> | null | undefined): Snapshot | null {
@@ -68,8 +83,8 @@ export const JOURNAL_LIMIT = 50;
 export class Journal {
   private groups: ChangeGroup[] = [];
 
-  record(tool: string, changes: EntryChange[]): void {
-    const real = changes.filter((c) => !same(c.before, c.after));
+  record(tool: string, changes: Change[]): void {
+    const real = changes.filter((c) => (isFavoriteChange(c) ? c.favorite.before !== c.favorite.after : !same(c.before, c.after)));
     if (real.length === 0) return;
     this.groups.push({ tool, changes: real });
     if (this.groups.length > JOURNAL_LIMIT) this.groups.shift();
@@ -90,6 +105,9 @@ export class Journal {
   }
 }
 
+/** Runs a write on its show's turn, after the other writes to that show (see `inTurn` in server.ts). */
+export type OnTurn = <T>(mediaId: number, fn: () => Promise<T>) => Promise<T>;
+
 /**
  * Puts each show back the way it was before the changes, newest first. A show changed
  * since (on anilist.co, or by another app) is left alone, so undo never overwrites
@@ -101,11 +119,12 @@ export async function undoGroups(
   journal: Journal,
   groups: ChangeGroup[],
   viewer: Viewer,
+  onTurn: OnTurn = (_id, fn) => fn(),
 ): Promise<string> {
   const lines: string[] = [];
   let pending = groups.map((g) => ({ ...g, changes: [...g.changes] }));
   try {
-    const ids = [...new Set(groups.flatMap((g) => g.changes.map((c) => c.mediaId)))];
+    const ids = [...new Set(groups.flatMap((g) => g.changes).filter((c) => !isFavoriteChange(c)).map((c) => c.mediaId))];
     // The current state of every show involved: one request per 50, AniList's page size.
     const current = new Map<number, ListEntry | null>();
     for (let i = 0; i < ids.length; i += 50) {
@@ -119,7 +138,11 @@ export async function undoGroups(
         pending = pending.slice(1);
         continue;
       }
-      lines.push(await undoOne(client, change, current, viewer));
+      lines.push(
+        isFavoriteChange(change)
+          ? await undoFavorite(client, change, viewer, onTurn)
+          : await undoOne(client, change, current, viewer),
+      );
       group.changes.pop();
     }
   } catch (err) {
@@ -128,6 +151,23 @@ export async function undoGroups(
     throw new Error(`${done}${(err as Error).message} The rest can still be undone: call undo again.`);
   }
   return lines.join("\n");
+}
+
+/**
+ * Toggles a favorite back, unless it has been changed since (on anilist.co, or by another app).
+ * On the show's turn, reading the state then: AniList only toggles, so a set_favorite reading
+ * it at the same time would toggle it a second time.
+ */
+function undoFavorite(client: AniListClient, change: FavoriteChange, viewer: Viewer, onTurn: OnTurn): Promise<string> {
+  const title = displayTitle(change.title, viewer.titleLanguage);
+  return onTurn(change.mediaId, async () => {
+    const now = (await client.favoriteStates([change.mediaId])).get(change.mediaId)?.isFavorite;
+    if (now !== change.favorite.after) {
+      return `${title}: not undone, its favorite has changed since (on anilist.co or in another app).`;
+    }
+    await client.toggleFavorite(change.mediaId, change.type);
+    return `${title}: ${change.favorite.before ? "back among" : "taken out of"} your favorites.`;
+  });
 }
 
 async function undoOne(

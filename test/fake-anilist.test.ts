@@ -142,8 +142,8 @@ describe("fake AniList", () => {
     expect(r.body.data.Media).toEqual({ id: DANDADAN, trailer: null, characters: { nodes: [] }, rankings: [] });
     expect([...fake.unmodeled]).toEqual(["Media.trailer", "Media.characters", "CharacterConnection.nodes", "Media.rankings"]);
 
-    const fav = await gql(fake, `mutation { ToggleFavourite(animeId: ${DANDADAN}) { anime { nodes { id } } } }`);
-    expect(fav.status).toBe(400);
-    expect(fav.body.errors[0].message).toBe("The fake AniList doesn't support ToggleFavourite.");
+    const follow = await gql(fake, `mutation { ToggleFollow(userId: 2) { id } }`);
+    expect(follow.status).toBe(400);
+    expect(follow.body.errors[0].message).toBe("The fake AniList doesn't support ToggleFollow.");
   });
 });

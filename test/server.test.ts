@@ -123,6 +123,7 @@ describe("tools", () => {
       "remove_from_list",
       "search_anime",
       "search_my_list",
+      "set_favorite",
       "set_progress",
       "set_status",
       "undo",

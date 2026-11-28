@@ -23,6 +23,8 @@ export interface Change {
   completedAt?: string;
   /** Words the entry's private note must contain, ignoring case. */
   noteHas?: string[];
+  /** Made one of the user's AniList favorites (true) or taken out of them (false). */
+  favorite?: boolean;
 }
 
 export type Outcome =
@@ -249,4 +251,18 @@ export const CASES: EvalCase[] = [
     expect: { changes: [{ anime: "Berserk", added: true, status: "PLANNING" }] } },
   { id: "manga-list", prompt: "what manga am I reading right now?", idealCalls: 1,
     expect: { readOnly: true, tools: ["search_my_list"], mentions: ["Frieren", "One Piece"] } },
+
+  // AniList favorites, kept apart from the list. The persona's are Attack on Titan and Mob Psycho 100
+  // (season 1 of each); a favorite changes no list entry unless the request also asks for one.
+  { id: "favorite-add", prompt: "add Frieren to my favorites", idealCalls: 1,
+    expect: { changes: [{ anime: "Sousou no Frieren", favorite: true }] } },
+  // Seasons 1 and II are both completed, but only season 1 is a favorite.
+  { id: "favorite-remove", prompt: "take Mob Psycho out of my favorites", idealCalls: 1,
+    expect: { changes: [{ anime: "Mob Psycho 100", favorite: false }] } },
+  { id: "favorite-with-finish", prompt: "Just finished Dandadan, 9/10, and it's going in my favorites", idealCalls: 2,
+    expect: { changes: [{ anime: "Dandadan", status: "COMPLETED", score: 9, favorite: true }] } },
+  { id: "favorite-manga", prompt: "favorite the Vagabond manga", idealCalls: 1,
+    expect: { changes: [{ anime: "Vagabond", favorite: true }] } },
+  { id: "favorite-list", prompt: "what are my favorite anime?", idealCalls: 1,
+    expect: { readOnly: true, tools: ["search_my_list"], mentions: ["Attack on Titan", "Mob Psycho"] } },
 ];

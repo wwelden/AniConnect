@@ -46,6 +46,9 @@ export const MANGA_PERSONA: SeedEntry[] = [
   { anime: "Oyasumi Punpun", status: "PLANNING" },
 ];
 
+/** The persona's AniList favorites, in their profile order: season 1 of each (exact romaji titles). */
+export const PERSONA_FAVORITES = ["Shingeki no Kyojin", "Mob Psycho 100"];
+
 /**
  * The persona's activity feed, consistent with the list above. Evals run on Tuesday
  * 2026-11-17 at 12:00 UTC, so "this week" started on Monday the 16th.
